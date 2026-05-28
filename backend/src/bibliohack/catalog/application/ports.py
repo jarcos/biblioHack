@@ -116,9 +116,12 @@ class TaskState(StrEnum):
 
         discovered → fetched → parsed
                         │
-                        ├─→ not_found     (404 / no-result page)
-                        ├─→ failed        (5xx-then-retry-exhausted)
-                        └─→ tombstoned    (manually retired)
+                        ├─→ not_found        (404 / no-result page)
+                        ├─→ failed           (5xx-then-retry-exhausted)
+                        ├─→ skipped_non_book (record exists but is a magazine /
+                        │                     audiobook / CD / etc — see media
+                        │                     filter)
+                        └─→ tombstoned       (manually retired)
     """
 
     DISCOVERED = "discovered"
@@ -126,6 +129,7 @@ class TaskState(StrEnum):
     PARSED = "parsed"
     NOT_FOUND = "not_found"
     FAILED = "failed"
+    SKIPPED_NON_BOOK = "skipped_non_book"
     TOMBSTONED = "tombstoned"
 
 
@@ -203,6 +207,10 @@ class ScrapeTaskRepository(Protocol):
 
     async def mark_failed(self, titn: Titn, *, error: str, next_retry_at: datetime | None) -> None:
         """Transition `titn` to `failed` with backoff scheduling info."""
+        ...
+
+    async def mark_skipped_non_book(self, titn: Titn) -> None:
+        """Transition `titn` to `skipped_non_book` (parsed but filter rejected it)."""
         ...
 
     async def get(self, titn: Titn) -> ScrapeTask | None:

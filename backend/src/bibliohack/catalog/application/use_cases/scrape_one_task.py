@@ -30,6 +30,10 @@ from bibliohack.catalog.application.ports import (
     OpacUnavailableError,
     ScrapeTask,
 )
+from bibliohack.catalog.domain.media_filter import (
+    MediaTypeFilter,
+    MediaTypeFilterPreset,
+)
 from bibliohack.catalog.infrastructure.absysnet.parser import (
     ParseError,
     parse_record_html,
@@ -52,6 +56,7 @@ class ScrapeStepOutcome(StrEnum):
     NOT_FOUND = "not_found"
     PERMANENT_ERROR = "permanent_error"
     TRANSIENT_ERROR = "transient_error"
+    SKIPPED_NON_BOOK = "skipped_non_book"
     NO_WORK = "no_work"  # claim returned an empty batch
 
 
@@ -80,10 +85,13 @@ class ScrapeOneTask:
         task_repository: ScrapeTaskRepository,
         ingest_repository: CatalogIngestRepository,
         gateway: OpacGateway,
+        media_filter: MediaTypeFilter | None = None,
     ) -> None:
         self._tasks = task_repository
         self._ingest = ingest_repository
         self._gateway = gateway
+        # Default: books only (printed + electronic monographs).
+        self._media_filter = media_filter or MediaTypeFilter.from_preset(MediaTypeFilterPreset.BOOK)
 
     async def execute(self) -> ScrapeStepResult:
         # 1. Claim one task atomically.
@@ -135,6 +143,22 @@ class ScrapeOneTask:
                 titn=int(task.titn),
                 error=str(exc),
             )
+
+        # Media-type filter: skip records that don't match (magazines, CDs,
+        # audiobooks if not opted in, etc.). The task is marked skipped so we
+        # don't fetch it again, but no record is written.
+        if not self._media_filter.accepts(
+            parsed.record.record_type, parsed.record.bibliographic_level
+        ):
+            await self._tasks.mark_skipped_non_book(task.titn)
+            log.info(
+                "scrape.skipped_non_book titn=%d ld06=%s ld07=%s doc_type=%s",
+                int(task.titn),
+                parsed.record.record_type,
+                parsed.record.bibliographic_level,
+                parsed.record.document_type,
+            )
+            return ScrapeStepResult(outcome=ScrapeStepOutcome.SKIPPED_NON_BOOK, titn=int(task.titn))
 
         source_hash = hashlib.sha256(fetch.html.encode("utf-8")).digest()
         ingest = await self._ingest.persist_parsed_record(

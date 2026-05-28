@@ -146,6 +146,20 @@ class PostgresScrapeTaskRepository:
             )
         )
 
+    async def mark_skipped_non_book(self, titn: Titn) -> None:
+        now = datetime.now(tz=UTC)
+        await self._session.execute(
+            update(ScrapeTaskModel)
+            .where(ScrapeTaskModel.titn == int(titn))
+            .values(
+                status=TaskState.SKIPPED_NON_BOOK.value,
+                last_attempted_at=now,
+                last_error=None,
+                next_retry_at=None,
+                attempt_count=ScrapeTaskModel.attempt_count + 1,
+            )
+        )
+
     async def mark_failed(self, titn: Titn, *, error: str, next_retry_at: datetime | None) -> None:
         now = datetime.now(tz=UTC)
         await self._session.execute(

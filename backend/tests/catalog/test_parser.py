@@ -57,6 +57,13 @@ def test_parses_classification_from_real_fixture(titn_1_html: str) -> None:
     assert result.record.classification == '821.134.2-1"19"'
 
 
+def test_parses_marc_leader_positions_06_07_from_real_fixture(titn_1_html: str) -> None:
+    """LDR/06 = 'a' (language material), LDR/07 = 'm' (monograph) — book."""
+    result = parse_record_html(titn_1_html)
+    assert result.record.record_type == "a"
+    assert result.record.bibliographic_level == "m"
+
+
 def test_parses_all_branches_from_real_fixture(titn_1_html: str) -> None:
     result = parse_record_html(titn_1_html)
     # 4 copies in 4 different branches per the live OPAC.

@@ -41,6 +41,11 @@ class ParsedRecord:
 
     Optional fields are `None` rather than empty string so the persistence
     layer can tell "not present" from "explicitly blank".
+
+    `record_type` / `bibliographic_level` are the two MARC leader positions
+    used by the media-type filter to decide whether to persist this record
+    (book vs. audiobook vs. magazine vs. video vs. ...). See
+    `catalog/domain/media_filter.py` for the full code table.
     """
 
     titn: int
@@ -51,6 +56,8 @@ class ParsedRecord:
     document_type: str | None = None
     language: str | None = None
     pub_year: int | None = None
+    record_type: str | None = None  # MARC LDR/06 — single character, e.g. 'a'
+    bibliographic_level: str | None = None  # MARC LDR/07 — single character, e.g. 'm'
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +160,11 @@ def parse_record_html(html: str, *, expected_titn: Titn | None = None) -> ParseR
     # ── Publication year (js-FEPU / T260) ─────────────────────
     pub_year = _extract_pub_year(tree)
 
+    # ── MARC leader positions 06 (record type) and 07 (bibliographic level)
+    # ── Drive the media-type filter (books vs. audiobooks vs. magazines).
+    record_type = _single_char_or_none(_first_js_field(tree, "ld06"))
+    bibliographic_level = _single_char_or_none(_first_js_field(tree, "ld07"))
+
     record = ParsedRecord(
         titn=titn,
         title=title.strip(),
@@ -162,6 +174,8 @@ def parse_record_html(html: str, *, expected_titn: Titn | None = None) -> ParseR
         document_type=document_type,
         language=language,
         pub_year=pub_year,
+        record_type=record_type,
+        bibliographic_level=bibliographic_level,
     )
 
     # ── Copies ────────────────────────────────────────────────
@@ -275,6 +289,16 @@ _BRANCH_NAME_RE = re.compile(
     r'<span class="h-hdd">Biblioteca:\s*</span>\s*<span[^>]*>([^<]+)</span>',
     re.IGNORECASE,
 )
+
+
+def _single_char_or_none(value: str | None) -> str | None:
+    """Normalise a MARC leader extraction — strip + lowercase, expect 1 char."""
+    if value is None:
+        return None
+    stripped = value.strip().lower()
+    if len(stripped) != 1:
+        return None
+    return stripped
 
 
 def _branch_code_from_block(block_html: str) -> str | None:

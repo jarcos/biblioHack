@@ -1,0 +1,65 @@
+M1: media-type filter — books-only by default, configurable
+
+The OPAC catalogues much more than books: magazines, audiobooks, CDs,
+DVDs, sheet music, electronic resources. We only care about books, so
+the worker now filters records after parsing and skips anything that
+doesn't match.
+
+Adds:
+- catalog/domain/media_filter.py:
+  - MediaTypeFilterPreset StrEnum: 'book' / 'book+audio' / 'monograph' /
+    'all'. Stable values for the CLI flag.
+  - MediaTypeFilter value object — wraps a frozenset of (LDR/06, LDR/07)
+    tuples allowed by the policy. `accepts(ld06, ld07)` is the predicate.
+  - `from_preset` factory + `is_open` property.
+  - The four presets map to:
+      book        : {(a, m)}                    printed + ebooks only
+      book+audio  : {(a, m), (i, m)}            adds audiobook monographs
+      monograph   : {(None, m)}                 any media, monograph only
+      all         : {(None, None)}              accept everything
+
+- parser.py: extracts MARC leader positions 06 (record type) and 07
+  (bibliographic level) from the `js-ld06` / `js-ld07` spans the OPAC
+  embeds in the rendered HTML. New ParsedRecord fields `record_type` and
+  `bibliographic_level`. Defensive normalisation: single lowercase char
+  or None.
+
+- catalog/application/ports.py:
+  - TaskState.SKIPPED_NON_BOOK — new terminal state.
+  - ScrapeTaskRepository.mark_skipped_non_book port method.
+
+- catalog/infrastructure/postgres/scrape_task_repository.py: concrete
+  mark_skipped_non_book implementation, advances attempt_count and
+  clears next_retry_at like the other terminal transitions.
+
+- ScrapeOneTask: accepts an optional MediaTypeFilter constructor arg
+  (defaults to the BOOK preset). After parsing successfully, checks the
+  filter; if rejected, calls mark_skipped_non_book and returns a new
+  SKIPPED_NON_BOOK outcome. The ingest repository is never called for
+  filtered-out records.
+
+- RunScrapeWorker.WorkerStats: tracks `skipped_non_book` count.
+
+- bibliohack catalog worker: new `--filter` flag accepting one of the
+  presets (book / book+audio / monograph / all). Default 'book'.
+  Per-step output shows a cyan `~` marker for skipped records. Final
+  summary box includes the skip count.
+
+Tests:
+- 16 new unit tests over the MediaTypeFilter presets covering book,
+  book+audio, monograph, and all — including all the common upstream
+  combinations (magazine, audiobook, CD, DVD, sheet music) under each.
+- One new parser test asserts ld06/ld07 extraction from the real
+  titn_1.html fixture (a, m as expected for that 'IBM y compañía
+  Arantza' record).
+
+186 tests passing (165 unit + 21 integration), coverage 87.06%,
+ruff/format/mypy clean.
+
+Operator notes:
+- Default behaviour is now books-only. To ingest everything (matching
+  the previous default), pass `--filter all`.
+- Skipped records get a real `skipped_non_book` row in scrape_tasks so
+  we never re-fetch them. To re-enable a previously-skipped TITN (e.g.
+  if you later widen the filter), update the row's status back to
+  'discovered' manually.

@@ -26,6 +26,10 @@ from bibliohack.catalog.application.use_cases.scrape_one_task import (
 from bibliohack.catalog.application.use_cases.seed_discovered_tasks import (
     SeedDiscoveredTasks,
 )
+from bibliohack.catalog.domain.media_filter import (
+    MediaTypeFilter,
+    MediaTypeFilterPreset,
+)
 from bibliohack.catalog.domain.titn import Titn
 from bibliohack.catalog.infrastructure.absysnet import (
     GatewayConfig,
@@ -204,29 +208,44 @@ def worker(
         "--rate",
         help="Polite per-second request rate to the upstream OPAC.",
     ),
+    filter_preset: MediaTypeFilterPreset = typer.Option(  # noqa: B008
+        MediaTypeFilterPreset.BOOK,
+        "--filter",
+        help=(
+            "Which media types to persist. 'book' (default) = printed + "
+            "electronic monographs. 'book+audio' also keeps audiobook "
+            "monographs. 'monograph' = any record type as long as it's a "
+            "monograph (no magazines / serials). 'all' = no filter."
+        ),
+    ),
 ) -> None:
     """Run the scrape worker — fetch, parse, and persist `discovered` tasks.
 
     Loops over ScrapeOneTask: each iteration claims one task atomically,
     fetches its HTML, parses it, persists the record + copies + branches,
-    transitions the task to `parsed`. Ctrl+C requests a graceful shutdown
-    (the current task finishes before exit).
+    transitions the task to `parsed`. Records that don't match the
+    `--filter` policy (magazines, CDs, etc.) are marked `skipped_non_book`
+    so we don't fetch them again. Ctrl+C requests a graceful shutdown.
 
     Usage:
 
         bibliohack catalog worker --max-tasks 10        # smoke
         bibliohack catalog worker                       # long-running
+        bibliohack catalog worker --filter all          # ingest everything
+        bibliohack catalog worker --filter book+audio   # books + audiobooks
 
     Requires the scraper extra: `uv sync --extra scraper` and
     `make scraper-install-browsers` for the Camoufox + Chromium binaries.
     """
-    asyncio.run(_run_worker(max_tasks, idle_giveup, rate_per_second))
+    media_filter = MediaTypeFilter.from_preset(filter_preset)
+    asyncio.run(_run_worker(max_tasks, idle_giveup, rate_per_second, media_filter))
 
 
 async def _run_worker(
     max_tasks: int | None,
     idle_giveup: int,
     rate_per_second: float,
+    media_filter: MediaTypeFilter,
 ) -> None:
     # Build ONE gateway shared across all steps so the throttle's token
     # bucket actually does its job across requests.
@@ -246,6 +265,7 @@ async def _run_worker(
                 task_repository=PostgresScrapeTaskRepository(session),
                 ingest_repository=PostgresCatalogIngestRepository(session),
                 gateway=gateway,
+                media_filter=media_filter,
             )
 
     worker_run = RunScrapeWorker(
@@ -279,6 +299,7 @@ async def _run_worker(
             ScrapeStepOutcome.NOT_FOUND: typer.style("✗", fg=typer.colors.YELLOW),
             ScrapeStepOutcome.PERMANENT_ERROR: typer.style("!", fg=typer.colors.RED),
             ScrapeStepOutcome.TRANSIENT_ERROR: typer.style("?", fg=typer.colors.MAGENTA),
+            ScrapeStepOutcome.SKIPPED_NON_BOOK: typer.style("~", fg=typer.colors.CYAN),
         }.get(result.outcome, "?")
         suffix = f" — {result.error}" if result.error else ""
         typer.echo(
@@ -298,6 +319,7 @@ def _print_summary(stats: WorkerStats) -> None:
     typer.echo(f"  tasks processed:    {typer.style(f'{stats.total:,}', bold=True)}")
     typer.echo(f"    persisted:        {stats.persisted:,}")
     typer.echo(f"    not_found:        {stats.not_found:,}")
+    typer.echo(f"    skipped_non_book: {stats.skipped_non_book:,}")
     typer.echo(f"    permanent errors: {stats.permanent_errors:,}")
     typer.echo(f"    transient errors: {stats.transient_errors:,}")
     typer.echo(f"  idle iterations:    {stats.no_work_hits:,}")

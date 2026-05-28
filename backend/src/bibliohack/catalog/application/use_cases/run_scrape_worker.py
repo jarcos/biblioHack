@@ -40,11 +40,18 @@ class WorkerStats:
     not_found: int = 0
     permanent_errors: int = 0
     transient_errors: int = 0
+    skipped_non_book: int = 0
     no_work_hits: int = 0
 
     @property
     def total(self) -> int:
-        return self.persisted + self.not_found + self.permanent_errors + self.transient_errors
+        return (
+            self.persisted
+            + self.not_found
+            + self.permanent_errors
+            + self.transient_errors
+            + self.skipped_non_book
+        )
 
     def record(self, result: ScrapeStepResult) -> None:
         match result.outcome:
@@ -56,6 +63,8 @@ class WorkerStats:
                 self.permanent_errors += 1
             case ScrapeStepOutcome.TRANSIENT_ERROR:
                 self.transient_errors += 1
+            case ScrapeStepOutcome.SKIPPED_NON_BOOK:
+                self.skipped_non_book += 1
             case ScrapeStepOutcome.NO_WORK:
                 self.no_work_hits += 1
 
