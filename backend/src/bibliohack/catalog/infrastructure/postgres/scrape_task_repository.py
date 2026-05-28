@@ -8,6 +8,7 @@ Constructors take an `AsyncSession` so the repository participates in the
 caller's transaction — `mark_parsed` doesn't commit unless the caller does.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from sqlalchemy import CursorResult, func, select, update
@@ -22,9 +23,12 @@ from bibliohack.catalog.application.ports import (
 from bibliohack.catalog.domain.titn import Titn
 from bibliohack.catalog.infrastructure.postgres.models import ScrapeTaskModel
 
-# Bulk-insert chunk size — Postgres has a 65535-parameter limit per statement,
-# and each row uses one parameter, so 50k leaves comfortable headroom.
-_INSERT_CHUNK_SIZE = 50_000
+# Bulk-insert chunk size. asyncpg caps prepared statements at 32_767 query
+# arguments (PostgreSQL itself is 65535 but asyncpg is the tighter bound).
+# SQLAlchemy emits 4 params per row (titn + the Python-side defaults for
+# status / attempt_count / priority), so 8_000 rows × 4 params = 32_000 args,
+# safely under the cap.
+_INSERT_CHUNK_SIZE = 8_000
 
 
 class PostgresScrapeTaskRepository:
@@ -80,7 +84,7 @@ class PostgresScrapeTaskRepository:
         self,
         *,
         limit: int = 1,
-        states: tuple[TaskState, ...] | list[TaskState] = (TaskState.DISCOVERED,),
+        states: Sequence[TaskState] = (TaskState.DISCOVERED,),
     ) -> list[ScrapeTask]:
         """Atomic `SELECT ... FOR UPDATE SKIP LOCKED` over due rows."""
         if limit < 1:

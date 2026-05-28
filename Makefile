@@ -81,6 +81,11 @@ backend-run: ## Run the FastAPI app locally (without docker).
 probe-titn: ## Probe the upstream OPAC for the highest known TITN. Requires `make scraper-install-browsers` first.
 	cd backend && uv sync --extra scraper >/dev/null && uv run bibliohack catalog probe-titn-range
 
+.PHONY: seed-titn
+seed-titn: ## Seed scrape_tasks with the [1..N] range. Usage: make seed-titn HIGH=1500000
+	@if [ -z "$(HIGH)" ]; then echo "Usage: make seed-titn HIGH=<max_titn> [LOW=1]"; exit 2; fi
+	cd backend && uv run bibliohack catalog seed --from $${LOW:-1} --to $(HIGH)
+
 # ────────────────────────────────────────────────────────────
 # Database migrations (Alembic)
 # ────────────────────────────────────────────────────────────
