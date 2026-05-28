@@ -1,0 +1,186 @@
+[project]
+name = "bibliohack"
+version = "0.1.0"
+description = "Reverse catalog and AI-driven recommender for the Andalusian public-library network."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { file = "../LICENSE" }
+authors = [{ name = "José Arcos" }]
+
+dependencies = [
+    # ───── HTTP layer ─────
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+
+    # ───── Persistence ─────
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "psycopg[binary]>=3.2",        # used by alembic (sync)
+    "alembic>=1.14",
+    "pgvector>=0.3",
+
+    # ───── Observability ─────
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+# Scraping deps are heavy and only needed by the worker. Keep them opt-in.
+scraper = [
+    "httpx>=0.28",
+    "selectolax>=0.3.27",
+    "scrapling>=0.2.97",
+    "tenacity>=9.0",
+]
+
+# AI / embeddings are even heavier (torch). Opt-in.
+ai = [
+    "sentence-transformers>=3.3",
+    "openai>=1.55",                # we'll point its base_url at OpenRouter
+]
+
+# Background workers
+worker = [
+    "dramatiq[redis]>=1.17",
+    "apscheduler>=3.10",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.118",
+    "testcontainers[postgres,redis]>=4.8",
+    "schemathesis>=3.39",
+    "respx>=0.21",
+    "httpx>=0.28",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+    "types-requests",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bibliohack"]
+
+# ────────────────────────────────────────────────────────────
+# uv
+# ────────────────────────────────────────────────────────────
+
+[tool.uv]
+default-groups = ["dev"]
+
+# ────────────────────────────────────────────────────────────
+# pytest
+# ────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-config",
+    "--strict-markers",
+    "--cov=bibliohack",
+    "--cov-report=term-missing",
+    "--cov-report=xml",
+]
+asyncio_mode = "auto"
+filterwarnings = [
+    "error",
+    # SQLAlchemy 2.0 deprecations we don't control:
+    "ignore::DeprecationWarning:sqlalchemy.*",
+]
+markers = [
+    "integration: tests that need real infra (postgres/redis) via testcontainers",
+    "e2e: end-to-end tests against the running stack",
+    "slow: tests that take noticeably longer; skipped by default in CI fast lane",
+]
+
+[tool.coverage.run]
+source = ["src/bibliohack"]
+branch = true
+omit = [
+    "src/bibliohack/interfaces/http/app.py",  # exercised via integration tests
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "\\.\\.\\.",
+]
+fail_under = 75
+
+# ────────────────────────────────────────────────────────────
+# Ruff
+# ────────────────────────────────────────────────────────────
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# A solid default set; add/remove rules as you learn what bothers you.
+select = [
+    "E", "W",      # pycodestyle
+    "F",           # pyflakes
+    "I",           # isort
+    "N",           # pep8-naming
+    "UP",          # pyupgrade
+    "B",           # bugbear
+    "A",           # builtins
+    "C4",          # comprehensions
+    "DTZ",         # datetimez (forbid naive datetimes)
+    "EM",          # error messages (no f-strings in raise)
+    "FA",          # future annotations
+    "G",           # logging format
+    "PIE",         # misc gotchas
+    "PT",          # pytest style
+    "RET",         # return
+    "RUF",         # ruff-specific
+    "S",           # bandit (security)
+    "SIM",         # simplify
+    "TCH",         # type-checking imports
+    "TID",         # tidy imports
+]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "S101",   # assert allowed (we use pytest)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "PT011"]  # security checks + broad pytest.raises noise
+
+[tool.ruff.lint.isort]
+known-first-party = ["bibliohack"]
+
+# ────────────────────────────────────────────────────────────
+# Mypy
+# ────────────────────────────────────────────────────────────
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+packages = ["bibliohack"]
+strict = true
+warn_unreachable = true
+warn_return_any = true
+disallow_any_explicit = false
+plugins = ["pydantic.mypy"]
+
+# Domain and application layers stay strict.
+# Infrastructure adapters often interact with untyped libs (jsoup-style HTML parsing,
+# legacy SDKs); relax there as needed via per-module overrides.
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+check_untyped_defs = true

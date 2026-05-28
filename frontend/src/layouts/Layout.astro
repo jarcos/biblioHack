@@ -1,0 +1,44 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = "Reverse catalog of the Andalusian public libraries." } =
+  Astro.props;
+---
+
+<!doctype html>
+<html lang="es" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="description" content={description} />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+  </head>
+  <body class="flex min-h-screen flex-col">
+    <header class="border-b border-slate-200 dark:border-slate-800">
+      <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+        <a href="/" class="text-lg font-semibold tracking-tight">biblioHack</a>
+        <nav class="text-sm text-slate-600 dark:text-slate-400">
+          <a href="/" class="hover:text-slate-900 dark:hover:text-white">Inicio</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
+      <slot />
+    </main>
+
+    <footer class="border-t border-slate-200 py-6 text-center text-xs text-slate-500 dark:border-slate-800">
+      <p>
+        Datos públicos de la Red de Bibliotecas Públicas de Andalucía. Proyecto personal sin
+        ánimo de lucro. <a href="https://github.com/" class="underline">Código</a>
+      </p>
+    </footer>
+  </body>
+</html>

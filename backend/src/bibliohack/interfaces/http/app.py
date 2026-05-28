@@ -1,0 +1,65 @@
+"""FastAPI application — composition root for the HTTP interface.
+
+For M0 the app exposes only health and version endpoints. Domain routers are
+added in M1 (catalog), M2 (availability), M3 (semantic search), M4 (imports),
+M5 (recommendations).
+"""
+
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+
+import structlog
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from bibliohack import __version__
+from bibliohack.interfaces.http.routers import health
+from bibliohack.shared.infrastructure import configure_logging, get_settings
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
+    """Run startup/shutdown hooks once per process."""
+    settings = get_settings()
+    configure_logging(settings)
+    log = structlog.get_logger()
+    log.info("app.startup", env=settings.app_env, version=__version__)
+    try:
+        yield
+    finally:
+        log.info("app.shutdown")
+
+
+def create_app() -> FastAPI:
+    """Application factory. Useful for tests, which create a fresh app per case."""
+    settings = get_settings()
+
+    app = FastAPI(
+        title="biblioHack",
+        version=__version__,
+        description=(
+            "Reverse catalog and AI-driven recommender for the "
+            "Andalusian public-library network."
+        ),
+        lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.app_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.include_router(health.router)
+
+    return app
+
+
+app = create_app()

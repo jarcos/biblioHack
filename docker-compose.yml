@@ -1,0 +1,80 @@
+# biblioHack — local dev environment.
+# `make dev-up` to start, `make dev-down` to stop, `make dev-nuke` to wipe volumes.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: bibliohack-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bibliohack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bibliohack}
+      POSTGRES_DB: ${POSTGRES_DB:-bibliohack}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bibliohack} -d ${POSTGRES_DB:-bibliohack}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: bibliohack-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/backend.Dockerfile
+    container_name: bibliohack-api
+    restart: unless-stopped
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bibliohack}:${POSTGRES_PASSWORD:-bibliohack}@postgres:5432/${POSTGRES_DB:-bibliohack}
+      DATABASE_URL_SYNC: postgresql+psycopg://${POSTGRES_USER:-bibliohack}:${POSTGRES_PASSWORD:-bibliohack}@postgres:5432/${POSTGRES_DB:-bibliohack}
+      REDIS_URL: redis://redis:6379/0
+      APP_CORS_ORIGINS: '["http://localhost:4321"]'
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/frontend.Dockerfile
+    container_name: bibliohack-frontend
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "4321:4321"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  redis-data:

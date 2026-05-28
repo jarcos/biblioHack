@@ -1,0 +1,79 @@
+# ───── Python ─────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+.tox/
+.nox/
+.venv/
+venv/
+env/
+
+# uv
+uv.lock.bak
+
+# ───── Node / pnpm ─────
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ───── Astro ─────
+dist/
+.astro/
+.output/
+
+# ───── TypeScript ─────
+*.tsbuildinfo
+
+# ───── Vitest ─────
+coverage/
+
+# ───── Editors ─────
+.vscode/*
+!.vscode/settings.json.example
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ───── Env / secrets ─────
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ───── Docker / data ─────
+*.db
+*.sqlite
+*.sqlite3
+postgres-data/
+redis-data/
+
+# ───── Project-specific ─────
+# scraped HTML snapshots — large, do not commit
+data/raw/
+data/snapshots/
+data/embeddings/
+*.marc
+
+# Local scratch files
+scratch/
+tmp/
