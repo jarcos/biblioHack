@@ -13,6 +13,9 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+    from datetime import datetime
+
     from bibliohack.catalog.domain.titn import Titn
 
 
@@ -99,3 +102,140 @@ class OpacGateway(Protocol):
     """
 
     async def fetch_record(self, titn: Titn) -> FetchResult: ...
+
+
+# ───────────────────────────────────────────────────────────────
+# Scrape state machine — TaskState + ScrapeTaskRepository
+# ───────────────────────────────────────────────────────────────
+
+
+class TaskState(StrEnum):
+    """Lifecycle state of a `scrape_tasks` row.
+
+    The state machine is documented in `ARCHITECTURE.md` §6.7:
+
+        discovered → fetched → parsed
+                        │
+                        ├─→ not_found     (404 / no-result page)
+                        ├─→ failed        (5xx-then-retry-exhausted)
+                        └─→ tombstoned    (manually retired)
+    """
+
+    DISCOVERED = "discovered"
+    FETCHED = "fetched"
+    PARSED = "parsed"
+    NOT_FOUND = "not_found"
+    FAILED = "failed"
+    TOMBSTONED = "tombstoned"
+
+
+@dataclass(frozen=True, slots=True)
+class ScrapeTask:
+    """Snapshot of one `scrape_tasks` row as seen by the application layer."""
+
+    titn: Titn
+    status: TaskState
+    source_hash: bytes | None = None
+    source_seen_at: datetime | None = None
+    attempt_count: int = 0
+    last_attempted_at: datetime | None = None
+    next_retry_at: datetime | None = None
+    last_error: str | None = None
+    priority: int = 100
+    refresh_due_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StateCounts:
+    """Histogram of `scrape_tasks` by status — useful for progress dashboards."""
+
+    counts: dict[TaskState, int]
+
+    @property
+    def total(self) -> int:
+        return sum(self.counts.values())
+
+    def get(self, state: TaskState) -> int:
+        return self.counts.get(state, 0)
+
+
+class ScrapeTaskRepository(Protocol):
+    """The catalog's persistence port for the discovery / refresh state machine.
+
+    Implementations atomically claim work via `SELECT ... FOR UPDATE SKIP
+    LOCKED` so multiple workers can run side-by-side without colliding.
+    """
+
+    async def seed_range(self, low: Titn, high: Titn) -> int:
+        """Insert `discovered` rows for every TITN in [low, high] not yet known.
+
+        Returns the number of NEW rows inserted (existing rows are left as-is).
+        Idempotent — safe to re-run with overlapping ranges.
+        """
+        ...
+
+    async def seed_one(self, titn: Titn) -> bool:
+        """Insert a single TITN as `discovered` if not already present.
+
+        Returns True if a new row was inserted, False if the row already existed.
+        """
+        ...
+
+    async def claim_next_batch(
+        self, *, limit: int = 1, states: Sequence[TaskState] = (TaskState.DISCOVERED,)
+    ) -> list[ScrapeTask]:
+        """Atomically lock and return up to `limit` due tasks.
+
+        Uses `SELECT ... FOR UPDATE SKIP LOCKED` so concurrent workers get
+        disjoint batches. The locks release when the surrounding transaction
+        commits or rolls back; callers are expected to update the rows'
+        state before committing.
+        """
+        ...
+
+    async def mark_parsed(self, titn: Titn, *, source_hash: bytes) -> None:
+        """Transition `titn` to `parsed`, recording the payload hash."""
+        ...
+
+    async def mark_not_found(self, titn: Titn) -> None:
+        """Transition `titn` to `not_found` (no retries)."""
+        ...
+
+    async def mark_failed(self, titn: Titn, *, error: str, next_retry_at: datetime | None) -> None:
+        """Transition `titn` to `failed` with backoff scheduling info."""
+        ...
+
+    async def get(self, titn: Titn) -> ScrapeTask | None:
+        """Read a single task by TITN. Returns None if not yet seeded."""
+        ...
+
+    async def count_by_state(self) -> StateCounts:
+        """Histogram of all `scrape_tasks` by status."""
+        ...
+
+
+# ───────────────────────────────────────────────────────────────
+# Scrape activity log (politeness accounting)
+# ───────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class ScrapeLogEntry:
+    """One row written to `scrape_log` per HTTP request to the OPAC."""
+
+    titn: Titn | None
+    url: str
+    status_code: int | None
+    latency_ms: int | None
+    bytes_in: int | None
+    error: str | None
+
+
+class ScrapeLogRepository(Protocol):
+    """Append-only log of HTTP requests we made. Drives daily-cap accounting."""
+
+    async def record(self, entries: Iterable[ScrapeLogEntry]) -> None: ...
+
+    async def requests_since(self, since: datetime) -> int:
+        """How many requests have been issued since `since`. Used for the cap."""
+        ...

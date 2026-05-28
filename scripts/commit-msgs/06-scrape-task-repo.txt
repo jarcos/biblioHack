@@ -1,0 +1,46 @@
+M1: ScrapeTaskRepository port + Postgres impl + integration tests
+
+First persistence concern of M1 step 26 (discovery seeder + scrape worker):
+the state machine port that both the seeder and the worker depend on.
+
+Adds:
+- catalog/application/ports.py:
+  - TaskState StrEnum mirroring the scrape_tasks.status state machine
+    documented in ARCHITECTURE.md section 6.7 (discovered, fetched, parsed,
+    not_found, failed, tombstoned).
+  - ScrapeTask DTO — a snapshot of one scrape_tasks row.
+  - StateCounts DTO — histogram by status for progress dashboards.
+  - ScrapeTaskRepository Protocol with seed_range / seed_one /
+    claim_next_batch (SELECT ... FOR UPDATE SKIP LOCKED) / mark_parsed /
+    mark_not_found / mark_failed / get / count_by_state.
+  - ScrapeLogEntry DTO + ScrapeLogRepository Protocol (used by the worker
+    in the next commit to record per-request latency for politeness
+    accounting).
+
+- catalog/infrastructure/postgres/scrape_task_repository.py:
+  PostgresScrapeTaskRepository concrete implementation. Bulk-INSERT in
+  50k-row chunks (Postgres has a 65535-parameter-per-statement limit;
+  one parameter per row leaves headroom). Idempotent seeds via
+  ON CONFLICT DO NOTHING. Claim uses FOR UPDATE SKIP LOCKED so concurrent
+  workers split the queue cleanly.
+
+- tests/catalog/test_scrape_task_repository.py (integration, marked):
+  14 tests run against a real Postgres via testcontainers
+  (pgvector/pgvector:pg16, same image as docker-compose). Module-scoped
+  fixture applies the Alembic migration; each test runs inside a
+  transaction that rolls back, so state never leaks between cases.
+
+Several smaller fixes folded in:
+- alembic.ini: add path_separator=os to silence the 1.18+ deprecation
+  warning that was being promoted to an error by our strict warning
+  filter.
+- alembic/env.py: switched from async to sync engine. Migrations don't
+  benefit from async, and the async variant tripped over
+  pytest-asyncio's already-running event loop. Simpler now.
+- test fixture clears get_settings() lru_cache after overriding the
+  DB URL env vars so Alembic sees the testcontainer URL, not the
+  default one cached at process start.
+
+138 tests passing (124 unit + 14 integration), coverage 90.52%.
+
+Part of task 26; the seeder use case + CLI lands next, then the worker.
