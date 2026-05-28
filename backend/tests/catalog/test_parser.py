@@ -1,0 +1,201 @@
+"""Tests for the AbsysNET HTML parser.
+
+The canonical fixture is `tests/catalog/fixtures/titn_1.html` — a 189KB
+real OPAC page captured from the live RBPA on 2026-05-28. We use it as the
+golden reference for "what a normal record looks like". Smaller hand-crafted
+snippets cover edge cases (missing fields, blank title, not-found page).
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from bibliohack.catalog.domain.titn import Titn
+from bibliohack.catalog.infrastructure.absysnet.parser import (
+    ParseError,
+    looks_like_not_found,
+    parse_record_html,
+)
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+# ───────────────────────────────────────────────────────────────
+# Real fixture: TITN=1 (0044 y medio IBM y compañía Arantza)
+# ───────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def titn_1_html() -> str:
+    return (FIXTURES / "titn_1.html").read_text(encoding="utf-8")
+
+
+def test_parses_real_titn_1_fixture(titn_1_html: str) -> None:
+    result = parse_record_html(titn_1_html)
+    assert result.record.titn == 1
+    assert result.record.title == "0044 y medio IBM y compañía Arantza"
+
+
+def test_parses_author_from_real_fixture(titn_1_html: str) -> None:
+    result = parse_record_html(titn_1_html)
+    assert "Bornoy, Pepe" in result.record.authors
+
+
+def test_parses_publisher_from_real_fixture(titn_1_html: str) -> None:
+    result = parse_record_html(titn_1_html)
+    # Either bare publisher name or the joined "place : publisher" form;
+    # the parser strips the place prefix when a colon is present.
+    assert result.record.publisher is not None
+    assert "Guadalhorce" in result.record.publisher
+
+
+def test_parses_classification_from_real_fixture(titn_1_html: str) -> None:
+    result = parse_record_html(titn_1_html)
+    # T080 is the UDC code we observed for this record.
+    assert result.record.classification == '821.134.2-1"19"'
+
+
+def test_parses_all_branches_from_real_fixture(titn_1_html: str) -> None:
+    result = parse_record_html(titn_1_html)
+    # 4 copies in 4 different branches per the live OPAC.
+    branch_names = {c.branch_name for c in result.copies}
+    branch_codes = {c.branch_code for c in result.copies}
+    assert "Frailes" in branch_names
+    assert "Antequera" in branch_names
+    assert "Fuengirola" in branch_names
+    assert "Biblioteca de Andalucía" in branch_names
+    # Branch codes use the province + sequence convention.
+    assert "JA23" in branch_codes  # Frailes (Jaén)
+    assert "MA03" in branch_codes  # Antequera (Málaga)
+    assert "MA15" in branch_codes  # Fuengirola (Málaga)
+
+
+def test_expected_titn_assertion_matches(titn_1_html: str) -> None:
+    # Defensive check passes when the page actually contains the expected TITN.
+    result = parse_record_html(titn_1_html, expected_titn=Titn(1))
+    assert result.record.titn == 1
+
+
+def test_expected_titn_mismatch_raises(titn_1_html: str) -> None:
+    with pytest.raises(ParseError, match="TITN mismatch"):
+        parse_record_html(titn_1_html, expected_titn=Titn(999))
+
+
+# ───────────────────────────────────────────────────────────────
+# Edge cases on hand-crafted minimal HTML
+# ───────────────────────────────────────────────────────────────
+
+
+def test_empty_html_rejected() -> None:
+    with pytest.raises(ParseError, match="empty HTML"):
+        parse_record_html("")
+
+
+def test_whitespace_only_html_rejected() -> None:
+    with pytest.raises(ParseError, match="empty HTML"):
+        parse_record_html("   \n   ")
+
+
+def test_html_without_titn_rejected() -> None:
+    with pytest.raises(ParseError, match="No TITN"):
+        parse_record_html("<html><body><p>hello</p></body></html>")
+
+
+def test_minimal_record_parses() -> None:
+    html = """
+    <html><body>
+      <span class="js-TITN">42</span>
+      <span class="js-T245">Some Title</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.titn == 42
+    assert result.record.title == "Some Title"
+    assert result.record.authors == ()
+    assert result.record.publisher is None
+    assert result.copies == ()
+
+
+def test_fallback_title_from_doc_title_class() -> None:
+    # Some records carry the title only in the visible doc_title span, not
+    # in a js-T245 element. Parser should still recover.
+    html = """
+    <html><body>
+      <span class="js-TITN">7</span>
+      <span class="doc_title">Fallback Title Recovery</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.title == "Fallback Title Recovery"
+
+
+def test_missing_title_rejected() -> None:
+    html = '<html><body><span class="js-TITN">1</span></body></html>'
+    with pytest.raises(ParseError, match="No title"):
+        parse_record_html(html)
+
+
+def test_publisher_strips_place_prefix_and_trailing_year() -> None:
+    html = """
+    <html><body>
+      <span class="js-TITN">1</span>
+      <span class="js-T245">x</span>
+      <span class="js-T260">Madrid : Alianza Editorial, 2019</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.publisher == "Alianza Editorial"
+    assert result.record.pub_year == 2019
+
+
+def test_pub_year_via_fepu() -> None:
+    html = """
+    <html><body>
+      <span class="js-TITN">1</span>
+      <span class="js-T245">x</span>
+      <span class="js-FEPU">20240315</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.pub_year == 2024
+
+
+def test_pub_year_implausible_in_t260_is_ignored() -> None:
+    # 1234 is not a plausible 1400-2100 year — the regex requires the modern range.
+    html = """
+    <html><body>
+      <span class="js-TITN">1</span>
+      <span class="js-T245">x</span>
+      <span class="js-T260">Some random text 1234 not a year</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.pub_year is None
+
+
+# ───────────────────────────────────────────────────────────────
+# Not-found detection
+# ───────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "Esta consulta NO recupera resultados",
+        "el catálogo (0 docs.) coincidentes",
+        "no se ha encontrado registro",
+        "Registro no encontrado",
+    ],
+)
+def test_looks_like_not_found_detects_markers(snippet: str) -> None:
+    assert looks_like_not_found(snippet) is True
+
+
+def test_looks_like_not_found_returns_false_on_real_record(titn_1_html: str) -> None:
+    assert looks_like_not_found(titn_1_html) is False
+
+
+def test_looks_like_not_found_handles_empty_string() -> None:
+    assert looks_like_not_found("") is False
