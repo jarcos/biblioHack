@@ -26,8 +26,8 @@ from bibliohack.catalog.infrastructure.postgres.models import ScrapeTaskModel
 # Bulk-insert chunk size. asyncpg caps prepared statements at 32_767 query
 # arguments (PostgreSQL itself is 65535 but asyncpg is the tighter bound).
 # SQLAlchemy emits 4 params per row (titn + the Python-side defaults for
-# status / attempt_count / priority), so 8_000 rows × 4 params = 32_000 args,
-# safely under the cap.
+# status / attempt_count / priority), so 8_000 rows times 4 params = 32_000
+# args, safely under the cap.
 _INSERT_CHUNK_SIZE = 8_000
 
 
