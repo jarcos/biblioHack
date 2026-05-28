@@ -1,0 +1,39 @@
+M1: `bibliohack catalog worker` CLI subcommand — completes task 26
+
+Wires up the RunScrapeWorker loop behind a typer subcommand so M1 ingest
+is finally runnable end-to-end from the command line.
+
+Adds:
+- catalog/interfaces/cli.py:
+  - `worker` subcommand with --max-tasks, --idle-giveup, --rate flags.
+  - One shared ScraplingOpacGateway across all steps (the throttle's
+    token bucket needs continuity to do its job).
+  - A `step_factory` async-iterator that opens a fresh
+    transactional_session() per iteration — partial work commits as it
+    succeeds, no all-or-nothing pain across hundreds of tasks.
+  - SIGINT / SIGTERM handlers flip WorkerControl.request_stop() so Ctrl+C
+    triggers a graceful shutdown — the in-flight task finishes first.
+  - on_step callback prints a colour-coded line per task:
+      [   42] ✓        persisted  TITN=12345
+      [   43] ✗         not_found  TITN=12346
+      [   44] !  permanent_error  TITN=12347  — parse error: ...
+      [   45] ?  transient_error  TITN=12348  — simulated 503
+  - Final summary box: total tasks, breakdown by outcome, idle hits.
+
+- pyproject.toml: composition-root modules
+  (interfaces/http/app.py, interfaces/cli/app.py, catalog/interfaces/cli.py)
+  excluded from coverage. They're integration-tested implicitly; unit-testing
+  them would require mocking typer + signal handlers + the whole DB
+  session lifecycle, which is more pain than information.
+
+You can now run M1 end-to-end:
+
+    cd backend && source .venv/bin/activate
+    bibliohack catalog probe-titn-range --hard-max 10000000   # find upper bound
+    bibliohack catalog seed --from 1 --to 2662585              # seed all known TITNs
+    bibliohack catalog worker --max-tasks 10                   # smoke
+    bibliohack catalog worker                                  # long-running
+
+147 tests passing (128 unit + 19 integration), coverage 87.42%.
+
+Closes task 26.

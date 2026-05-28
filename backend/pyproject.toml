@@ -132,7 +132,13 @@ markers = [
 source = ["src/bibliohack"]
 branch = true
 omit = [
-    "src/bibliohack/interfaces/http/app.py",  # exercised via integration tests
+    # Composition-root modules — exercised via integration / smoke tests,
+    # not unit tests. Unit-testing them would mean mocking typer + signal
+    # handlers + the whole DB session lifecycle, which is more pain than
+    # information.
+    "src/bibliohack/interfaces/http/app.py",
+    "src/bibliohack/interfaces/cli/app.py",
+    "src/bibliohack/catalog/interfaces/cli.py",
 ]
 
 [tool.coverage.report]
