@@ -324,9 +324,100 @@ Three phases, in order:
 
 A full first-pass crawl of ~1.5M records at 1 req/s with 5-hour nightly windows ≈ 18,000 requests/night, so ~12 weeks for the initial corpus. That's fine — it's a side project and the OPAC will thank us. After bootstrap, the incremental rate is well under 1k requests/night.
 
-### 6.4 The MARC question
+### 6.4 The MARC question — resolved (no, parse HTML)
 
-AbsysNet's "exportar registro" feature returns MARC-21 (per the Comunidad Baratz docs). If that view is publicly accessible per record, we should parse MARC instead of HTML — far more stable and richer. **OPEN: verify that `?ACC=EXPORT&FORMATO=MARC&TITN=N` (or similar) works on the Huelva OPAC without authentication.** If it does, the parser becomes trivial (`pymarc`) and we can stop worrying about HTML drift.
+Verified against the live OPAC (May 2026, TITN=1): **there is no public MARC export.** The "Enviar a" dialog offers Dublin Core, Google Scholar, RIS and RefWorks. RIS and Dublin Core are usable as supplementary structured sources but neither carries holdings/availability — the data we want most. So we commit to parsing the **rendered HTML**.
+
+Two consequences flow from this:
+
+1. **The OPAC is a JavaScript-rendered SPA.** Plain `httpx` returns a near-empty boilerplate document. The fetcher must execute JS — **Scrapling's `StealthyFetcher`** (Camoufox-backed) is the primary, with Playwright as fallback. There is no "lightweight" path.
+2. **Sessions are required.** Hitting `?TITN=N` 302-redirects to `/abnetcl.cgi/{SESSION_TOKEN}?ACC=161`. The session token is per-browser; our fetcher must either (a) keep one long-lived session per worker run, or (b) accept the redirect and let each request bootstrap its own. We start with (b) for simplicity; switch to (a) only if rate-limiting penalises new sessions.
+
+The rendered record page exposes everything M1 needs: title, author (linked under "Otras obras de"), publisher, document type, per-branch copy list with availability flags, and lifetime loan count. The "Más información" tab additionally provides "Otras ediciones" (related editions) which will help us cluster works in M3.
+
+The "Formato → Visualización Etiquetas" dropdown on Más información hints at an ISBD/MARC-tag view; left as an optimisation for later (M2+) if HTML drift bites us.
+
+### 6.5 Vocabulary — discovery vs. scraping vs. importing
+
+These three words refer to three different operations and we keep them strictly separate in code (module names, function names, log fields). Mixing them is the most common way for crawler codebases to turn into mud:
+
+- **Discovery** — figure out *what exists*. The output is a set of `TITN` identifiers we hadn't seen before. No bibliographic data is extracted yet; we just learn that record #842,193 exists.
+- **Scraping** (= *fetching* + *parsing*) — for a known `TITN`, retrieve the HTML/MARC, parse it into typed fields, persist a `BibliographicRecord` + its `Copy` rows. This is the heavy work and the only step that touches the OPAC's `?TITN=N` permalinks.
+- **Refreshing** — re-fetch a `TITN` we already know about, on a tiered cadence, to detect drift (title corrections, new copies, withdrawn items). Refreshes share the scraper but use the `source_hash` to short-circuit the parse step when nothing has changed.
+- **Importing** — consume a *structured external feed* (Goodreads CSV, BNE RDF dump, our own backup file). Importing **never** touches the OPAC. Reading-history imports land in M4; an optional BNE authority-record import in M5.
+
+Authors are not a thing we discover — they fall out as a side-effect of scraping records. We don't need a Spanish-writers seed list to start. Authority data from datos.bne.es (Linked Open Data, ~1.4M entities) becomes useful later for author deduplication and a cold-start recommender, but it's not on the M1 critical path.
+
+### 6.6 Discovery strategy — TITN enumeration first, letter walks for freshness
+
+Two complementary discovery strategies:
+
+1. **TITN enumeration (primary).** `TITN` is a sequential integer permalink. We don't yet know its range. First task: a *probe* — binary-search by hitting a handful of well-chosen IDs (`?TITN=10000`, `?TITN=100000`, `?TITN=1000000`, ...) and observing where "no se ha encontrado" responses begin. Once the upper bound is known (likely 1–2M), we enumerate. Gaps from deletions become `not_found` rows in the state table — that's information, not a failure.
+
+2. **Letter walks (secondary, for refresh).** Use `xsqf02=a*`, `xsqf02=b*` … paged result sets to find newly-cataloged records on the recurring schedule. Sliced by `xsqf07` (publication-date-from) to keep the cost bounded.
+
+Bootstrap uses (1) once. The daily refresh job uses (2) plus a small re-scrape of the hot subset.
+
+### 6.7 State model — the `scrape_tasks` table
+
+Idempotency, crash safety, and refresh scheduling all depend on a dedicated state table separate from `bibliographic_records` (the lifecycles are different):
+
+```sql
+scrape_tasks (
+  titn               int PRIMARY KEY,
+  status             text NOT NULL,         -- discovered | fetched | parsed | failed | not_found | tombstoned
+  source_hash        bytea,                 -- sha256 of the raw HTML/MARC payload
+  source_seen_at     timestamptz,           -- last time we observed the record (any status)
+  attempt_count      int NOT NULL DEFAULT 0,
+  last_attempted_at  timestamptz,
+  next_retry_at      timestamptz,           -- exponential-backoff target
+  last_error         text,
+  priority           int NOT NULL DEFAULT 100,  -- lower = sooner; refresh tiers manipulate this
+  refresh_due_at     timestamptz            -- when this record is eligible for re-fetch
+)
+```
+
+**State machine:**
+
+```
+                ┌──────────────┐
+   discover  →  │  discovered  │  ← bulk seeded by discovery sweep
+                └──────┬───────┘
+                       │ worker locks via SELECT ... FOR UPDATE SKIP LOCKED
+                       ▼
+                ┌──────────────┐         404
+                │   fetched    │  ───────────────→  not_found  (no retry, no body)
+                └──────┬───────┘
+                       │ parse + persist BibliographicRecord
+                       ▼
+                ┌──────────────┐  same hash on next refresh → status stays parsed, source_seen_at bumped
+                │    parsed    │  different hash             → re-parse + upsert
+                └──────────────┘
+                       │ retried on schedule (refresh tiers)
+                       ▼
+
+  on transient error (5xx, timeout):
+    attempt_count++, exponential backoff into next_retry_at, status='failed' once attempts > 5
+```
+
+**Properties this gives us:**
+
+- **Idempotent reruns** — re-running the worker is safe; `parsed` rows are skipped unless their refresh schedule (driven by `refresh_due_at` + `priority`) says they're due.
+- **Crash safety** — `SELECT ... FOR UPDATE SKIP LOCKED` means multiple workers can run concurrently and a killed worker doesn't block its row forever (Postgres releases the lock with the transaction).
+- **Drift detection** — `source_hash` (sha256 of the raw payload) lets us skip the parser when the upstream HTML/MARC hasn't changed; cheap full-record-equivalence check.
+- **Politeness accounting** — a separate `scrape_log(observed_at, titn, status_code, latency_ms)` table feeds the daily-cap and rate-limit enforcement across worker restarts.
+- **Tombstoning** — records the OPAC has actively removed go to `tombstoned`, distinct from `not_found` (gap) so we can audit.
+
+### 6.8 Scheduling — three cadences, not one
+
+| Job | Cadence | What it does |
+|---|---|---|
+| **Initial bootstrap** | once | Range probe + full TITN sweep. Runs for weeks (1 req/s, 5-hour night window ≈ 12 weeks for ~1.5M records). |
+| **New-records sweep** | daily, 02:00 Europe/Madrid | Letter walk for records added since yesterday (via `@copi` and `@fepu` slices). |
+| **Refresh tiers** | continuous, prioritised | Re-fetch by hotness: novedades daily, mid-list weekly, backlist monthly. Driven by `refresh_due_at`. |
+| **Availability probe** (M2) | hourly, hot subset only | Just the loan-status field of currently-loaned items, populates the availability time-series. |
+
+We drive these with **APScheduler** for cron-style triggers and **Dramatiq** for the per-record work queue (APScheduler enqueues into Dramatiq).
 
 ---
 

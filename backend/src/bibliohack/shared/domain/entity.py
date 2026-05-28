@@ -8,15 +8,18 @@ the other has just been mutated in memory).
 
 from __future__ import annotations
 
-from typing import Generic, TypeVar
-
-from bibliohack.shared.domain.identifier import Identifier
-
-IdT = TypeVar("IdT", bound=Identifier)
+from collections.abc import Hashable
 
 
-class Entity(Generic[IdT]):
-    """Identity-equal domain entity."""
+class Entity[IdT: Hashable]:
+    """Identity-equal domain entity.
+
+    The id type is constrained to `Hashable`, not to `Identifier`, because
+    some aggregates use natural keys from upstream systems (e.g. a `Branch`
+    keyed by its AbsysNET branch code string) rather than UUIDs. The
+    `Identifier` UUID base is a convention to reach for by default; this is
+    the escape hatch when the upstream world disagrees.
+    """
 
     def __init__(self, entity_id: IdT) -> None:
         self._id = entity_id

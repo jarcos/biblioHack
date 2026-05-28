@@ -44,6 +44,16 @@ dev-nuke: ## Stop dev stack AND wipe volumes. Destroys local data.
 backend-install: ## Install backend deps via uv.
 	cd backend && uv sync --all-extras
 
+.PHONY: scraper-install-browsers
+scraper-install-browsers: ## Download Camoufox + Patchright Chromium binaries (one-off, ~600MB).
+	cd backend && uv sync --extra scraper
+	# Camoufox: Firefox-based stealth browser used by some Scrapling fetchers.
+	cd backend && uv run camoufox fetch
+	# Patchright: Chromium-based stealth browser. Scrapling 0.4.x's
+	# StealthyFetcher transitively imports it even though it's a Firefox
+	# fetcher; the import chain pulls Chromium in, so it must be installed.
+	cd backend && uv run patchright install chromium
+
 .PHONY: backend-lint
 backend-lint: ## Lint the backend with ruff.
 	cd backend && uv run ruff check .
@@ -66,6 +76,34 @@ backend-check: backend-lint backend-typecheck backend-test ## Lint + typecheck +
 .PHONY: backend-run
 backend-run: ## Run the FastAPI app locally (without docker).
 	cd backend && uv run uvicorn bibliohack.interfaces.http.app:app --reload --host 0.0.0.0 --port 8000
+
+.PHONY: probe-titn
+probe-titn: ## Probe the upstream OPAC for the highest known TITN. Requires `make scraper-install-browsers` first.
+	cd backend && uv sync --extra scraper >/dev/null && uv run bibliohack catalog probe-titn-range
+
+# ────────────────────────────────────────────────────────────
+# Database migrations (Alembic)
+# ────────────────────────────────────────────────────────────
+
+.PHONY: db-upgrade
+db-upgrade: ## Apply all pending Alembic migrations (uses DATABASE_URL_SYNC if set).
+	cd backend && uv run alembic upgrade head
+
+.PHONY: db-downgrade
+db-downgrade: ## Roll back one migration.
+	cd backend && uv run alembic downgrade -1
+
+.PHONY: db-revision
+db-revision: ## Generate a new auto-migration. Usage: make db-revision MSG="describe change"
+	cd backend && uv run alembic revision --autogenerate -m "$(MSG)"
+
+.PHONY: db-current
+db-current: ## Show the current applied revision.
+	cd backend && uv run alembic current
+
+.PHONY: db-history
+db-history: ## Show migration history.
+	cd backend && uv run alembic history --verbose
 
 # ────────────────────────────────────────────────────────────
 # Frontend

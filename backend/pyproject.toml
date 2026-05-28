@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Reverse catalog and AI-driven recommender for the Andalusian public-library network."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
-license = { file = "../LICENSE" }
+license = "MIT"
 authors = [{ name = "José Arcos" }]
 
 dependencies = [
@@ -23,14 +23,36 @@ dependencies = [
 
     # ───── Observability ─────
     "structlog>=24.4",
+
+    # ───── HTML parsing ─────
+    # Used by the catalog parser. Small C-extension; we keep it in core deps
+    # rather than [scraper] so the parser can be used outside the worker too
+    # (e.g. re-parsing cached HTML from the API).
+    "selectolax>=0.3.27",
+
+    # ───── CLI ─────
+    "typer>=0.13",
 ]
+
+[project.scripts]
+bibliohack = "bibliohack.interfaces.cli.app:cli"
 
 [project.optional-dependencies]
 # Scraping deps are heavy and only needed by the worker. Keep them opt-in.
+# Note: after `uv sync --extra scraper`, run `make scraper-install-browsers`
+# (or `uv run scrapling install`) to download the Camoufox browser binary.
 scraper = [
     "httpx>=0.28",
-    "selectolax>=0.3.27",
     "scrapling>=0.2.97",
+    # Transitive runtime deps Scrapling 0.4.x needs but doesn't pin in its
+    # own metadata. Each one bit us in turn during the first manual fetch
+    # — patchright, then msgspec, etc. Pinning them directly is the only
+    # reliable way until upstream cleans up their extras.
+    "curl-cffi>=0.7.0",
+    "camoufox[geoip]>=0.4.0",
+    "patchright>=1.49.0",
+    "playwright>=1.49.0",
+    "msgspec>=0.18.6",
     "tenacity>=9.0",
 ]
 
@@ -96,6 +118,9 @@ filterwarnings = [
     "error",
     # SQLAlchemy 2.0 deprecations we don't control:
     "ignore::DeprecationWarning:sqlalchemy.*",
+    # Starlette 1.2 deprecated httpx in favour of httpx2. We're sticking with
+    # httpx for now; revisit when httpx2 is properly stable.
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
 ]
 markers = [
     "integration: tests that need real infra (postgres/redis) via testcontainers",
