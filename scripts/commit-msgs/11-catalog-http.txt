@@ -1,0 +1,76 @@
+M1: catalog HTTP routes — GET /catalog/records/{titn} + /catalog/search
+
+Closes task 27. The frontend can finally read what the worker ingests.
+
+Adds:
+- catalog/application/dto.py:
+  CatalogRecordView, CatalogRecordSummary, CopyView, SearchPage —
+  framework-free DTOs the application layer hands back. Pydantic /
+  FastAPI never crosses this boundary.
+
+- catalog/application/ports.py:
+  CatalogReadRepository Protocol with find_by_titn() and search().
+  Lives next to (but isn't merged with) CatalogIngestRepository so a
+  read-only replica deployment could swap in a different impl without
+  inheriting the write path.
+
+- catalog/infrastructure/postgres/catalog_read_repository.py:
+  Concrete Postgres impl. find_by_titn uses selectinload to eagerly
+  fetch contributors / subjects / isbns in one query, then joins copies
+  with branches in a second. search uses plainto_tsquery against the
+  spanish_unaccent FTS config and ranks by ts_rank_cd. Limit is hard-
+  capped at 100.
+
+- catalog/interfaces/http/router.py + schemas.py + __init__.py:
+  FastAPI APIRouter mounted at /catalog. Two endpoints:
+    GET /catalog/records/{titn}  -> 200 CatalogRecordSchema | 404 | 422
+    GET /catalog/search?q=...     -> 200 SearchResponseSchema | 422
+  Pydantic schemas owned by the http layer; the router maps DTOs ->
+  schemas at the boundary.
+
+- interfaces/http/dependencies.py:
+  get_session() — process-wide cached engine + per-request AsyncSession.
+  Cache keyed on the database_url string (not the unhashable Settings
+  instance). Exposes _engine_factory_pair.cache_clear so tests can reset
+  the engine when they swap URLs.
+
+- interfaces/http/app.py: registers the catalog router.
+
+Tests (11 HTTP integration tests against testcontainers Postgres):
+- get_record returns the full payload + correct copies / branches.
+- get_record returns 404 for unknown TITN, 422 for invalid TITN.
+- get_record returns an empty copies list when none exist.
+- search finds by title, by publisher, with spanish_unaccent
+  (querying 'colera' matches 'cólera').
+- search returns the summary shape with copies_count.
+- search paginates (limit / offset / has_more).
+- search rejects empty query (Pydantic min_length=1).
+- search caps limit at 100 (Pydantic le=100).
+
+Each test fixture builds a per-test engine bound to its own event
+loop and uses FastAPI's dependency_overrides to inject it — avoids
+the 'Event loop is closed' tear-down errors from sharing a cached
+engine across tests with pytest-asyncio's per-test loops.
+
+Several smaller fixes folded in:
+- Starlette 1.2 renamed HTTP_422_UNPROCESSABLE_ENTITY -> CONTENT;
+  using the new name. Numeric code (422) is unchanged.
+- Settings isn't hashable, so the dependency engine cache is keyed on
+  the database_url string instead of the Settings instance.
+- The router's AsyncSession import is intentionally runtime (with a
+  TC002 noqa) because FastAPI uses get_type_hints to resolve
+  Depends-decorated parameters and can't see TYPE_CHECKING imports.
+
+Verified live against the dockerised API:
+    GET /catalog/search?q=soledad  -> 200 {"total": 0, ...}
+    GET /catalog/records/999999    -> 404 {"detail": "..."}
+
+197 tests passing (170 unit + 27 integration), coverage 86.71%,
+ruff/format/mypy clean.
+
+Known limitation — author search:
+The FTS column covers title / subtitle / publisher / summary but NOT
+authors. Searches like 'García Márquez' currently return 0 results
+unless the name also appears in one of those fields. Adding authors to
+the FTS index requires an Alembic migration and is the obvious next
+follow-up (will be its own commit).

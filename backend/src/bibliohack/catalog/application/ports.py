@@ -265,6 +265,29 @@ class IngestResult:
     branches_seen: int
 
 
+class CatalogReadRepository(Protocol):
+    """Read-only port for the public catalog API.
+
+    Kept separate from `CatalogIngestRepository` (the write path) so a
+    light-weight read-only API container could plug in an SQLite-FTS or
+    a Postgres-replica implementation without inheriting the write
+    code path.
+    """
+
+    async def find_by_titn(self, titn: Titn) -> object:  # CatalogRecordView | None
+        """Return the full record view for `titn`, or None if not yet scraped."""
+        ...
+
+    async def search(self, *, query: str, limit: int = 20, offset: int = 0) -> object:  # SearchPage
+        """Full-text search over title + subtitle + publisher + summary.
+
+        Uses the `spanish_unaccent` text-search configuration and the
+        `fts` generated tsvector column. Empty / whitespace queries
+        return an empty page rather than every record.
+        """
+        ...
+
+
 class CatalogIngestRepository(Protocol):
     """One-call port: turn a `ParsedRecord` + `list[ParsedCopy]` into rows.
 
