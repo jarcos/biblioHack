@@ -239,3 +239,43 @@ class ScrapeLogRepository(Protocol):
     async def requests_since(self, since: datetime) -> int:
         """How many requests have been issued since `since`. Used for the cap."""
         ...
+
+
+# ───────────────────────────────────────────────────────────────
+# Catalog ingest — the meat of the worker's persistence work
+# ───────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class IngestResult:
+    """Outcome of one persist_parsed_record call."""
+
+    record_id: str  # UUID as string — stable across re-runs once assigned
+    titn: int
+    was_new: bool  # False on re-scrape
+    copies_persisted: int
+    branches_seen: int
+
+
+class CatalogIngestRepository(Protocol):
+    """One-call port: turn a `ParsedRecord` + `list[ParsedCopy]` into rows.
+
+    The single method exists because every worker call needs the same atomic
+    upsert across `bibliographic_records`, `contributors`, `subjects`, `isbns`,
+    `branches`, `copies` — splitting them across repositories at the worker
+    level would force the use case to coordinate transactions across modules.
+
+    Implementations run everything inside the caller's session/transaction
+    so a failure mid-write rolls back cleanly. Branches missing from the
+    `branches` table are upserted on the fly (we discover branches as we
+    discover records).
+    """
+
+    async def persist_parsed_record(
+        self,
+        *,
+        parsed: object,  # ParsedRecord — typed loosely to avoid a circular import
+        copies: object,  # list[ParsedCopy] — same reason
+        source_url: str,
+        source_hash: bytes,
+    ) -> IngestResult: ...

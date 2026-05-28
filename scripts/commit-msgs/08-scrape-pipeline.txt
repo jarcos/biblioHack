@@ -1,0 +1,60 @@
+M1: ScrapeOneTask + CatalogIngestRepository + worker loop
+
+The actual ingest pipeline — turns a `discovered` task into populated
+`bibliographic_records` + `contributors` + `branches` + `copies` rows in
+one atomic transaction.
+
+Adds:
+- catalog/application/ports.py:
+  - CatalogIngestRepository Protocol with a single persist_parsed_record
+    method that does the whole atomic upsert. The single-method shape is
+    deliberate: every worker call needs the same coordinated write across
+    record + child rows + branches + copies; splitting them across
+    repositories would force the use case to manage transactions across
+    modules.
+  - IngestResult DTO with record_id, titn, was_new, copies_persisted,
+    branches_seen.
+
+- catalog/infrastructure/postgres/catalog_ingest_repository.py:
+  PostgresCatalogIngestRepository. Upserts the bibliographic_records row
+  by titn, replaces child rows (contributors / subjects / isbns) via
+  delete-then-insert, upserts branches on the fly (INSERT ... ON CONFLICT
+  DO NOTHING), replaces the record's copies. Replacement rather than
+  diffing because child counts are tiny per record (<=10) and obviously
+  correct beats clever for M1. M2 will need first-class history.
+
+- catalog/application/use_cases/scrape_one_task.py:
+  Single-step worker. Claim one task -> fetch -> branch on FetchOutcome:
+    OK         -> parse -> persist -> mark_parsed (with sha256 of html)
+    NOT_FOUND  -> mark_not_found
+    PERMANENT  -> mark_failed, no retry
+    TRANSIENT  -> mark_failed with exponential backoff (30s, 1m, 4m,
+                  16m, 64m, then stays FAILED indefinitely)
+  Returns a ScrapeStepResult DTO with outcome + optional titn/error so
+  callers (the worker loop, tests) can react.
+
+- catalog/application/use_cases/run_scrape_worker.py:
+  RunScrapeWorker loop. Repeatedly invokes ScrapeOneTask until: NO_WORK
+  N times in a row (idle giveup), or max_tasks reached, or external
+  WorkerControl.request_stop() fires (Ctrl+C / SIGTERM). Yields a fresh
+  ScrapeOneTask per iteration via a step_factory so each step rides its
+  own transaction — partial work commits as it succeeds, no all-or-nothing
+  pain across thousands of tasks.
+
+- tests/catalog/test_scrape_one_task.py (5 integration tests):
+  The load-bearing test for M1 ingest. Drives the full pop-fetch-parse-
+  persist-transition cycle against a real Postgres with a stub gateway
+  returning our 189 KB titn_1.html fixture. Covers:
+    1. Full pipeline -> 1 record / 4 branches / 4 copies / contributors
+       persisted; task transitioned to PARSED with the right sha256.
+    2. NO_WORK on empty queue.
+    3. NOT_FOUND -> task status becomes not_found, no record written.
+    4. Transient error -> task FAILED with next_retry_at ~30 s in the
+       future (first attempt of the backoff schedule).
+    5. Re-scrape -> same record_id, no duplicate row.
+
+147 tests passing (128 unit + 19 integration), coverage 83.65%,
+ruff/format/mypy clean.
+
+Closes the persistence + orchestration half of task 26. CLI worker
+subcommand lands in the next commit.
