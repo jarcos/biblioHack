@@ -1,0 +1,70 @@
+M1.1: fold author names into the catalog FTS index
+
+Closes the known limitation from the previous commit: a search for
+"García Márquez" returned zero rows because the FTS column only
+indexed title / subtitle / publisher / summary. Now author names are
+part of the index, accent-insensitive search included.
+
+Why the denormalised column:
+A Postgres GENERATED column can only reference columns in its own
+row, so the `fts` tsvector couldn't pull from the `contributors`
+child table directly. Options were (a) drop the generated column and
+maintain it via a trigger, or (b) denormalise the joined author
+names onto the parent row and keep using a generated column.
+Option (b) is simpler, has no extra moving parts, and the write path
+already replaces all contributors per record atomically — so writing
+`authors_text` in the same transaction is free.
+
+Adds:
+
+- alembic/versions/20260529_0001_authors_in_fts.py:
+  New migration. Adds `bibliographic_records.authors_text` (nullable
+  TEXT), backfills it from the contributors table (role='author',
+  ordered by order_index, joined with spaces), drops the old
+  generated `fts` column (and its GIN index), re-creates `fts` with
+  an expression that coalesces in `authors_text`, and recreates the
+  GIN index. The backfill runs before any existing rows lose their
+  `fts` so live deployments stay searchable. Downgrade is the exact
+  mirror.
+
+- catalog/infrastructure/postgres/models.py:
+  Declares the new `authors_text` field on BibliographicRecordModel
+  and updates the `Computed(...)` expression to match the migration.
+
+- catalog/infrastructure/postgres/catalog_ingest_repository.py:
+  `persist_parsed_record()` now computes `authors_text` from
+  `parsed_record.authors` via a new module-level `_join_authors`
+  helper, and writes it on both the insert and update paths so it
+  always tracks the contributors row set. Empty author lists store
+  NULL — the SQL expression coalesces.
+
+Tests (3 new HTTP integration tests, 14 in this file total):
+
+- test_search_finds_record_by_author_surname:
+  GET /catalog/search?q=Márquez returns both García Márquez records.
+
+- test_search_finds_author_accent_insensitive:
+  GET /catalog/search?q=Garcia%20Marquez still finds both records —
+  verifies the new `authors_text` field also flows through the
+  spanish_unaccent FTS configuration.
+
+- test_search_by_author_returns_only_their_records:
+  GET /catalog/search?q=Zafón returns titn 3 and does NOT bleed in
+  the Márquez records — confirms the author-text doesn't cross-pollute
+  by accident.
+
+The existing `test_search_returns_summary_shape_with_copies_count`
+test loses its "Author search isn't yet in the FTS index" comment —
+the limitation is gone.
+
+Verified live against the dockerised stack: 200 tests pass (173
+unit + 27 integration), coverage 86.74%, ruff/format/mypy clean.
+
+Note on running this migration in prod:
+The migration drops and recreates the `fts` column. On a populated
+database that means a brief table rewrite for `bibliographic_records`
+(Postgres regenerates every persisted tsvector). For the M1 catalog
+sizes we expect (~2.6M rows max for the full Andalusian network),
+this is a few seconds and runs comfortably in a maintenance window.
+The mirror is currently empty, so this commit has zero migration
+risk in practice.

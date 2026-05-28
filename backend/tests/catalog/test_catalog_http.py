@@ -249,14 +249,41 @@ async def test_search_matches_publisher(client: AsyncClient) -> None:
 async def test_search_returns_summary_shape_with_copies_count(
     client: AsyncClient,
 ) -> None:
-    # Author search isn't yet in the FTS index (covers title / subtitle /
-    # publisher / summary). Use the publisher to verify summary shape.
     r = await client.get("/catalog/search", params={"q": "Editorial Sudamericana"})
     assert r.status_code == 200
     body = r.json()
     items = body["items"]
     titn_1 = next(item for item in items if item["titn"] == 1)
     assert titn_1["copies_count"] == 2
+
+
+async def test_search_finds_record_by_author_surname(client: AsyncClient) -> None:
+    """Author names are folded into the FTS column via `authors_text`."""
+    r = await client.get("/catalog/search", params={"q": "Márquez"})
+    assert r.status_code == 200
+    body = r.json()
+    titns = {item["titn"] for item in body["items"]}
+    assert {1, 2}.issubset(titns)
+
+
+async def test_search_finds_author_accent_insensitive(client: AsyncClient) -> None:
+    """`spanish_unaccent` should let 'Garcia Marquez' match 'García Márquez'."""
+    r = await client.get("/catalog/search", params={"q": "Garcia Marquez"})
+    assert r.status_code == 200
+    body = r.json()
+    titns = {item["titn"] for item in body["items"]}
+    assert {1, 2}.issubset(titns)
+
+
+async def test_search_by_author_returns_only_their_records(client: AsyncClient) -> None:
+    """An author query must not bleed in records by other authors."""
+    r = await client.get("/catalog/search", params={"q": "Zafón"})
+    assert r.status_code == 200
+    body = r.json()
+    titns = {item["titn"] for item in body["items"]}
+    assert 3 in titns
+    assert 1 not in titns
+    assert 2 not in titns
 
 
 async def test_search_paginates(client: AsyncClient) -> None:

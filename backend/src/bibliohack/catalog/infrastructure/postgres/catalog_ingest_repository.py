@@ -63,6 +63,12 @@ class PostgresCatalogIngestRepository:
         parsed_record: ParsedRecord = parsed  # type: ignore[assignment]
         parsed_copies: list[ParsedCopy] = copies  # type: ignore[assignment]
 
+        # `authors_text` is the denormalised author-name column that feeds
+        # the generated FTS tsvector. The contributors table is still the
+        # source of truth; this is just a cache so we can include authors
+        # in `fts` (a generated column can only see its own row's data).
+        authors_text = _join_authors(parsed_record.authors)
+
         # ── 1. Upsert the bibliographic record ────────────────
         existing = await self._find_record_by_titn(parsed_record.titn)
         if existing is None:
@@ -80,6 +86,7 @@ class PostgresCatalogIngestRepository:
                     summary=None,
                     source_url=source_url,
                     source_hash=source_hash,
+                    authors_text=authors_text,
                 )
             )
             was_new = True
@@ -92,6 +99,7 @@ class PostgresCatalogIngestRepository:
             existing.publisher = parsed_record.publisher
             existing.source_url = source_url
             existing.source_hash = source_hash
+            existing.authors_text = authors_text
             was_new = False
 
         # We need the record row visible to subsequent inserts in this
@@ -177,3 +185,18 @@ class PostgresCatalogIngestRepository:
         stmt = pg_insert(BranchModel).values(rows).on_conflict_do_nothing(index_elements=["code"])
         await self._session.execute(stmt)
         return set(by_code.keys())
+
+
+def _join_authors(authors: tuple[str, ...]) -> str | None:
+    """Collapse the parsed author tuple into a single text blob for FTS.
+
+    Returned value goes into `bibliographic_records.authors_text` and is
+    then folded into the generated `fts` tsvector by Postgres. Returning
+    `None` (rather than an empty string) for records with no authors
+    keeps the column NULL-clean — `coalesce(authors_text, '')` in the
+    SQL expression handles the empty case.
+    """
+    cleaned = tuple(name.strip() for name in authors if name and name.strip())
+    if not cleaned:
+        return None
+    return " ".join(cleaned)

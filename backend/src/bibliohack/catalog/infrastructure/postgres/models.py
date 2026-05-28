@@ -61,6 +61,13 @@ class BibliographicRecordModel(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+    # Denormalised author names (space-joined, in order), kept in sync by
+    # the ingest repository so we can include them in the generated FTS
+    # tsvector below. A Postgres GENERATED column can only reference
+    # columns in its own row, so we cannot pull from `contributors`
+    # directly — `authors_text` is the bridge.
+    authors_text: Mapped[str | None] = mapped_column(Text)
+
     # Generated full-text-search column, populated by Postgres using the
     # Spanish-unaccent configuration seeded in infra/postgres/init/01-extensions.sql.
     fts: Mapped[str] = mapped_column(
@@ -70,7 +77,8 @@ class BibliographicRecordModel(Base):
             "coalesce(title, '') || ' ' || "
             "coalesce(subtitle, '') || ' ' || "
             "coalesce(publisher, '') || ' ' || "
-            "coalesce(summary, ''))",
+            "coalesce(summary, '') || ' ' || "
+            "coalesce(authors_text, ''))",
             persisted=True,
         ),
     )
