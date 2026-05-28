@@ -1,0 +1,14 @@
+M1: AbsysNET URL builder
+
+Pure functions for the four URL shapes the catalog needs to emit:
+- build_record_url(Titn) -- TITN permalink that 302s to a session URL
+- build_search_url(SearchField, terms, branch=None) -- field-keyed search
+  with proper URL-encoding (n-tilde to %C3%B1, etc.)
+- build_expert_url(expression) -- AbsysNET's xsqf99 expert-query language
+- build_new_records_url(since_yyyymmdd) -- daily refresh sweep helper
+
+SearchField StrEnum maps to xsqf01..xsqf99. AbsysnetEndpoints dataclass lets
+the same adapter target a different AbsysNET install for free.
+
+No I/O - just string construction. Fully testable in isolation; covered by
+13 exact-string + hypothesis cases.

@@ -11,14 +11,16 @@ def test_ok_carries_value() -> None:
         case Ok(value):
             assert value == 42
         case Err():
-            raise AssertionError("expected Ok")
+            msg = "expected Ok"
+            raise AssertionError(msg)
 
 
 def test_err_carries_error() -> None:
     result: Result[int, str] = Err(error="boom")
     match result:
         case Ok():
-            raise AssertionError("expected Err")
+            msg = "expected Err"
+            raise AssertionError(msg)
         case Err(error):
             assert error == "boom"
 

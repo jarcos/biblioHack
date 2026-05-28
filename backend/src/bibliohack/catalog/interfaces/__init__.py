@@ -1,1 +1,1 @@
-"""catalog — interfaces layer."""
+"""catalog — interfaces (HTTP routers, CLI commands, jobs)."""

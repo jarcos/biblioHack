@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from hypothesis import given
 from hypothesis import strategies as st
 
 from bibliohack.shared.domain import Identifier
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,11 +38,7 @@ def test_equality_is_by_value() -> None:
 
 
 @given(st.uuids())
-def test_construction_from_uuid_is_idempotent(raw_uuid: object) -> None:
-    # `st.uuids` returns uuid.UUID instances.
-    from uuid import UUID  # noqa: PLC0415  (local import keeps the test scope tight)
-
-    assert isinstance(raw_uuid, UUID)
+def test_construction_from_uuid_is_idempotent(raw_uuid: UUID) -> None:
     ident = _ExampleId(value=raw_uuid)
     assert ident.value == raw_uuid
     assert _ExampleId.from_string(str(ident)) == ident

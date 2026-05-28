@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
+from typing import TYPE_CHECKING
 
 from bibliohack.shared.infrastructure import Settings, get_settings
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def test_defaults_are_safe_for_local_dev(monkeypatch: pytest.MonkeyPatch) -> None:

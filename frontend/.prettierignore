@@ -1,0 +1,11 @@
+# Build output
+dist/
+.astro/
+.output/
+
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+
+# Coverage
+coverage/

@@ -23,8 +23,12 @@ if TYPE_CHECKING:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
-    """Run startup/shutdown hooks once per process."""
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Run startup/shutdown hooks once per process.
+
+    The FastAPI app instance is part of the lifespan signature but we don't
+    need it — settings are pulled from the process-wide cache.
+    """
     settings = get_settings()
     configure_logging(settings)
     log = structlog.get_logger()
@@ -43,8 +47,7 @@ def create_app() -> FastAPI:
         title="biblioHack",
         version=__version__,
         description=(
-            "Reverse catalog and AI-driven recommender for the "
-            "Andalusian public-library network."
+            "Reverse catalog and AI-driven recommender for the Andalusian public-library network."
         ),
         lifespan=lifespan,
     )

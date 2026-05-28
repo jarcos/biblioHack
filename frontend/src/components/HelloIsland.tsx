@@ -14,8 +14,11 @@ type State =
  * Tiny React island that pings the backend's /healthz endpoint and renders the
  * result. Lives here as a smoke test of the wiring; will be replaced by real
  * widgets in later milestones.
+ *
+ * Return type is inferred — explicit JSX.Element / ReactElement only adds
+ * import friction without catching anything mypy-style.
  */
-export default function HelloIsland({ apiBaseUrl }: Props): JSX.Element {
+export default function HelloIsland({ apiBaseUrl }: Props) {
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
@@ -46,9 +49,7 @@ export default function HelloIsland({ apiBaseUrl }: Props): JSX.Element {
         </span>
       )}
       {state.kind === "error" && (
-        <span className="text-rose-700 dark:text-rose-400">
-          ✗ API unreachable: {state.message}
-        </span>
+        <span className="text-rose-700 dark:text-rose-400">✗ API unreachable: {state.message}</span>
       )}
     </div>
   );

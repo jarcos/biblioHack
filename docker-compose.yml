@@ -48,7 +48,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       APP_CORS_ORIGINS: '["http://localhost:4321"]'
     ports:
-      - "8000:8000"
+      # Host 8800 → container 8000. 8000 is often taken by other dev stacks
+      # (finance-app, fastapi tutorials, etc.); 8800 is rarely contended.
+      - "8800:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,10 +67,15 @@ services:
     build:
       context: .
       dockerfile: infra/frontend.Dockerfile
+      args:
+        # Astro inlines PUBLIC_* at build time, so this must be a build arg,
+        # not just runtime env. We still set the env below so any SSR routes
+        # added later (currently none) see the same value.
+        PUBLIC_API_BASE_URL: http://localhost:8800
     container_name: bibliohack-frontend
     restart: unless-stopped
     environment:
-      PUBLIC_API_BASE_URL: http://localhost:8000
+      PUBLIC_API_BASE_URL: http://localhost:8800
     ports:
       - "4321:4321"
     depends_on:

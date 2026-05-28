@@ -53,7 +53,7 @@ make backend-check
 make frontend-check
 
 # 4. Open the hello pages
-open http://localhost:8000/docs        # FastAPI Swagger
+open http://localhost:8800/docs        # FastAPI Swagger
 open http://localhost:4321             # Astro frontend
 ```
 

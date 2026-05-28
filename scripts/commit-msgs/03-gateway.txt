@@ -1,0 +1,17 @@
+M1: polite OpacGateway port + Scrapling-backed adapter
+
+- OpacGateway Protocol: fetch_record(Titn) -> FetchResult with explicit
+  FetchOutcome (OK / NOT_FOUND / TRANSIENT_ERROR / PERMANENT_ERROR) plus
+  typed errors (RecordNotFoundError, OpacUnavailableError, etc.).
+- ScraplingOpacGateway: async, polite, throttled. Scrapling imported lazily
+  inside fetch_record so the API image does not drag in Camoufox/Patchright.
+  Maps Scrapling page results onto FetchResult; distinguishes "record
+  missing" (Spanish marker detection) from "OPAC unreachable" (5xx/timeout).
+  Catches ModuleNotFoundError on the lazy import and re-raises with a
+  user-actionable "uv sync --extra scraper" message.
+- TokenBucket async rate limiter: virtual-clock-injectable for tests;
+  burst + jitter parameters; fair via asyncio.Lock so multiple workers
+  share a single bucket cleanly.
+- 18 tests: state-machine coverage for OK / NOT_FOUND / 4xx / 5xx-retry /
+  exception-retry / retries-exhausted, plus 8 throttle scenarios with a
+  virtual clock so the suite runs in ms despite covering "wait 1 s".

@@ -1,0 +1,20 @@
+M1: catalog & holdings domain model + first Alembic migration
+
+- Catalog domain: BibliographicRecord aggregate + Contributor / Isbn / TITN
+  value objects with invariant checks (blank-title rejection, year bounds,
+  ISBN-10/13 normalisation, blank-name rejection).
+- Holdings domain: Branch (keyed by AbsysNET's natural BranchCode) + Copy
+  entity. Relaxes Entity[IdT]'s generic bound from Identifier to Hashable
+  so aggregates with upstream-owned natural keys fit cleanly.
+- Persistence: shared async engine + session factory; SQLAlchemy 2.0
+  declarative models for bibliographic_records, contributors, subjects,
+  isbns, copies, branches, scrape_tasks, scrape_log. tsvector FTS column
+  populated server-side from the spanish_unaccent text-search config.
+- Alembic: async-aware env, settings-driven URL, single Base metadata.
+  First migration creates all nine tables, six indexes, three Postgres
+  extensions (pg_trgm, unaccent, btree_gin) and the spanish_unaccent FTS
+  configuration. Idempotent / safe on a fresh DB.
+- Makefile: db-upgrade / db-downgrade / db-revision / db-current / db-history.
+- ARCHITECTURE.md updated with sections 6.5-6.8 (discover/scrape/refresh/
+  import vocabulary, discovery strategy, scrape_tasks state machine,
+  scheduling cadences).

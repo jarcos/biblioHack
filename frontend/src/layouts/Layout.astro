@@ -6,8 +6,7 @@ interface Props {
   description?: string;
 }
 
-const { title, description = "Reverse catalog of the Andalusian public libraries." } =
-  Astro.props;
+const { title, description = "Reverse catalog of the Andalusian public libraries." } = Astro.props;
 ---
 
 <!doctype html>
@@ -34,10 +33,12 @@ const { title, description = "Reverse catalog of the Andalusian public libraries
       <slot />
     </main>
 
-    <footer class="border-t border-slate-200 py-6 text-center text-xs text-slate-500 dark:border-slate-800">
+    <footer
+      class="border-t border-slate-200 py-6 text-center text-xs text-slate-500 dark:border-slate-800"
+    >
       <p>
-        Datos públicos de la Red de Bibliotecas Públicas de Andalucía. Proyecto personal sin
-        ánimo de lucro. <a href="https://github.com/" class="underline">Código</a>
+        Datos públicos de la Red de Bibliotecas Públicas de Andalucía. Proyecto personal sin ánimo
+        de lucro. <a href="https://github.com/" class="underline">Código</a>
       </p>
     </footer>
   </body>

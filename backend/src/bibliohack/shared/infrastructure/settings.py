@@ -33,9 +33,7 @@ class Settings(BaseSettings):
 
     # ───── Database ─────
     database_url: str = "postgresql+asyncpg://bibliohack:bibliohack@localhost:5432/bibliohack"
-    database_url_sync: str = (
-        "postgresql+psycopg://bibliohack:bibliohack@localhost:5432/bibliohack"
-    )
+    database_url_sync: str = "postgresql+psycopg://bibliohack:bibliohack@localhost:5432/bibliohack"
 
     # ───── Redis ─────
     redis_url: str = "redis://localhost:6379/0"

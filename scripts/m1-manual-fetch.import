@@ -1,0 +1,28 @@
+Traceback (most recent call last):
+  File "<string>", line 19, in <module>
+  File "/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.12/3.12.13/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "<string>", line 9, in main
+  File "/Users/josearcos/Documents/Claude/Projects/biblioHack/backend/src/bibliohack/catalog/infrastructure/absysnet/gateway.py", line 93, in fetch_record
+    from scrapling.fetchers import StealthyFetcher  # type: ignore[import-not-found]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/josearcos/Documents/Claude/Projects/biblioHack/backend/.venv/lib/python3.12/site-packages/scrapling/fetchers/__init__.py", line 40, in __getattr__
+    module = __import__(module_path, fromlist=[class_name])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/josearcos/Documents/Claude/Projects/biblioHack/backend/.venv/lib/python3.12/site-packages/scrapling/fetchers/stealth_chrome.py", line 4, in <module>
+    from scrapling.engines._browsers._stealth import StealthySession, AsyncStealthySession
+  File "/Users/josearcos/Documents/Claude/Projects/biblioHack/backend/.venv/lib/python3.12/site-packages/scrapling/engines/_browsers/_stealth.py", line 16, in <module>
+    from scrapling.engines._browsers._base import SyncSession, AsyncSession, StealthySessionMixin
+  File "/Users/josearcos/Documents/Claude/Projects/biblioHack/backend/.venv/lib/python3.12/site-packages/scrapling/engines/_browsers/_base.py", line 22, in <module>
+    from scrapling.engines._browsers._validators import validate, PlaywrightConfig, StealthConfig
+  File "/Users/josearcos/Documents/Claude/Projects/biblioHack/backend/.venv/lib/python3.12/site-packages/scrapling/engines/_browsers/_validators.py", line 7, in <module>
+    from msgspec import Struct, Meta, convert, ValidationError
+ModuleNotFoundError: No module named 'msgspec'
+Fetching TITN=1 from the live OPAC...

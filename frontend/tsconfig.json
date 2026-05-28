@@ -15,6 +15,6 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true
   },
-  "include": ["src/**/*", "tests/**/*", "*.config.*", "astro.config.mjs"],
-  "exclude": ["dist", ".astro", "node_modules"]
+  "include": ["src/**/*", "tests/**/*", "astro.config.mjs"],
+  "exclude": ["dist", ".astro", "node_modules", "vitest.config.ts"]
 }

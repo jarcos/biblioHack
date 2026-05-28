@@ -14,7 +14,9 @@ ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never
 
-COPY backend/pyproject.toml backend/uv.lock* ./
+# pyproject.toml + README.md (referenced by `readme = "README.md"`) + lockfile
+# go in the cached layer; src is added on top so source edits don't bust deps.
+COPY backend/pyproject.toml backend/README.md backend/uv.lock* ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev || \
     uv sync --no-install-project --no-dev

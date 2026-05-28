@@ -1,0 +1,27 @@
+M1: AbsysNET HTML parser + real OPAC fixture
+
+AbsysNET embeds MARC-21-flavored fields as <span class="js-T<NNN>"> CSS
+classes in the rendered HTML - way more structured than I'd hoped.
+
+Parser extracts:
+- TITN / T245 (title) / T1XX (author) / T260 (imprint -> publisher +
+  pub_year via the "Place : Publisher, Year" heuristic) / T080 (UDC) /
+  FEPU (pub date YYYYMMDD) / LENG (language)
+- Copies: one ParsedCopy per <div class="copias_data"> block, with branch
+  code (JA23, BIAN, MA15...) and human name.
+
+expected_titn argument lets callers assert the page matches what they
+requested - defence against URL/redirect mismatches.
+
+looks_like_not_found(html) shares the gateway's marker set: "no recupera
+resultados" / "(0 docs.)" (the real OPAC text verified against TITN=99999999),
+plus "no se ha encontrado" / "registro no encontrado" as defensive fallbacks.
+
+Tests: 22 cases, including 7 against the 189 KB real titn_1.html fixture
+(the record from the live OPAC: "0044 y medio IBM y compania Arantza" by
+Bornoy, Pepe, 4 copies across BIAN/JA23/MA03/MA15), publisher cleanup,
+FEPU parsing, implausible-year rejection, and 5 parametrised not-found
+marker detections.
+
+selectolax is small enough to live in core deps so the parser can be used
+by both worker and API.

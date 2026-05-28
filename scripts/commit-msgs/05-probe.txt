@@ -1,0 +1,31 @@
+M1: TITN range probe CLI (gap-tolerant)
+
+- ProbeTitnRange use case: exponential expansion (cursor *= 4 starting at
+  1024) until a missing TITN brackets the range, then binary search to
+  converge. Returns ProbeResult { highest_existing, lowest_missing,
+  fetches_used }.
+- Gap tolerance during expansion: when a probe returns NOT_FOUND, sniff
+  up to 10 neighbours above before accepting it as the boundary. The real
+  OPAC has small sequence gaps (TITN=16 does not exist but TITN=17 does;
+  TITN=4096 missing but TITN=4097 exists). Without this, the first gap
+  would silently terminate the search at a wrong answer.
+- Binary search uses plain probes (no gap tolerance) - a false NOT_FOUND
+  at the boundary only shifts the result by one, vs. the exponential cost
+  blow-up when half of bisection probes naturally return NOT_FOUND.
+- typer-based bibliohack CLI scaffolding (interfaces/cli/app.py) with
+  global --verbose flag and version subcommand. catalog subcommand group
+  registers probe-titn-range with --hard-max and --rate flags.
+- pyproject scripts entry: bibliohack console_script.
+- Makefile: probe-titn (with auto sync --extra scraper),
+  scraper-install-browsers (Camoufox + Patchright Chromium, ~600MB total).
+- 10 new tests with a sparse-catalog FakeGateway: gap-skip, boundary-after-
+  gap, hard_max clamping, callback hook (sync + async).
+
+Several smaller fixes folded in: friendly error in gateway when scrapling
+is not installed; verify-m0.sh now syncs --all-extras; .gitignore covers
+the stray backend/asyncio file and scripts/*.log; CORS / port migrations
+to 8800 (8000 conflicted with finance-app on the dev machine); Astro
+PUBLIC_API_BASE_URL injected at build time via build args; many
+formatting / TC001 / ruff 0.15 nits across previously-touched files.
+
+Closes tasks 22, 23, 24, 25 + the M1.5 gap-tolerance follow-up.

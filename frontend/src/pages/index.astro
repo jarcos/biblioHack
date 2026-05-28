@@ -11,19 +11,19 @@ const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8000
       Catálogo inverso de la Biblioteca Provincial de Huelva
     </h1>
     <p class="max-w-2xl text-base text-slate-600 dark:text-slate-400">
-      Proyecto personal. Espejo del catálogo público de la Red de Bibliotecas Públicas de
-      Andalucía con búsqueda semántica y recomendador basado en tu historial de lecturas.
+      Proyecto personal. Espejo del catálogo público de la Red de Bibliotecas Públicas de Andalucía
+      con búsqueda semántica y recomendador basado en tu historial de lecturas.
     </p>
 
-    <div class="rounded-lg border border-slate-200 bg-slate-50 p-6 dark:border-slate-800 dark:bg-slate-900">
+    <div
+      class="rounded-lg border border-slate-200 bg-slate-50 p-6 dark:border-slate-800 dark:bg-slate-900"
+    >
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         API status
       </h2>
       <HelloIsland client:load apiBaseUrl={apiBaseUrl} />
     </div>
 
-    <p class="text-xs text-slate-500">
-      M0 — Foundations. Catalog ingest lands in M1.
-    </p>
+    <p class="text-xs text-slate-500">M0 — Foundations. Catalog ingest lands in M1.</p>
   </section>
 </Layout>

@@ -1,19 +1,12 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ["./src/**/*.{astro,html,js,jsx,md,mdx,ts,tsx}"],
-  theme: {
-    extend: {
-      fontFamily: {
-        sans: [
-          "Inter",
-          "system-ui",
-          "-apple-system",
-          "Segoe UI",
-          "Roboto",
-          "sans-serif",
-        ],
-      },
+    content: ["./src/**/*.{astro,html,js,jsx,md,mdx,ts,tsx}"],
+    theme: {
+        extend: {
+            fontFamily: {
+                sans: ["Inter", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
+            },
+        },
     },
-  },
-  plugins: [],
+    plugins: [],
 };

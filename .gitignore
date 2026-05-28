@@ -77,3 +77,11 @@ data/embeddings/
 # Local scratch files
 scratch/
 tmp/
+
+# Accidental script outputs from heredoc mishaps during development.
+# (e.g. `python -c "import asyncio…"` getting redirected into a file
+# literally named `asyncio` instead of executing.)
+backend/asyncio
+
+# scripts/*.log: verification + diagnostic outputs are dev-only artefacts.
+scripts/*.log
