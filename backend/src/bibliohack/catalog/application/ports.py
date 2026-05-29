@@ -263,6 +263,10 @@ class IngestResult:
     was_new: bool  # False on re-scrape
     copies_persisted: int
     branches_seen: int
+    # M2 — number of availability_snapshots rows actually inserted by this
+    # call. Zero when the ingest repository wasn't wired with a snapshot
+    # repository (e.g. legacy tests) or when there were no copies.
+    snapshots_persisted: int = 0
 
 
 class CatalogReadRepository(Protocol):

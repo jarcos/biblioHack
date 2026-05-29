@@ -62,14 +62,29 @@ class ParsedRecord:
 
 @dataclass(frozen=True, slots=True)
 class ParsedCopy:
-    """A single copy / ejemplar held by some branch."""
+    """A single copy / ejemplar held by some branch.
+
+    M2 extends this with per-ejemplar data scraped from the inner
+    accordion table:
+
+    - `signature` — the physical call number (e.g. ``"N ARS roh"``).
+    - `barcode`   — the local barcode used by the loan system.
+    - `raw_status` — the OPAC's literal `data-disp` value
+      (``"Disponible"``, ``"Prestado"``, ``"En inventario"``, ...).
+      The availability bounded context maps this to its domain enum.
+
+    All three are optional because some bibliotecas don't expose per-
+    ejemplar rows (e.g. virtual / digital copies show only the
+    biblioteca header). In that case we still emit a ParsedCopy so
+    the holdings layer knows the record is present at that branch,
+    just without ejemplar-level detail.
+    """
 
     branch_code: str
     branch_name: str
-    # Detailed per-copy fields (signature, barcode) are not exposed in the
-    # main record page — they're loaded into the accordion on demand. We
-    # capture what's available now; extend in a later commit when we drive
-    # the accordion open.
+    signature: str | None = None
+    barcode: str | None = None
+    raw_status: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,27 +276,82 @@ def _extract_pub_year(tree: HTMLParser) -> int | None:
 
 
 def _parse_copies(tree: HTMLParser) -> list[ParsedCopy]:
-    """One ParsedCopy per `<div class="copias_data js-copias_data">` block.
+    """Walk every `<div class="copias_data js-copias_data">` block and
+    emit one ParsedCopy per ejemplar (per ``<tr data-disp="…">`` row).
 
-    Each block carries an `id="copias_bib<CODE>"` and a `<span>Biblioteca:</span>
-    <span>NAME</span>` pair.
+    HTML structure (simplified):
+
+        <div class="copias_data js-copias_data">
+            <h3 id="copias_bibBIAN"><span>Biblioteca de Andalucía</span></h3>
+            <div class="copias_accordion">
+                <div class="c-accordion_item">
+                    <button id="copias_accordionBtn_900">…</button>
+                    <section><table data-code="900" …>
+                        <tbody>
+                            <tr data-disp="Disponible">
+                                …<a data-sign="3-B-522" data-bc="7555638">…
+                                <td class="copias_tableDisp">…<span>Disponible</span>
+                            </tr>
+                            …more ejemplares…
+                        </tbody>
+                    </table></section>
+                </div>
+            </div>
+        </div>
+
+    If a biblioteca block has no ejemplar rows (virtual-only items, or
+    closed sucursales) we still emit one synthetic ParsedCopy with the
+    biblioteca code/name so the holdings layer knows the record is
+    present at that branch — just without per-ejemplar detail.
     """
     out: list[ParsedCopy] = []
-    seen_codes: set[str] = set()
+    seen_keys: set[tuple[str, str | None]] = set()
 
     for block in tree.css(".copias_data.js-copias_data"):
-        # Branch code lives in any descendant with id="copias_bib<CODE>".
-        code = _branch_code_from_block(block.html or "")
-        if not code or code in seen_codes:
+        block_html = block.html or ""
+        code = _branch_code_from_block(block_html)
+        name = _branch_name_from_block(block_html)
+        if not code or not name:
             continue
-        # Branch name: first <span> after <span class="h-hdd">Biblioteca:</span>.
-        name = _branch_name_from_block(block.html or "")
-        if not name:
+
+        ejemplares = _parse_ejemplares_in_block(block_html)
+        if not ejemplares:
+            # No per-ejemplar rows — keep the biblioteca presence marker.
+            placeholder_key: tuple[str, str | None] = (code, None)
+            if placeholder_key not in seen_keys:
+                seen_keys.add(placeholder_key)
+                out.append(ParsedCopy(branch_code=code, branch_name=name))
             continue
-        seen_codes.add(code)
-        out.append(ParsedCopy(branch_code=code, branch_name=name))
+
+        for ej in ejemplares:
+            # De-dupe within a block by (code, barcode). Without a barcode
+            # we fall back to (code, signature) since a real OPAC always
+            # exposes at least one of the two.
+            uniq = ej.barcode or ej.signature
+            key: tuple[str, str | None] = (code, uniq)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            out.append(
+                ParsedCopy(
+                    branch_code=code,
+                    branch_name=name,
+                    signature=ej.signature,
+                    barcode=ej.barcode,
+                    raw_status=ej.raw_status,
+                )
+            )
 
     return out
+
+
+@dataclass(frozen=True, slots=True)
+class _EjemplarRow:
+    """Internal helper — the per-row fields extracted from one ``<tr data-disp>``."""
+
+    signature: str | None
+    barcode: str | None
+    raw_status: str | None
 
 
 _BRANCH_ID_RE = re.compile(r'id="copias_bib([A-Za-z0-9]+)"')
@@ -289,6 +359,32 @@ _BRANCH_NAME_RE = re.compile(
     r'<span class="h-hdd">Biblioteca:\s*</span>\s*<span[^>]*>([^<]+)</span>',
     re.IGNORECASE,
 )
+
+# `<tr data-disp="...">...</tr>` — non-greedy body capture so adjacent rows
+# don't get swallowed. We don't try to be clever about nested <table>s
+# (AbsysNET doesn't nest them inside ejemplar rows).
+_EJEMPLAR_TR_RE = re.compile(
+    r'<tr\s+data-disp="([^"]+)"[^>]*>(.*?)</tr>',
+    re.IGNORECASE | re.DOTALL,
+)
+_SIGN_ATTR_RE = re.compile(r'data-sign="([^"]+)"', re.IGNORECASE)
+_BC_ATTR_RE = re.compile(r'data-bc="([^"]+)"', re.IGNORECASE)
+
+
+def _parse_ejemplares_in_block(block_html: str) -> list[_EjemplarRow]:
+    """Pull every ejemplar row out of one biblioteca block."""
+    rows: list[_EjemplarRow] = []
+    for disp, body in _EJEMPLAR_TR_RE.findall(block_html):
+        sig_m = _SIGN_ATTR_RE.search(body)
+        bc_m = _BC_ATTR_RE.search(body)
+        rows.append(
+            _EjemplarRow(
+                signature=(sig_m.group(1).strip() if sig_m else None) or None,
+                barcode=(bc_m.group(1).strip() if bc_m else None) or None,
+                raw_status=(disp.strip() or None),
+            )
+        )
+    return rows
 
 
 def _single_char_or_none(value: str | None) -> str | None:

@@ -10,6 +10,9 @@ from typing import TYPE_CHECKING
 
 import typer
 
+from bibliohack.availability.infrastructure.postgres.availability_snapshot_repository import (
+    PostgresAvailabilitySnapshotRepository,
+)
 from bibliohack.catalog.application.use_cases.probe_titn_range import (
     DEFAULT_HARD_MAX,
     ProbeTitnRange,
@@ -261,9 +264,13 @@ async def _run_worker(
     # task can't poison the entire run — failures roll back just that step.
     async def step_factory() -> AsyncIterator[ScrapeOneTask]:
         async with transactional_session() as session:
+            availability_repo = PostgresAvailabilitySnapshotRepository(session)
+            ingest_repo = PostgresCatalogIngestRepository(
+                session, availability_repository=availability_repo
+            )
             yield ScrapeOneTask(
                 task_repository=PostgresScrapeTaskRepository(session),
-                ingest_repository=PostgresCatalogIngestRepository(session),
+                ingest_repository=ingest_repo,
                 gateway=gateway,
                 media_filter=media_filter,
             )

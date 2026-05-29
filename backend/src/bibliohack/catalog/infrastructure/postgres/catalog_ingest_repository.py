@@ -6,13 +6,16 @@ This is the single load-bearing write path for the worker. Each call:
 2. Replaces the record's child rows: `contributors`, `subjects`, `isbns`.
 3. Upserts any new `branches` referenced by the parsed copies (INSERT ...
    ON CONFLICT DO NOTHING).
-4. Replaces the record's `copies` rows.
+4. Replaces the record's `copies` rows — one per parsed ejemplar, with
+   signature + barcode.
+5. Records one `availability_snapshots` row per copy reflecting the
+   ejemplar's loan status at observation time (M2 foundation).
 
-Replacement (delete-then-insert) rather than diffing is the right MVP for
-M1: the upstream catalog isn't that volatile, the child counts are small
-per record (≤10), and we'd rather have simple obviously-correct code than
-clever diff logic that we'd want to throw away once availability tracking
-(M2) gives us first-class history.
+Replacement (delete-then-insert) for catalog/holdings rows rather than
+diffing: the upstream catalog isn't that volatile, child counts are small
+per record (≤10 ejemplares), and we'd rather have simple obviously-correct
+code than clever diff logic. Availability is append-only — every scrape
+gives us a fresh observation in the time series.
 
 Runs inside the caller's session — `mark_parsed` on the scrape task and
 this upsert ride the same transaction so they commit or roll back together.
@@ -20,12 +23,15 @@ this upsert ride the same transaction so they commit or roll back together.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from bibliohack.availability.domain.snapshot import AvailabilitySnapshot
+from bibliohack.availability.domain.status import map_opac_status
 from bibliohack.catalog.application.ports import IngestResult
 
 if TYPE_CHECKING:
@@ -39,6 +45,7 @@ from bibliohack.catalog.infrastructure.postgres.models import (
 from bibliohack.holdings.infrastructure.postgres.models import BranchModel, CopyModel
 
 if TYPE_CHECKING:
+    from bibliohack.availability.application.ports import AvailabilitySnapshotRepository
     from bibliohack.catalog.infrastructure.absysnet.parser import (
         ParsedCopy,
         ParsedRecord,
@@ -46,10 +53,23 @@ if TYPE_CHECKING:
 
 
 class PostgresCatalogIngestRepository:
-    """Concrete `CatalogIngestRepository` backed by SQLAlchemy."""
+    """Concrete `CatalogIngestRepository` backed by SQLAlchemy.
 
-    def __init__(self, session: AsyncSession) -> None:
+    Optionally takes an :class:`AvailabilitySnapshotRepository` — when
+    provided, each scrape drops one snapshot per persisted copy in the
+    same transaction. Passing ``None`` keeps the catalog/holdings write
+    path intact but skips availability tracking (useful in tests that
+    don't care about it).
+    """
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        availability_repository: AvailabilitySnapshotRepository | None = None,
+    ) -> None:
         self._session = session
+        self._availability = availability_repository
 
     async def persist_parsed_record(
         self,
@@ -112,18 +132,37 @@ class PostgresCatalogIngestRepository:
         # ── 3. Upsert branches referenced by the parsed copies ────────
         branch_codes_seen = await self._upsert_branches(parsed_copies)
 
-        # ── 4. Replace copies for this record ─────────────────────────
+        # ── 4. Replace copies for this record (one row per ejemplar) ──
         await self._session.execute(delete(CopyModel).where(CopyModel.record_id == record_id))
+        observed_at = datetime.now(tz=UTC)
+        copy_ids_with_status: list[tuple[UUID, ParsedCopy]] = []
         for copy in parsed_copies:
+            copy_id = uuid4()
             self._session.add(
                 CopyModel(
-                    id=uuid4(),
+                    id=copy_id,
                     record_id=record_id,
                     branch_code=copy.branch_code,
+                    signature=copy.signature,
+                    barcode=copy.barcode,
                 )
             )
+            copy_ids_with_status.append((copy_id, copy))
 
         await self._session.flush()
+
+        # ── 5. Drop one availability snapshot per copy ────────────────
+        snapshots_persisted = 0
+        if self._availability is not None and copy_ids_with_status:
+            snapshots = [
+                AvailabilitySnapshot(
+                    copy_id=cid,
+                    observed_at=observed_at,
+                    status=map_opac_status(copy.raw_status),
+                )
+                for cid, copy in copy_ids_with_status
+            ]
+            snapshots_persisted = await self._availability.record(snapshots)
 
         return IngestResult(
             record_id=str(record_id),
@@ -131,6 +170,7 @@ class PostgresCatalogIngestRepository:
             was_new=was_new,
             copies_persisted=len(parsed_copies),
             branches_seen=len(branch_codes_seen),
+            snapshots_persisted=snapshots_persisted,
         )
 
     # ───────────────────────────────────────────────────────────

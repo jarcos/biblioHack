@@ -170,11 +170,12 @@ class ScrapeOneTask:
         await self._tasks.mark_parsed(task.titn, source_hash=source_hash)
 
         log.info(
-            "scrape.persisted titn=%d record_id=%s was_new=%s copies=%d",
+            "scrape.persisted titn=%d record_id=%s was_new=%s copies=%d snapshots=%d",
             int(task.titn),
             ingest.record_id,
             ingest.was_new,
             ingest.copies_persisted,
+            ingest.snapshots_persisted,
         )
 
         return ScrapeStepResult(outcome=ScrapeStepOutcome.PERSISTED, titn=int(task.titn))

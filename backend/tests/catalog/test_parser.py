@@ -79,6 +79,90 @@ def test_parses_all_branches_from_real_fixture(titn_1_html: str) -> None:
     assert "MA15" in branch_codes  # Fuengirola (Málaga)
 
 
+def test_parses_per_ejemplar_signature_and_barcode(titn_1_html: str) -> None:
+    """Each ejemplar row exposes a `data-sign` / `data-bc` pair on its link."""
+    result = parse_record_html(titn_1_html)
+    by_branch = {c.branch_code: c for c in result.copies}
+    # From the fixture: BIAN → signature 3-B-522, barcode 7555638.
+    assert by_branch["BIAN"].signature == "3-B-522"
+    assert by_branch["BIAN"].barcode == "7555638"
+    # And the Frailes (JA23) ejemplar has its own signature/barcode.
+    assert by_branch["JA23"].signature == "J-N SAL cab"
+    assert by_branch["JA23"].barcode == "9593489"
+
+
+def test_parses_raw_status_from_data_disp_attribute(titn_1_html: str) -> None:
+    """The `data-disp` attribute on each `<tr>` carries the loan status."""
+    result = parse_record_html(titn_1_html)
+    by_branch = {c.branch_code: c for c in result.copies}
+    # Three "Disponible" and one "En inventario" in this fixture.
+    assert by_branch["BIAN"].raw_status == "Disponible"
+    assert by_branch["JA23"].raw_status == "En inventario"
+    assert by_branch["MA03"].raw_status == "Disponible"
+    assert by_branch["MA15"].raw_status == "Disponible"
+
+
+def test_emits_one_copy_per_ejemplar_row() -> None:
+    """If a biblioteca has 3 ejemplares, we emit 3 ParsedCopy rows."""
+    # `<a>` lives inside `<td>` because HTML5 foster-parenting moves bare
+    # `<a>` children of `<tr>` out of the table. The real OPAC's nesting
+    # is already <tr><td>...<a>...</a></td></tr>.
+    html = """
+    <html><body>
+      <span class="js-TITN">7</span>
+      <span class="js-T245">Multi-copy book</span>
+      <div class="copias_data js-copias_data">
+        <h3 id="copias_bibHU01">
+          <span class="h-hdd">Biblioteca: </span>
+          <span>Biblioteca Provincial de Huelva</span>
+        </h3>
+        <table data-code="100">
+          <tbody>
+            <tr data-disp="Disponible"><td><a data-sign="A 1" data-bc="111"></a></td></tr>
+            <tr data-disp="Prestado"><td><a data-sign="A 2" data-bc="222"></a></td></tr>
+            <tr data-disp="Disponible"><td><a data-sign="A 3" data-bc="333"></a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    statuses = sorted(c.raw_status or "" for c in result.copies)
+    barcodes = sorted(c.barcode or "" for c in result.copies)
+    assert len(result.copies) == 3
+    assert statuses == ["Disponible", "Disponible", "Prestado"]
+    assert barcodes == ["111", "222", "333"]
+    # All three share the same biblioteca.
+    assert {c.branch_code for c in result.copies} == {"HU01"}
+
+
+def test_biblioteca_block_with_no_ejemplar_rows_still_emits_one_copy() -> None:
+    """A biblioteca shown in the OPAC but with no expanded ejemplar table
+    (e.g. virtual / digital copies) should still produce a placeholder
+    ParsedCopy with raw_status=None."""
+    html = """
+    <html><body>
+      <span class="js-TITN">8</span>
+      <span class="js-T245">Virtual-only book</span>
+      <div class="copias_data js-copias_data">
+        <h3 id="copias_bibVIRT">
+          <span class="h-hdd">Biblioteca: </span>
+          <span>eBiblio</span>
+        </h3>
+        <!-- no <table> inside, no rows -->
+      </div>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert len(result.copies) == 1
+    only = result.copies[0]
+    assert only.branch_code == "VIRT"
+    assert only.branch_name == "eBiblio"
+    assert only.signature is None
+    assert only.barcode is None
+    assert only.raw_status is None
+
+
 def test_expected_titn_assertion_matches(titn_1_html: str) -> None:
     # Defensive check passes when the page actually contains the expected TITN.
     result = parse_record_html(titn_1_html, expected_titn=Titn(1))

@@ -6,6 +6,7 @@ CREATE EXTENSION IF NOT EXISTS vector;       -- pgvector: embeddings
 CREATE EXTENSION IF NOT EXISTS pg_trgm;      -- trigram similarity for fuzzy match
 CREATE EXTENSION IF NOT EXISTS unaccent;     -- Spanish FTS with accent folding
 CREATE EXTENSION IF NOT EXISTS btree_gin;    -- mixed btree + GIN indexes
+CREATE EXTENSION IF NOT EXISTS timescaledb;  -- TimescaleDB hypertables (M2 availability)
 
 -- A simple FTS configuration that strips Spanish accents.
 -- We don't materialise this here — the catalog migrations in M1 will create

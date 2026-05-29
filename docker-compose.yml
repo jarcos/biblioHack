@@ -3,7 +3,11 @@
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    # `timescale/timescaledb-ha:pg16` bundles TimescaleDB (M2 availability
+    # snapshots use a hypertable) together with pgvector (M3 embeddings).
+    # Runs as a drop-in for the official Postgres image: same POSTGRES_*
+    # env vars, same docker-entrypoint-initdb.d convention.
+    image: timescale/timescaledb-ha:pg16
     container_name: bibliohack-postgres
     restart: unless-stopped
     environment:

@@ -1,0 +1,106 @@
+M2 foundation — per-ejemplar copies + availability snapshots
+
+First slice of the M2 milestone (availability history). Every catalog
+scrape now records a per-ejemplar copy row and drops one
+availability_snapshot per copy in the same transaction, so the
+existing M1 worker becomes a free firehose of time-series data — no
+new probe job required for the baseline observation stream.
+
+Decisions confirmed with the user before writing code:
+- Foundation scope only (no hourly probe job yet, no UI badge).
+- Postgres-native storage via a TimescaleDB hypertable (we'll see if
+  query latency demands TS-specific features later).
+- Replace the M1 copies pattern (one synthetic row per branch with
+  NULL signature/barcode) with one row per real ejemplar.
+
+Adds:
+
+- infra/postgres/init/01-extensions.sql + docker-compose.yml + CI:
+  Swapped the Postgres image from `pgvector/pgvector:pg16` to
+  `timescale/timescaledb-ha:pg16`. The HA image is a drop-in for the
+  postgres image (same POSTGRES_* env vars, same docker-entrypoint-
+  initdb.d convention) and ships TimescaleDB 2.27.1, pgvector 0.8.2,
+  pg_trgm, unaccent, and btree_gin in one container.
+
+- alembic/versions/20260529_0002_m2_availability_foundation.py:
+  - `CREATE EXTENSION timescaledb` (idempotent).
+  - Partial unique index `ux_copies_record_barcode` on
+    (record_id, barcode) WHERE barcode IS NOT NULL — barcodes are the
+    library system's natural ID; the partial WHERE lets virtual /
+    digital copies (NULL barcode) coexist.
+  - New `availability_snapshots(copy_id, observed_at, status,
+    raw_status, due_back_at)` table, PK on (copy_id, observed_at),
+    converted to a hypertable via `create_hypertable(…, chunk_time_
+    interval => INTERVAL '7 days')`. Index on `status` for
+    cohort-style queries.
+
+- availability/ bounded context (new):
+  - domain/status.py — `AvailabilityStatus` StrEnum
+    (available | loaned | reserved | unavailable | unknown) plus
+    `map_opac_status()` that maps the OPAC's literal `data-disp`
+    strings to the enum. Unknown values land in UNKNOWN; the raw
+    string is preserved on the snapshot so we can audit mapping
+    drift.
+  - domain/snapshot.py — `AvailabilitySnapshot` frozen dataclass
+    (copy_id, observed_at, status, due_back_at).
+  - application/ports.py — `AvailabilitySnapshotRepository` protocol
+    with `record(snapshots) -> int` (idempotent on the PK).
+  - infrastructure/postgres/models.py — SQLAlchemy model for the
+    hypertable.
+  - infrastructure/postgres/availability_snapshot_repository.py —
+    concrete impl using `ON CONFLICT DO NOTHING ... RETURNING copy_id`
+    so the caller learns how many snapshots actually landed (vs.
+    were dedupe-rejected at the same observed_at second).
+
+- catalog/infrastructure/absysnet/parser.py:
+  `ParsedCopy` grows three optional fields: `signature`, `barcode`,
+  `raw_status`. The copy walker now descends into the inner accordion
+  tables and emits one ParsedCopy per `<tr data-disp="…">` row,
+  reading `data-sign` / `data-bc` off the row's child link and the
+  loan status off the row's own attribute. Bibliotecas with no
+  expanded ejemplar rows still emit one placeholder ParsedCopy so the
+  holdings layer knows the record is present at that branch.
+
+- catalog/infrastructure/postgres/catalog_ingest_repository.py:
+  Now accepts an optional `availability_repository` kwarg. When
+  wired, `persist_parsed_record()` writes per-ejemplar copy rows
+  (with signature + barcode) and then drops one AvailabilitySnapshot
+  per copy in the same transaction. Without the kwarg (legacy tests),
+  ingest works exactly as before.
+
+- catalog/application/ports.py:
+  `IngestResult` gains `snapshots_persisted: int = 0`.
+
+- catalog/interfaces/cli.py + scrape_one_task.py:
+  The worker composition root now constructs the snapshot repo and
+  hands it to the ingest repo. The persist log line surfaces
+  `snapshots=N`.
+
+Tests (+26, full suite now 226 passing at 87.35% coverage):
+- tests/availability/test_status_mapping.py — 16 cases covering
+  the known OPAC strings, accent-insensitive variants, empty/None,
+  and the UNKNOWN fallback.
+- tests/availability/test_availability_snapshot_repository.py —
+  4 testcontainers cases: bulk insert, idempotency on the PK,
+  due_back_at persistence, empty-input no-op.
+- tests/availability/test_ingest_records_snapshots.py —
+  end-to-end ingest with the snapshot repo wired drops one snapshot
+  per copy, with status mapped to the domain enum.
+- tests/catalog/test_parser.py — 4 new cases verifying per-ejemplar
+  signature/barcode extraction, raw_status capture, multi-ejemplar
+  emit, and the no-ejemplar placeholder.
+
+Known limitations (deliberate, deferred):
+- No hourly availability probe yet. The baseline observation comes
+  from each M1 scrape; a dedicated probe for the "hot subset" of
+  currently-loaned copies lands in a follow-up.
+- No public read endpoint that surfaces per-copy availability yet.
+  Adding it to /catalog/records/{titn} is a natural next commit.
+- The mapping table for `data-disp` strings is best-effort — values
+  not in the table land in UNKNOWN, but the raw column on the
+  snapshot is currently `None` (the repo doesn't yet thread the
+  original string through). Cheap fix when we wire the probe and
+  start caring about audit drift.
+
+Verified live on the dockerised image: all 226 tests pass, ruff /
+format / mypy clean.

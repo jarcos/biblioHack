@@ -19,7 +19,10 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        # Bundles TimescaleDB (M2 availability hypertable) + pgvector (M3
+        # embeddings) + pg_trgm / unaccent / btree_gin. Drop-in for the
+        # postgres image: same POSTGRES_* env vars, same init scripts.
+        image: timescale/timescaledb-ha:pg16
         env:
           POSTGRES_USER: bibliohack
           POSTGRES_PASSWORD: bibliohack

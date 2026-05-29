@@ -65,7 +65,7 @@ pytestmark = pytest.mark.integration
 
 @pytest_asyncio.fixture(scope="module")
 async def postgres_container() -> AsyncIterator[PostgresContainer]:
-    container = PostgresContainer(image="pgvector/pgvector:pg16")
+    container = PostgresContainer(image="timescale/timescaledb-ha:pg16")
     container.start()
     try:
         yield container

@@ -1,8 +1,9 @@
 """Integration tests for `PostgresScrapeTaskRepository`.
 
-We run against a real Postgres via testcontainers — `pgvector/pgvector:pg16`
-matches what we use in docker-compose. The migration is applied with
-Alembic so the schema is exactly what production sees.
+We run against a real Postgres via testcontainers — `timescale/timescaledb-ha:pg16`
+matches what we use in docker-compose (bundles TimescaleDB + pgvector).
+The migration is applied with Alembic so the schema is exactly what
+production sees.
 
 Marked `integration` so quick CI runs can skip them; full CI applies them.
 """
@@ -40,7 +41,7 @@ pytestmark = pytest.mark.integration
 
 @pytest_asyncio.fixture(scope="module")
 async def postgres_container() -> AsyncIterator[PostgresContainer]:
-    container = PostgresContainer(image="pgvector/pgvector:pg16")
+    container = PostgresContainer(image="timescale/timescaledb-ha:pg16")
     container.start()
     try:
         yield container
