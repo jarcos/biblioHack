@@ -1,0 +1,27 @@
+---
+/**
+ * Container — page layout primitive. Centers content, caps width at
+ * 72rem (matches Tailwind config), applies horizontal padding that
+ * scales with viewport.
+ *
+ * Usage in pages:
+ *
+ *   <Container>
+ *     <h1>Title</h1>
+ *     ...
+ *   </Container>
+ *
+ * Supports an optional `as` prop for semantic wrappers (e.g. `<main>`,
+ * `<article>`, `<section>`) without losing the layout styles.
+ */
+interface Props {
+  as?: "div" | "main" | "section" | "article";
+  class?: string;
+}
+
+const { as: Tag = "div", class: extraClass = "" } = Astro.props;
+---
+
+<Tag class={`container mx-auto px-6 ${extraClass}`}>
+  <slot />
+</Tag>

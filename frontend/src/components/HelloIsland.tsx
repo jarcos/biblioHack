@@ -41,15 +41,13 @@ export default function HelloIsland({ apiBaseUrl }: Props) {
   }, [apiBaseUrl]);
 
   return (
-    <div className="mt-2 font-mono text-sm">
-      {state.kind === "loading" && <span className="text-slate-500">pinging API…</span>}
+    <div className="font-mono text-sm">
+      {state.kind === "loading" && <span className="text-muted-foreground">pinging API…</span>}
       {state.kind === "ok" && (
-        <span className="text-emerald-700 dark:text-emerald-400">
-          ✓ API ok — version {state.health.version}
-        </span>
+        <span className="text-status-available">✓ API ok — version {state.health.version}</span>
       )}
       {state.kind === "error" && (
-        <span className="text-rose-700 dark:text-rose-400">✗ API unreachable: {state.message}</span>
+        <span className="text-destructive">✗ API unreachable: {state.message}</span>
       )}
     </div>
   );

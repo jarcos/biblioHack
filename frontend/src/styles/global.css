@@ -1,13 +1,141 @@
+/* biblioHack design system — tokens + base styles.
+ *
+ * All colors are declared as HSL channel triples (e.g. `40 25% 97%`) and
+ * consumed via `hsl(var(--bg))` so we can swap themes by flipping the
+ * `dark` class on <html>. The Tailwind config maps each semantic name to
+ * the matching variable.
+ *
+ * Typography:
+ * - `font-sans`  → Inter Variable (UI, body, labels)
+ * - `font-serif` → Source Serif 4 Variable (display, headings, prose)
+ * Both ship as variable fonts so we get the full weight/style range
+ * from a single woff2 each.
+ *
+ * Palette: warm off-white in light mode, deep warm-near-black in dark.
+ * Accent is a forest-green that reads "library / Andalucía" rather
+ * than the SaaS-blue everyone uses.
+ */
+
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/source-serif-4";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
     :root {
-        color-scheme: light dark;
+        /* Light theme — warm editorial palette */
+        --background: 40 25% 97%; /* warm off-white */
+        --foreground: 30 10% 15%; /* warm near-black */
+
+        --muted: 35 15% 92%;
+        --muted-foreground: 30 5% 40%;
+
+        --card: 40 25% 99%;
+        --card-foreground: 30 10% 15%;
+
+        --popover: 40 25% 99%;
+        --popover-foreground: 30 10% 15%;
+
+        --border: 35 10% 88%;
+        --input: 35 10% 88%;
+        --ring: 154 50% 22%;
+
+        --primary: 154 50% 22%; /* forest green */
+        --primary-foreground: 40 25% 97%;
+
+        --secondary: 35 15% 92%;
+        --secondary-foreground: 30 10% 15%;
+
+        --accent: 35 15% 92%;
+        --accent-foreground: 30 10% 15%;
+
+        --destructive: 0 65% 45%;
+        --destructive-foreground: 40 25% 97%;
+
+        /* Status colors used by Badge variants for AvailabilityStatus */
+        --status-available: 154 50% 30%;
+        --status-loaned: 25 80% 45%;
+        --status-reserved: 220 50% 45%;
+        --status-unavailable: 0 0% 45%;
+        --status-unknown: 0 0% 60%;
+
+        --radius: 0.5rem;
+        color-scheme: light;
+    }
+
+    .dark {
+        /* Dark theme — deep warm near-black with the same forest accent */
+        --background: 30 8% 9%;
+        --foreground: 40 20% 92%;
+
+        --muted: 30 6% 16%;
+        --muted-foreground: 35 8% 65%;
+
+        --card: 30 8% 11%;
+        --card-foreground: 40 20% 92%;
+
+        --popover: 30 8% 11%;
+        --popover-foreground: 40 20% 92%;
+
+        --border: 30 6% 20%;
+        --input: 30 6% 20%;
+        --ring: 154 45% 50%;
+
+        --primary: 154 45% 55%;
+        --primary-foreground: 30 8% 9%;
+
+        --secondary: 30 6% 16%;
+        --secondary-foreground: 40 20% 92%;
+
+        --accent: 30 6% 16%;
+        --accent-foreground: 40 20% 92%;
+
+        --destructive: 0 60% 50%;
+        --destructive-foreground: 40 20% 92%;
+
+        --status-available: 154 50% 55%;
+        --status-loaned: 25 75% 60%;
+        --status-reserved: 220 60% 65%;
+        --status-unavailable: 0 0% 60%;
+        --status-unknown: 0 0% 50%;
+
+        color-scheme: dark;
+    }
+
+    * {
+        @apply border-border;
+    }
+
+    html {
+        font-family:
+            "Inter Variable",
+            ui-sans-serif,
+            system-ui,
+            -apple-system,
+            sans-serif;
     }
 
     body {
-        @apply min-h-screen bg-white text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+        @apply min-h-screen bg-background text-foreground antialiased;
+        font-feature-settings:
+            "rlig" 1,
+            "calt" 1,
+            "ss01" 1;
+    }
+
+    h1,
+    h2,
+    h3 {
+        font-family: "Source Serif 4 Variable", ui-serif, Georgia, "Times New Roman", serif;
+        font-feature-settings: "kern" 1;
+        @apply text-foreground;
+        line-height: 1.15;
+        letter-spacing: -0.01em;
+    }
+
+    p {
+        line-height: 1.65;
     }
 }

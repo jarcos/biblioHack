@@ -1,0 +1,96 @@
+frontend: design system foundation (shadcn primitives + editorial tokens)
+
+Until now the frontend was the M0 hello-world. Before we connect the
+catalog endpoints to a real UI we land the design language, so the
+search page (next commit) doesn't have to invent visual conventions
+on the fly.
+
+Decisions confirmed with the user:
+- shadcn/ui-style copy-paste primitives, owned in our repo.
+- Editorial / library aesthetic: serif headings, generous whitespace,
+  warm neutral palette with a forest-green accent.
+- Foundation-sized commit: tokens + 5 primitives + a visual proof,
+  not a full storybook.
+- Both light and dark themes, system-aware via prefers-color-scheme,
+  with a header toggle.
+
+Adds:
+
+- src/styles/global.css:
+  Design tokens declared as HSL channel triples under `:root` (light)
+  and `.dark` (dark), consumed via `hsl(var(--token))` in Tailwind.
+  Token families: background / foreground / muted / card / popover /
+  primary / secondary / accent / destructive / border / ring, plus
+  five `--status-*` colors for the availability badges. Inter Variable
+  + Source Serif 4 Variable imported via `@fontsource-variable/*`
+  packages. Headings get the serif by default; body/UI is Inter.
+
+- tailwind.config.cjs:
+  Bridge layer that exposes every CSS token as a Tailwind utility
+  class (`bg-background`, `text-muted-foreground`, `border-border`,
+  `bg-status-available`, etc.). `darkMode: ['class']`. Container with
+  72rem max width and 1.5rem padding. tailwindcss-animate plugin.
+  Font families wired to the variable fonts above.
+
+- src/lib/utils.ts:
+  `cn()` helper combining `clsx` + `tailwind-merge` so caller classes
+  override component defaults cleanly.
+
+- src/components/ui/ (5 primitives):
+  - button.tsx — cva variants (default/secondary/ghost/outline/
+    destructive/link) × sizes (sm/default/lg/icon). asChild + Slot
+    so we can wrap `<a>` in button styles.
+  - input.tsx — text/search input with focus-ring tokens.
+  - card.tsx — Card + Header + Title + Description + Content + Footer.
+    Title uses font-serif by default (overridable per-instance, see
+    the API-status card which switches it back to font-sans).
+  - badge.tsx — variants include one per AvailabilityStatus
+    (available / loaned / reserved / unavailable / unknown), using
+    background-tint + same-hue foreground for calm legibility.
+  - container.astro — page-layout primitive wrapping `<div>` (or
+    `<main>` / `<section>` via the `as` prop) with the centered max-
+    width and gutter padding.
+
+- src/components/ThemeToggle.tsx:
+  React island. Reads the current `dark` class off `<html>` (set by
+  the pre-paint script below), flips it on click, and persists the
+  choice to `localStorage["theme"]`.
+
+- src/layouts/Layout.astro:
+  - Inline `is:inline` script that reads localStorage["theme"] +
+    `prefers-color-scheme` and applies the `dark` class on `<html>`
+    *before* the body renders — avoids any flash of the wrong theme.
+  - New header / footer using the Container primitive and design
+    tokens. Header gets the theme toggle on the right.
+
+- src/pages/index.astro:
+  Replaced the hello-world with an editorial landing page that uses
+  every primitive: serif H1, eyebrow label, two action buttons, a
+  search-box card (stubbed — wires to /catalog/search in the next
+  commit), two record-preview cards with status badges in all five
+  variants, and the existing HelloIsland API-status check moved into
+  a Card.
+
+- src/components/HelloIsland.tsx:
+  Repointed the colors from hardcoded slate / emerald / rose classes
+  to the new semantic tokens (text-muted-foreground / text-status-
+  available / text-destructive) so it inherits the theme switch.
+
+Verified:
+- pnpm lint — clean.
+- pnpm format — clean.
+- pnpm typecheck — 0 errors, 0 warnings (1 informational hint about
+  Astro's auto-picked Props interface).
+- pnpm test — 5 passed.
+- pnpm build — completes in 1.66s, all routes built.
+- Light-mode screenshot eyeballed in Safari.
+
+Deferred (called out so the next commit knows the boundary):
+- No catalog search wiring yet. The search form posts nowhere.
+- No dark-mode visual review done by me — toggle in the header lets
+  you flip it manually.
+- No real "/design" preview page; the index doubles as the visual
+  proof for now.
+- shadcn CLI not initialised (no components.json) — we copied the
+  primitives in by hand. If we want to use `pnpm dlx shadcn add …`
+  later, we'll add the config then.

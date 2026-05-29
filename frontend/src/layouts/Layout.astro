@@ -1,6 +1,9 @@
 ---
 import "../styles/global.css";
 
+import Container from "@/components/ui/container.astro";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
 interface Props {
   title: string;
   description?: string;
@@ -18,28 +21,62 @@ const { title, description = "Reverse catalog of the Andalusian public libraries
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
+
+    {
+      /*
+        Theme bootstrap — runs synchronously before the body renders so we
+        never flash the wrong theme. Reads `localStorage.theme` ("light" |
+        "dark" | "system") and falls back to `prefers-color-scheme`.
+        Wrapped in is:inline so Astro emits it verbatim with no JS bundle.
+        */
+    }
+    <script is:inline>
+      (() => {
+        try {
+          const stored = window.localStorage.getItem("theme");
+          const sysDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const isDark = stored === "dark" || (stored !== "light" && sysDark);
+          document.documentElement.classList.toggle("dark", isDark);
+        } catch {
+          /* ignore — fall back to default light theme */
+        }
+      })();
+    </script>
   </head>
-  <body class="flex min-h-screen flex-col">
-    <header class="border-b border-slate-200 dark:border-slate-800">
-      <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-        <a href="/" class="text-lg font-semibold tracking-tight">biblioHack</a>
-        <nav class="text-sm text-slate-600 dark:text-slate-400">
-          <a href="/" class="hover:text-slate-900 dark:hover:text-white">Inicio</a>
-        </nav>
-      </div>
+  <body class="flex min-h-screen flex-col bg-background font-sans text-foreground">
+    <header class="border-b border-border">
+      <Container class="flex items-center justify-between py-4">
+        <a href="/" class="font-serif text-xl font-semibold tracking-tight text-foreground">
+          biblioHack
+        </a>
+        <div class="flex items-center gap-2 text-sm text-muted-foreground">
+          <nav>
+            <a href="/" class="transition-colors hover:text-foreground">Inicio</a>
+          </nav>
+          <ThemeToggle client:load />
+        </div>
+      </Container>
     </header>
 
-    <main class="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
-      <slot />
+    <main class="flex-1 py-10">
+      <Container>
+        <slot />
+      </Container>
     </main>
 
-    <footer
-      class="border-t border-slate-200 py-6 text-center text-xs text-slate-500 dark:border-slate-800"
-    >
-      <p>
-        Datos públicos de la Red de Bibliotecas Públicas de Andalucía. Proyecto personal sin ánimo
-        de lucro. <a href="https://github.com/" class="underline">Código</a>
-      </p>
+    <footer class="border-t border-border py-6">
+      <Container class="text-center text-xs text-muted-foreground">
+        <p>
+          Datos públicos de la Red de Bibliotecas Públicas de Andalucía. Proyecto personal sin ánimo
+          de lucro.
+          <a
+            href="https://github.com/jarcos/biblioHack"
+            class="text-foreground underline-offset-4 hover:underline"
+          >
+            Código
+          </a>
+        </p>
+      </Container>
     </footer>
   </body>
 </html>
