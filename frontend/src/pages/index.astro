@@ -1,9 +1,8 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import HelloIsland from "../components/HelloIsland";
-import { Badge } from "@/components/ui/badge";
+import { SearchBox } from "@/components/SearchBox";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
@@ -29,61 +28,7 @@ const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800
       </div>
     </header>
 
-    <Card>
-      <CardHeader>
-        <CardTitle>Buscar en el catálogo</CardTitle>
-        <CardDescription>
-          Próximamente — el endpoint <code>/catalog/search</code> ya está activo; esta caja se conecta
-          en el siguiente commit.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form class="flex gap-2" autocomplete="off">
-          <Input
-            type="search"
-            placeholder="Cien años de soledad, García Márquez, 821.134.2…"
-            aria-label="Buscar en el catálogo"
-          />
-          <Button type="submit">Buscar</Button>
-        </form>
-      </CardContent>
-    </Card>
-
-    <div class="grid gap-6 md:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle>Cien años de soledad</CardTitle>
-          <CardDescription>Gabriel García Márquez · 1967</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p class="text-sm text-muted-foreground">
-            Editorial Sudamericana. Disponible en 3 bibliotecas de la red.
-          </p>
-          <div class="flex flex-wrap gap-2">
-            <Badge variant="available">Disponible · Huelva</Badge>
-            <Badge variant="loaned">Prestado · Sevilla</Badge>
-            <Badge variant="reserved">Reservado · Málaga</Badge>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>La sombra del viento</CardTitle>
-          <CardDescription>Carlos Ruiz Zafón · 2001</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p class="text-sm text-muted-foreground">
-            Planeta. El primer volumen de El cementerio de los libros olvidados.
-          </p>
-          <div class="flex flex-wrap gap-2">
-            <Badge variant="available">Disponible · Huelva</Badge>
-            <Badge variant="unavailable">En inventario · Cádiz</Badge>
-            <Badge variant="unknown">Sin datos · Almería</Badge>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+    <SearchBox apiBaseUrl={apiBaseUrl} client:load />
 
     <Card>
       <CardHeader>
@@ -96,9 +41,9 @@ const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800
     </Card>
 
     <p class="text-xs text-muted-foreground">
-      M2 (en curso) — historial de disponibilidad. Próximo: conectar la búsqueda al endpoint <code
+      M2 (en curso) — historial de disponibilidad. La búsqueda está conectada a <code
         >/catalog/search</code
-      >.
+      >; faltan los registros que poblará el worker.
     </p>
   </section>
 </Layout>

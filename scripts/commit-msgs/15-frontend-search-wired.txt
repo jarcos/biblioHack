@@ -1,0 +1,70 @@
+frontend: wire search to /catalog/search (first end-to-end flow)
+
+Closes the loop from the user-facing search box all the way to the
+Postgres FTS index. The previous commit landed the design system with
+a stubbed `<form>`; this one replaces it with a real React island that
+hits the backend and renders results.
+
+Adds:
+
+- frontend/src/infrastructure/api/catalog.ts:
+  Typed catalog client with Zod schemas mirroring the FastAPI Pydantic
+  models in backend/.../interfaces/http/schemas.py:
+  - `searchCatalog(apiBaseUrl, { query, limit?, offset? }, signal?)`
+  - `fetchRecord(apiBaseUrl, titn, signal?)`  (not consumed yet — lands
+    here so the detail page commit can pick it up)
+  - `CatalogApiError(status, detail)` for non-2xx responses, surfacing
+    the FastAPI `detail` body when present.
+  Zod parses every payload so any backend drift fails loud at the
+  boundary instead of corrupting downstream state.
+
+- frontend/src/components/SearchBox.tsx:
+  React island. Each Astro island is its own React tree, so the
+  component owns its own QueryClient at module scope (30s staleTime,
+  no retry, no refetch-on-focus — gentle defaults for a catalog
+  search). State split:
+  - `draft` = what's in the input (controlled),
+  - `query` = what was submitted (used as the React Query key).
+  Submit-on-enter only; no search-as-you-type yet — kinder on the
+  mirror and the user while the catalog is empty. Renders five
+  states explicitly: idle / loading / error / empty / results.
+  The empty state notes that the worker is still polite and the
+  mirror is still mostly empty, so a no-match is expected for now.
+
+- frontend/src/pages/index.astro:
+  Drops the stubbed `<form>` and the two fake preview cards
+  (Cien años de soledad, La sombra del viento) — they were design-
+  system placeholders and would have outlived their usefulness once
+  real data lands. Mounts `<SearchBox client:load />` in their place.
+
+Tests (+12 frontend tests, total now 17):
+
+- frontend/tests/catalog.test.ts — 7 cases for the API client:
+  happy-path search, limit/offset forwarding, empty-items shape,
+  422 on rejected query, 200 record, 404 on missing TITN, non-JSON
+  error body fallback.
+- frontend/tests/SearchBox.test.tsx — 5 cases for the component:
+  idle prompt, disabled submit while empty, results render, polite
+  empty-state, error state with HTTP status surfaced.
+
+Deps:
+- Added `@testing-library/user-event` as a devDep for the component
+  interaction tests.
+
+Verified:
+- pnpm lint / format / typecheck / test / build all clean.
+- Live: rebuilt the frontend container, navigated to the running
+  http://localhost:4321/, confirmed the new SearchBox replaces the
+  old fake cards and the idle prompt renders correctly.
+- API-status card (HelloIsland) still proves backend reachability:
+  `✓ API ok — version 0.1.0`.
+
+Deferred (called out for the next commit):
+- No record-detail page wired yet — `fetchRecord` is exported but
+  unused. Adding `src/pages/records/[titn].astro` is the obvious
+  follow-up the moment the worker starts producing real records.
+- No URL-state on the search query (no `?q=...` yet). Cheap to add
+  when we want shareable search results.
+- The empty state encourages the user to come back later because
+  the worker hasn't actually run against the live OPAC yet. That's
+  the moment-of-truth commit waiting on the user's say-so.
