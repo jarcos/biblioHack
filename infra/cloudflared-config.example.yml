@@ -1,0 +1,48 @@
+# ───────────────────────────────────────────────────────────────
+# Cloudflared ingress for biblio.josearcos.me
+#
+# This serves the biblioHack frontend + API through the EXISTING
+# `synology-nas` Cloudflare Tunnel — the same tunnel that already serves
+# josearcos.me → wordpress. Do NOT create a second tunnel.
+#
+# ── If your tunnel is LOCALLY MANAGED (a config.yml + credentials JSON live
+#    in /volume1/docker/cloudflared/): merge the `ingress:` rules below into
+#    that file, keeping the existing wordpress rule and the catch-all LAST,
+#    then restart the cloudflared container.
+#
+# ── If your tunnel is DASHBOARD MANAGED (cloudflared runs with a token, no
+#    local config.yml): add these as Public Hostnames in
+#    Zero Trust → Networks → Tunnels → synology-nas → Public Hostnames:
+#       biblio.josearcos.me   Path: /api/*   →  http://bibliohack-api:8000
+#       biblio.josearcos.me   (no path)      →  http://bibliohack-frontend:4321
+#    (Order matters — the /api rule must be listed above the catch-all one.)
+#
+# DNS: adding the hostname in the dashboard auto-creates the proxied CNAME.
+# For the config-file path, add it manually in Cloudflare DNS:
+#       Type CNAME | Name `biblio` | Target <TUNNEL_UUID>.cfargotunnel.com
+#       Proxy: Proxied (orange cloud)
+#
+# Prerequisite: bibliohack-api and bibliohack-frontend must be attached to the
+# shared external Docker network `tunnel` (see docker-compose.prod.yml) so
+# cloudflared resolves them by name.
+# ───────────────────────────────────────────────────────────────
+
+tunnel: <TUNNEL_UUID>
+credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  # ── biblioHack ────────────────────────────────────────────────
+  # API first: same hostname, /api/* path routed to the FastAPI service.
+  - hostname: biblio.josearcos.me
+    path: ^/api/.*
+    service: http://bibliohack-api:8000
+  # Everything else on that hostname goes to the Astro frontend.
+  - hostname: biblio.josearcos.me
+    service: http://bibliohack-frontend:4321
+
+  # ── Existing WordPress site (keep as-is) ──────────────────────
+  - hostname: josearcos.me
+    service: http://wordpress:80
+
+  # ── Required catch-all — must stay LAST ───────────────────────
+  - service: http_status:404

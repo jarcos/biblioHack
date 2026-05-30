@@ -1,0 +1,123 @@
+# ───────────────────────────────────────────────────────────────
+# biblioHack — production compose for the Synology NAS ("Home-NAS")
+#
+# This is the PUBLIC-FACING READ + SERVE PLANE only:
+#   postgres + api + frontend + minio
+#
+# The heavy compute — the Scrapling/Camoufox crawl worker and the BGE-M3
+# embedder — deliberately does NOT run here. Those run on a separate box
+# (a mini-PC or your Mac) and reach this Postgres over Tailscale/LAN. See
+# `docker-compose.worker.yml` (off-NAS) and ARCHITECTURE.md §10.
+#
+# Public access: the existing `synology-nas` Cloudflare Tunnel adds a public
+# hostname `biblio.josearcos.me`. cloudflared resolves `bibliohack-frontend`
+# and `bibliohack-api` by name over the shared external `tunnel` network —
+# exactly how it already reaches the `wordpress` container. No host ports are
+# published to the internet; TLS is terminated at Cloudflare's edge.
+#
+# Deploy on the NAS (Container Manager or CLI) from /volume1/docker/bibliohack:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Requires a populated .env in the same dir (see .env.example) with at least:
+#   POSTGRES_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+# ───────────────────────────────────────────────────────────────
+
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16 # x86-64 only — confirm NAS arch
+    container_name: bibliohack-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bibliohack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-bibliohack}
+    volumes:
+      - /volume1/docker/bibliohack/pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Bind to the NAS LAN IP only — NOT 0.0.0.0 and NOT the tunnel.
+      # This lets the off-NAS worker/embedder reach Postgres over LAN /
+      # Tailscale, while keeping it off the public internet entirely.
+      - "192.168.1.130:5432:5432"
+    networks:
+      - bibliohack
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bibliohack} -d ${POSTGRES_DB:-bibliohack}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/backend.Dockerfile
+    container_name: bibliohack-api
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bibliohack}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bibliohack}
+      DATABASE_URL_SYNC: postgresql+psycopg://${POSTGRES_USER:-bibliohack}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bibliohack}
+      # Same-origin: the frontend calls /api on the same hostname, so no CORS.
+      APP_CORS_ORIGINS: '["https://biblio.josearcos.me"]'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bibliohack
+      - tunnel # so cloudflared can reach http://bibliohack-api:8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/frontend.Dockerfile
+      args:
+        # Astro inlines PUBLIC_* at build time, so the public API base URL must
+        # be baked here. Same-origin path routing (/api/*) means no CORS.
+        PUBLIC_API_BASE_URL: https://biblio.josearcos.me
+    container_name: bibliohack-frontend
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_BASE_URL: https://biblio.josearcos.me
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - tunnel # so cloudflared can reach http://bibliohack-frontend:4321
+
+  minio:
+    # Content-addressed cover store (ARCHITECTURE.md §7.5). Storage only for
+    # now — covers serving (M2.5) will proxy /covers/* to a read-only bucket.
+    image: minio/minio:latest
+    container_name: bibliohack-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set in .env}
+    volumes:
+      - /volume1/docker/bibliohack/minio:/data
+    ports:
+      # S3 API + console on the LAN only — never exposed via the tunnel.
+      - "192.168.1.130:9000:9000"
+      - "192.168.1.130:9001:9001"
+    networks:
+      - bibliohack
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+networks:
+  # Pre-existing network shared with the cloudflared + wordpress containers.
+  # `docker network create tunnel` already exists on the NAS — we attach to it.
+  tunnel:
+    external: true
+  bibliohack:
+    driver: bridge

@@ -74,6 +74,10 @@ data/snapshots/
 data/embeddings/
 *.marc
 
+# Home-lab infrastructure reference — contains public IP, Cloudflare tunnel ID,
+# account email and security notes. NEVER commit (keep out of git history).
+homelab-josearcos-me-infra-reference.md
+
 # Local scratch files
 scratch/
 tmp/
@@ -83,5 +87,7 @@ tmp/
 # literally named `asyncio` instead of executing.)
 backend/asyncio
 
-# scripts/*.log: verification + diagnostic outputs are dev-only artefacts.
+# scripts/*.log + *.done: verification + diagnostic outputs and background-job
+# sentinel files are dev-only artefacts.
 scripts/*.log
+scripts/*.done
