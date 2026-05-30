@@ -572,6 +572,8 @@ Plan:
 
 ## 10. Deployment (Synology NAS + Cloudflare Tunnel)
 
+> **Status: LIVE since 2026-05-30** at <https://biblio.josearcos.me>. The four-container read+serve plane runs on the NAS; the catalog mirror is empty until the off-NAS crawler is run against it. Hard-won Synology deploy specifics (SSH pubkey, BuildKit DNS, rsync-gated, `astro preview` host block) are recorded in `homelab-josearcos-me-infra-reference.md` §12.
+
 Concrete target: the **Synology "Home-NAS"** (`192.168.1.130`, Container Manager), published at **`biblio.josearcos.me`** through the **existing `synology-nas` Cloudflare Tunnel** — the same tunnel that already serves `josearcos.me → wordpress`. No new tunnel, no open inbound ports, no DDNS; TLS terminates at Cloudflare's edge. (Full home-lab inventory lives in the gitignored `homelab-josearcos-me-infra-reference.md`.)
 
 **Two planes, deliberately split.** The crawl worker (Scrapling/Camoufox → Chromium) and the BGE-M3 embedder are CPU/RAM-heavy and won't run on an ARM Synology at all, so they do **not** live on the NAS:
@@ -579,13 +581,52 @@ Concrete target: the **Synology "Home-NAS"** (`192.168.1.130`, Container Manager
 - **Read + serve plane — on the NAS** (`docker-compose.prod.yml`): `postgres` (timescaledb-ha:pg16, x86-64 — verify NAS arch), `api` (FastAPI/uvicorn), `frontend` (Astro), `minio` (content-addressed cover store, §7.5). State on `/volume1/docker/bibliohack/{pgdata,minio}`.
 - **Compute plane — off the NAS** (`docker-compose.worker.yml`, on a mini-PC or the Mac): `redis` (Dramatiq broker), `worker`, `embedder`. Reaches the NAS Postgres over **Tailscale/LAN** — Postgres binds to the NAS LAN IP only, never the tunnel. The hexagonal design makes this purely a deployment choice, no code change.
 
-**Public exposure.** `frontend` and `api` attach to the pre-existing external Docker network **`tunnel`** so `cloudflared` resolves `bibliohack-frontend:4321` / `bibliohack-api:8000` by name (same mechanism as `wordpress`). Ingress uses **same-origin path routing** — `biblio.josearcos.me/api/*` → api, `/*` → frontend — so the Astro build bakes `PUBLIC_API_BASE_URL=https://biblio.josearcos.me` and there is no CORS. See `infra/cloudflared-config.example.yml`.
+**Public exposure.** `frontend` and `api` attach to the pre-existing external Docker network **`tunnel`** so `cloudflared` resolves `bibliohack-frontend:4321` / `bibliohack-api:8000` by name (same mechanism as `wordpress`). Ingress uses **same-origin path routing** so there's no CORS: the frontend calls `/catalog/*` and `/healthz` at the root, so the tunnel routes **`biblio.josearcos.me ^/(catalog|healthz)` → api** and **`* ` → frontend** (Astro build bakes `PUBLIC_API_BASE_URL=https://biblio.josearcos.me`). The frontend output is fully static and served by `serve` (not `astro preview`, which enforces a Host allowlist that's awkward behind the tunnel). See `infra/cloudflared-config.example.yml`.
 
 **Security posture** (mirrors the existing public-web-vs-Tailscale split): the tunnel exposes a **read-only surface only** — frontend + read API. Write/admin endpoints, the MinIO console, Postgres, and worker controls stay on LAN/Tailscale and are never added to tunnel ingress. Read endpoints sit behind a soft rate limit (`slowapi`); Cloudflare WAF + rate-limiting sit in front. The public app only ever reads our mirror — it never triggers a live OPAC call per request.
 
 **Covers + CDN synergy.** Cover URLs are immutable/content-addressed (§7.5.6), so a Cloudflare Cache Rule on `biblio.josearcos.me/covers/*` (cache-everything, long TTL) lets the edge serve each cover globally and the NAS serve it once — important because home **upload** bandwidth (DIGI fibre) is the real bottleneck, not NAS CPU. Covers are served via a `/covers/*` path proxied to a read-only MinIO bucket, never by exposing the S3 endpoint.
 
 **Backups & observability.** Nightly `pg_dump` of the NAS Postgres + Synology Hyper Backup of `/volume1/docker/bibliohack` (covers Postgres data and the MinIO bucket); optional `restic` to Backblaze B2. Observability (`prometheus` + `grafana` + `loki`) is optional for v0 — track scrape success rate, parse-error rate, embedding queue depth, DB size.
+
+### 10.1 CI/CD and automated deploy (planned — milestone M6.5)
+
+**Goal:** every green push to `main` deploys itself to the NAS; a red pipeline never deploys (so a broken build/test can't reach production).
+
+**What exists today** (`.github/workflows/ci.yml`): three jobs on GitHub-hosted runners — `backend` (ruff + mypy + pytest against service Postgres/Redis), `frontend` (prettier + eslint + astro check + vitest), and `docker-build` (builds both images with `push: false`, BuildKit cache via `type=gha`). Triggers on push to `main` and on PRs. The deploy step is still manual (driven from the Mac over SSH).
+
+**The gate (deploy only on success).** Add a `deploy` job that depends on all three:
+
+```yaml
+deploy:
+  needs: [backend, frontend, docker-build]            # runs only if ALL pass
+  if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  runs-on: ubuntu-latest
+  environment: production                             # scoped secrets + history
+  concurrency: { group: deploy-prod, cancel-in-progress: false }
+```
+
+`needs:` means a single failing job aborts the run before deploy is ever scheduled; `if:` restricts to direct pushes to `main` (never PRs/forks). A GitHub **Environment** (`production`) scopes the deploy secrets and records a deployment history (and can add a manual-approval gate later if desired).
+
+**Reaching the NAS — the crux.** GitHub-hosted runners live in the public cloud; the NAS has **no public inbound** (SSH 2222 is LAN-only, the site is behind the tunnel). Three patterns, in recommended order:
+
+1. **Tailscale GitHub Action (recommended).** The NAS already runs Tailscale. [`tailscale/github-action`](https://github.com/tailscale/github-action) joins the runner to the tailnet as an **ephemeral, tagged** node (OAuth client with the `auth_keys` scope + a `tag:ci`), giving it a Tailscale IP for the job only; the job then SSHes to the NAS over WireGuard and runs the deploy. No public ports, no port-forwarding; the ephemeral node auto-deregisters after the run. Needs a Tailscale ACL rule allowing `tag:ci → Home-NAS:2222`.
+2. **Self-hosted runner on the NAS.** A GitHub Actions runner in Container Manager polls GitHub **outbound** (no inbound needed) and deploys locally (can reuse its own checkout). Simplest networking, but it executes workflow code on the NAS — acceptable only because `jarcos/biblioHack` is **private**; harden it and treat it as ephemeral. Costs NAS CPU.
+3. **Cloudflare Tunnel for SSH** (`cloudflared access ssh` + a service token). Works, but adds moving parts to the token-managed tunnel; lower priority since Tailscale is already in place.
+
+**Build-and-ship strategy** (evolving):
+
+- **A — NAS-side build (quick path).** Deploy job SSHes in, syncs code (**tar-over-ssh**; rsync is gated on Synology — infra §12.1), then `docker compose -f docker-compose.prod.yml up -d --build` + Alembic migrations. Zero new infra, but builds on the NAS (slow).
+- **B — registry pull (recommended target).** Promote `docker-build` to **build-and-push** tagged images to **GHCR** (`ghcr.io/jarcos/bibliohack-{api,frontend}:<sha>` + `:latest`); the deploy job then only runs `docker compose pull && up -d` (no NAS build → faster, near-atomic). Needs the prod compose to reference image tags and the NAS to authenticate to GHCR (a read-only token, or public packages).
+
+**"Don't break the app" guardrails:**
+
+- Unreachable unless lint + types + tests + image-build all pass (`needs:`).
+- Run **DB migrations before** swapping app containers, and keep them **backward-compatible** (expand→migrate→contract) so brief version skew is safe.
+- **Post-deploy health gate:** after `up -d`, poll `https://biblio.josearcos.me/healthz` (+ a `/catalog/search` smoke) with retries; if it doesn't go green the job **fails loudly** — and, in strategy B, **rolls back** to the previous `<sha>` image (still in GHCR). One-line revert.
+- `concurrency: deploy-prod` so two deploys never overlap.
+
+**Secrets (GitHub Environment `production`):** `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET`, `NAS_SSH_HOST` (Tailscale name/IP), `NAS_SSH_USER`, and a **dedicated CI deploy key** `NAS_SSH_KEY` — *not* the `bibliohack_deploy` key used for manual/interactive deploys; CI gets its own, separately revocable. Strategy B also needs a GHCR pull credential on the NAS.
 
 ---
 
@@ -600,7 +641,8 @@ Concrete target: the **Synology "Home-NAS"** (`192.168.1.130`, Container Manager
 | **M3 — Semantic search** | Local BGE-M3 embedding pipeline, pgvector index, hybrid retriever, "more like this" links on detail pages. | 2 weekends |
 | **M4 — Goodreads import** | CSV importer, matching to catalog, bookshelf UI. | 1–2 weekends |
 | **M5 — Recommender v1** | Cold-start + content-based recommendations, OpenRouter rationales, "recommended right now in your branch" view. | 2 weekends |
-| **M6 — Polish + public deploy** | Caddy/Cloudflare Tunnel, rate limiting, error pages, backups. | 1 weekend |
+| **M6 — Polish + public deploy** | Caddy/Cloudflare Tunnel, rate limiting, error pages, backups. **(Deploy done 2026-05-30 — see §10.)** | 1 weekend |
+| **M6.5 — CI/CD auto-deploy** | Green push to `main` → auto-deploy to the NAS (Tailscale GitHub Action → SSH; build-and-push to GHCR → `compose pull`), gated on all CI passing, with a post-deploy health gate + rollback. Never deploys on a red pipeline. (Design: §10.1.) | 1 weekend |
 | **M7 — Expand to other provinces** | Generalise the SUBC handling so each Andalusian province can be enabled by config; first add Sevilla + Cádiz; same crawl, no new code. | 1 weekend |
 | **M8 — Mobile app** | React Native or Expo client reusing the API. Out of scope for the doc. | — |
 
@@ -632,6 +674,7 @@ These are the things I am **not** confident about. Address before committing too
 7. **Vector index migration path** — if pgvector hits a wall, the `EmbeddingService` port lets us swap to Qdrant. **Acceptance criterion**: when query p95 latency exceeds 250 ms on the production homelab, migrate. Not before.
 8. **Spanish-specific tokenisation** for FTS — Postgres ships a `spanish` config; verify accent handling and stopwords against real queries.
 9. **Google Books cover ToS** — their terms expect thumbnails to be *displayed linking back*, not stored/redistributed. Decision (§7.5.2): use Google Books only as a **display-time hotlink fallback**, and treat **Open Library** (permissive) as the only *storable* source. Re-read both terms before M-covers ships, and keep per-cover `license`/`source` so a source can be purged cleanly if its terms change.
+10. **Auto-deploy connectivity + safety (M6.5, §10.1)** — confirm the Tailscale ACL allows a `tag:ci` ephemeral node to reach `Home-NAS:2222`; decide GHCR package visibility (private + pull token vs. public); and settle the migration-rollback story (strategy B makes image rollback trivial, but a bad *migration* still needs an expand→contract discipline or a tested down-path). A dedicated CI deploy key (separate from `bibliohack_deploy`) must be issued.
 
 ---
 
