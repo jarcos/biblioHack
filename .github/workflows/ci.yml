@@ -147,3 +147,70 @@ jobs:
           tags: bibliohack-frontend:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ───── Deploy to the NAS (only on a GREEN push to main) ─────
+  # Gated three ways so a broken build can never reach production:
+  #   - `needs:` → runs only after backend + frontend + docker-build all pass
+  #   - `if:`    → only on a direct push to main (never PRs/forks), and only
+  #               once enabled via the `AUTODEPLOY_ENABLED` repo variable
+  # Reaches the NAS (no public inbound) over Tailscale, then deploys over SSH.
+  # Design + required secrets: ARCHITECTURE.md §10.1.
+  deploy:
+    name: deploy — NAS (biblio.josearcos.me)
+    needs: [backend, frontend, docker-build]
+    if: >-
+      github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && vars.AUTODEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: production
+      url: https://biblio.josearcos.me
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    env:
+      NAS: ${{ secrets.NAS_SSH_USER }}@${{ secrets.NAS_SSH_HOST }}
+      PORT: ${{ secrets.NAS_SSH_PORT }}
+      DIR: /volume1/docker/bibliohack
+      DC: /usr/local/bin/docker compose -f docker-compose.prod.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Connect to Tailscale (ephemeral, tag:ci)
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Install deploy SSH key
+        run: |
+          mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+          printf '%s\n' "${{ secrets.NAS_SSH_KEY }}" > "$HOME/.ssh/ci"
+          chmod 600 "$HOME/.ssh/ci"
+
+      - name: Ship code to the NAS (tar over ssh — rsync is gated on Synology)
+        run: |
+          tar czf - \
+            --exclude=.git --exclude=node_modules --exclude=.venv \
+            --exclude=__pycache__ --exclude=dist --exclude=.astro \
+            --exclude=.mypy_cache --exclude=.ruff_cache --exclude=.pytest_cache . \
+          | ssh -i "$HOME/.ssh/ci" -p "$PORT" -o StrictHostKeyChecking=accept-new \
+              "$NAS" "mkdir -p $DIR && tar xzf - -C $DIR"
+
+      - name: Build, start, and migrate
+        run: |
+          ssh -i "$HOME/.ssh/ci" -p "$PORT" -o StrictHostKeyChecking=accept-new "$NAS" \
+            "cd $DIR && $DC up -d --build && sleep 6 && $DC exec -T api alembic upgrade head"
+
+      - name: Post-deploy health gate (fails the deploy if unhealthy)
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 8 https://biblio.josearcos.me/healthz | grep -q '"status":"ok"'; then
+              echo "✅ healthy after deploy"; exit 0
+            fi
+            echo "waiting for /healthz … ($i/12)"; sleep 6
+          done
+          echo "❌ /healthz not OK after deploy"; exit 1

@@ -25,6 +25,11 @@ COPY backend/src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev || uv sync --no-dev
 
+# Migrations ship in the image so the deploy can run `alembic upgrade head`
+# inside the api container (CI/CD auto-deploy — ARCHITECTURE.md §10.1).
+COPY backend/alembic ./alembic
+COPY backend/alembic.ini ./alembic.ini
+
 # ───── Runtime ─────
 FROM python:3.12-slim-bookworm AS runtime
 
@@ -36,6 +41,8 @@ WORKDIR /app
 # Bring over the virtualenv built in the builder stage.
 COPY --from=builder --chown=bibliohack:bibliohack /app/.venv /app/.venv
 COPY --from=builder --chown=bibliohack:bibliohack /app/src /app/src
+COPY --from=builder --chown=bibliohack:bibliohack /app/alembic /app/alembic
+COPY --from=builder --chown=bibliohack:bibliohack /app/alembic.ini /app/alembic.ini
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
