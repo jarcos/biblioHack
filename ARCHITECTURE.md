@@ -147,6 +147,7 @@ Six contexts. Each one is a **module** in the backend repo (`packages/<context>/
 | **ReadingHistory** | `Bookshelf` (root), `ReadEntry`, `Rating`, `ImportJob` | `BookshelfRepository`, `Importer` | Postgres repo, Goodreads CSV adapter, StoryGraph CSV adapter |
 | **Recommendations** | `Recommendation` (root), `RecommendationRequest` | `RecommendationRepository`, `RecommenderEngine`, `LlmClient` | Postgres repo, hybrid retriever (FTS + pgvector), OpenRouter adapter |
 | **Identity** | `User` (root), `Preference` | `UserRepository`, `AuthProvider` | Postgres repo, local password auth (Argon2id) |
+| **Covers** | `Cover` (root) | `CoverRepository`, `CoverProvider`, `CoverStore`, `ImageProcessor` | Postgres repo, OpenLibrary/GoogleBooks/Absys providers, MinIO store, Pillow processor (see §7.5) |
 
 **Cross-context communication.** Catalog and Holdings are tightly coupled (you can't have a holding without a record), but the relationship is *navigational by ID*, not foreign-key chasing across module boundaries. ReadingHistory references catalog records by an opaque `BibliographicRecordId` — it does not load `BibliographicRecord` directly. Recommendations integrate via published domain events (`BookRead`, `BookRated`, `CatalogRecordIndexed`) consumed through an in-process event bus (start with `blinker` or a tiny custom dispatcher; only move to Redis Streams / NATS when we actually need it).
 
@@ -464,6 +465,72 @@ Use cases live in `application/`, return plain data, and are called from React i
 
 ---
 
+## 7.5 Book covers (cover-image enrichment)
+
+Covers transform the UI from a text list into a browsable shelf, so they're worth doing well — but they are an *enrichment* concern, deliberately decoupled from catalog ingest. Two rules drive the whole design: **never resolve covers on the crawl/ingest path** (it must not compete with the OPAC politeness budget) and **never hotlink at request time** (page loads must not depend on third-party uptime). Covers are their own bounded context, resolved asynchronously and served from our own storage.
+
+### 7.5.1 What the OPAC gives us, and why it isn't enough
+
+The rendered record page carries a cover slot — `<img src="https://covers.absys.cloud/{isbn}">` — that falls back to `https://covers.absys.cloud/nofound` when Baratz has no image (confirmed against TITN=1, May 2026). So the upstream covers are: (a) partial, (b) on third-party infrastructure with no reuse guarantee, and (c) keyed by ISBN. We treat `covers.absys.cloud` as one *opportunistic* source among several, never a dependency. The ISBN we already parse into the `isbns` table is the join key for everything below.
+
+### 7.5.2 Source fallback chain
+
+No single source covers Spanish-language and regional editions well, so we resolve through an ordered chain and stop at the first hit:
+
+1. **Open Library Covers** — `https://covers.openlibrary.org/b/isbn/{isbn}-L.jpg`. Free, no key, permissive enough to **store and redistribute**, returns blank/404 when missing. This is the primary *storable* source. Politeness: ≤100 cover requests / IP / 5 min, which an async cached pipeline respects trivially.
+2. **Open Library / `covers.absys.cloud`** by ISBN — opportunistic, used when present.
+3. **Google Books** — `volumes?q=isbn:{isbn}` → `imageLinks.thumbnail`. Broad, but the ToS expect thumbnails to be *displayed linking back*, not warehoused — so this tier is a **display-time hotlink fallback**, not stored. (See open question added to §12.)
+4. **BNE / Wikidata (P18)** — long-tail Spanish titles; lower priority, added later.
+5. **Deterministic placeholder** — generated from title+author (hashed colour) so the grid never has holes.
+
+Realistic coverage: 60–85% for mainstream titles, far less on the regional long tail — hence the placeholder matters as a first-class state, not an afterthought.
+
+### 7.5.3 Bounded context, ports and adapters
+
+A new `covers/` context with the same hexagonal layout as the rest:
+
+| Aggregate | Ports (interfaces) | Adapters |
+| --- | --- | --- |
+| `Cover` (root: image identity + provenance + status) | `CoverRepository`, `CoverProvider` (resolve by ISBN), `CoverStore` (blob put/get), `ImageProcessor` (derivatives) | Postgres repo; OpenLibrary / GoogleBooks / Absys provider adapters; MinIO/S3 `CoverStore`; Pillow `ImageProcessor` |
+
+The `CoverProvider` chain is just a composite of provider adapters tried in order — adding BNE later is one new adapter, no domain change. `CoverStore` is the same port-discipline as `EmbeddingService` (§5.2): MinIO today, swap to Backblaze B2 / S3 later without touching the domain.
+
+### 7.5.4 Resolution (write path)
+
+On `CatalogRecordIndexed` (or when a record gains an ISBN), emit a `CoverWanted` event consumed by a **Dramatiq** worker — entirely off the OPAC path. The worker walks the provider chain, downloads the first hit, hands it to the `ImageProcessor` which re-encodes to **WebP** and generates `thumb` / `medium` / `large` derivatives, then stores them via `CoverStore`. Resolve **lazily and popular-first**: do *not* pre-fetch covers for all ~2.66M records — resolve on first record view and for the novedades cohort, letting the long tail fill on demand. This keeps egress and storage proportional to what users actually look at.
+
+### 7.5.5 Storage — object store, content-addressed
+
+Images go in **object storage, never Postgres blobs**. On the homelab that's **MinIO** (S3-compatible) behind the `CoverStore` port. Store **content-addressed by image sha256**, which automatically deduplicates the many editions that share one cover. A small `covers` table holds only metadata:
+
+```
+covers (
+  id            uuid PK,
+  isbn_13       text,                 -- resolution key
+  record_id     uuid,                 -- nullable; an ISBN may precede its record
+  status        text NOT NULL,        -- pending | resolved | nofound | failed
+  source        text,                 -- openlibrary | googlebooks | absys | placeholder
+  license       text,                 -- provenance, for attribution / takedown
+  sha256        bytea,                 -- content address into the object store
+  width         int,
+  height        int,
+  fetched_at    timestamptz,
+  next_retry_at timestamptz           -- nofound is re-tried on a slow cadence
+)
+```
+
+Tracking `source` + `license` per cover lets us honour attribution, and purge a single source cleanly if its terms ever change.
+
+### 7.5.6 Serving (read path) and performance
+
+Because URLs are content-addressed they're **immutable**, so serve them with `Cache-Control: public, max-age=31536000, immutable`. Front the object store with **Caddy** (already in the stack) at a stable path like `/covers/{sha256}/{size}.webp`, and let **Cloudflare** (you already plan the Tunnel, §10) edge-cache globally — the homelab then serves each image essentially once. In the UI: responsive `srcset` across the three derivative sizes, native lazy-loading, and a blurhash/placeholder while the image arrives. The API returns a `cover` object per record (`{url, status, source}`) so the frontend renders the right state (image / placeholder / pending) without a second round-trip.
+
+### 7.5.7 Why this scales
+
+Storage and serving live on an object store + CDN, not on the Pi or in Postgres; immutability means the cache never invalidates; WebP + derivatives keep bytes small; lazy popular-first resolution keeps the working set tiny relative to 2.66M records; and content-addressing dedupes shared covers. Expanding to other provinces (§11 M7) adds no covers work — the pipeline is keyed by ISBN, not by branch.
+
+---
+
 ## 8. AI / recommender architecture
 
 ### 8.1 Embeddings
@@ -503,12 +570,22 @@ Plan:
 
 ---
 
-## 10. Deployment (homelab)
+## 10. Deployment (Synology NAS + Cloudflare Tunnel)
 
-- **Docker Compose** for v1. Services: `postgres` (with pgvector + optional Timescale), `redis` (Dramatiq broker), `api` (FastAPI/uvicorn), `worker` (Dramatiq + Scrapling), `embedder` (sentence-transformers; only spun up during ingest windows), `frontend` (Astro static + a tiny Node sidecar for SSR if/when needed), `caddy` (TLS termination + automatic Let's Encrypt).
-- **Backups**: nightly `pg_dump` to a separate disk + `restic` to a remote (Backblaze B2 free tier or similar).
-- **Observability**: `prometheus` + `grafana` + `loki` for logs; not strictly necessary for v0 but trivial to add. Track scrape success rate, parse-error rate, embedding queue depth, and DB size.
-- **External access**: Cloudflare Tunnel to avoid opening homelab ports. No public read-write API in v1 — read endpoints behind a soft rate limit (`slowapi`), write endpoints behind auth.
+Concrete target: the **Synology "Home-NAS"** (`192.168.1.130`, Container Manager), published at **`biblio.josearcos.me`** through the **existing `synology-nas` Cloudflare Tunnel** — the same tunnel that already serves `josearcos.me → wordpress`. No new tunnel, no open inbound ports, no DDNS; TLS terminates at Cloudflare's edge. (Full home-lab inventory lives in the gitignored `homelab-josearcos-me-infra-reference.md`.)
+
+**Two planes, deliberately split.** The crawl worker (Scrapling/Camoufox → Chromium) and the BGE-M3 embedder are CPU/RAM-heavy and won't run on an ARM Synology at all, so they do **not** live on the NAS:
+
+- **Read + serve plane — on the NAS** (`docker-compose.prod.yml`): `postgres` (timescaledb-ha:pg16, x86-64 — verify NAS arch), `api` (FastAPI/uvicorn), `frontend` (Astro), `minio` (content-addressed cover store, §7.5). State on `/volume1/docker/bibliohack/{pgdata,minio}`.
+- **Compute plane — off the NAS** (`docker-compose.worker.yml`, on a mini-PC or the Mac): `redis` (Dramatiq broker), `worker`, `embedder`. Reaches the NAS Postgres over **Tailscale/LAN** — Postgres binds to the NAS LAN IP only, never the tunnel. The hexagonal design makes this purely a deployment choice, no code change.
+
+**Public exposure.** `frontend` and `api` attach to the pre-existing external Docker network **`tunnel`** so `cloudflared` resolves `bibliohack-frontend:4321` / `bibliohack-api:8000` by name (same mechanism as `wordpress`). Ingress uses **same-origin path routing** — `biblio.josearcos.me/api/*` → api, `/*` → frontend — so the Astro build bakes `PUBLIC_API_BASE_URL=https://biblio.josearcos.me` and there is no CORS. See `infra/cloudflared-config.example.yml`.
+
+**Security posture** (mirrors the existing public-web-vs-Tailscale split): the tunnel exposes a **read-only surface only** — frontend + read API. Write/admin endpoints, the MinIO console, Postgres, and worker controls stay on LAN/Tailscale and are never added to tunnel ingress. Read endpoints sit behind a soft rate limit (`slowapi`); Cloudflare WAF + rate-limiting sit in front. The public app only ever reads our mirror — it never triggers a live OPAC call per request.
+
+**Covers + CDN synergy.** Cover URLs are immutable/content-addressed (§7.5.6), so a Cloudflare Cache Rule on `biblio.josearcos.me/covers/*` (cache-everything, long TTL) lets the edge serve each cover globally and the NAS serve it once — important because home **upload** bandwidth (DIGI fibre) is the real bottleneck, not NAS CPU. Covers are served via a `/covers/*` path proxied to a read-only MinIO bucket, never by exposing the S3 endpoint.
+
+**Backups & observability.** Nightly `pg_dump` of the NAS Postgres + Synology Hyper Backup of `/volume1/docker/bibliohack` (covers Postgres data and the MinIO bucket); optional `restic` to Backblaze B2. Observability (`prometheus` + `grafana` + `loki`) is optional for v0 — track scrape success rate, parse-error rate, embedding queue depth, DB size.
 
 ---
 
@@ -519,6 +596,7 @@ Plan:
 | **M0 — Foundations** | Repo scaffold, Docker Compose dev env, CI (GitHub Actions: ruff + mypy + pytest + Playwright), `make` targets, ARCHITECTURE.md kept in sync. Empty FastAPI hello + empty Astro hello. | 1 weekend |
 | **M1 — Catalog ingest, Huelva** | AbsysNet adapter, parser, persistence. First polite crawl of the Huelva subset. Read-only catalog API + bare-bones search UI (FTS only). | 3–4 weekends |
 | **M2 — Availability history** | Availability snapshot worker, time-series schema, simple "is it on the shelf?" badge in the UI. | 1–2 weekends |
+| **M2.5 — Book covers** | `covers` context + async resolution worker (OpenLibrary → Google Books → placeholder), MinIO content-addressed store, immutable serving, `srcset` + lazy-load in the UI. Enriches search/detail UI dramatically. (Design: §7.5.) | 1–2 weekends |
 | **M3 — Semantic search** | Local BGE-M3 embedding pipeline, pgvector index, hybrid retriever, "more like this" links on detail pages. | 2 weekends |
 | **M4 — Goodreads import** | CSV importer, matching to catalog, bookshelf UI. | 1–2 weekends |
 | **M5 — Recommender v1** | Cold-start + content-based recommendations, OpenRouter rationales, "recommended right now in your branch" view. | 2 weekends |
@@ -534,7 +612,18 @@ Total to M6: ~12–15 weekends if everything is fun. Realistic with life-in-the-
 
 These are the things I am **not** confident about. Address before committing too far.
 
-1. **Does the OPAC's *aviso legal* / `robots.txt` allow systematic crawling?** Read both before M1. If unclear, write to the RBPA coordinator.
+> **First live crawl — findings (2026-05-29).** The legal gate cleared (see item 1), and the full M1 stack ran end-to-end against the live OPAC for the first time: range probe + a 30-task smoke crawl of TITN 1–30. What we learned:
+>
+> - **TITN high-water mark is `2,662,739`** (lowest missing `2,662,740`), found in 42 polite fetches. That's ~1.8× the ~1.5M estimate in §5.1 — re-baseline the bootstrap duration (§6.8) and the embedding storage math (§5.1) against ~2.66M, not 1.5M.
+> - **The `?TITN=N` → `…/{SESSION}?ACC=161` session-token redirect (§6.4) works transparently** through Scrapling's stealth fetcher. No per-worker session pinning was needed — strategy (b) holds.
+> - **🐞 Encoding bug (must-fix before any real ingest).** Persisted titles are double-UTF-8-encoded mojibake: "Juan Jesús García" stored as "Juan JesÃºs GarcÃ­a". Byte dump confirms `ú` (UTF-8 `C3 BA`) stored as `C3 83 C2 BA` — i.e. the UTF-8 page bytes were decoded as Latin-1/cp1252 and re-encoded. The fix is in the fetch→parse path (force the correct source charset before parsing); existing rows are recoverable via `convert_from(convert_to(col,'LATIN1'),'UTF8')` but a re-crawl is cleaner. This corrupts *all* accented text and will wreck FTS/embeddings, so it blocks a wider crawl.
+> - **`subjects` table is empty** after 16 records (`contributors` populated, 13 rows). Either these low-TITN records genuinely lack materia headings or the subject parser isn't wired — verify against a record known to have subjects before trusting M3 semantic input.
+> - **Copies are network-wide, not Huelva-only.** 16 records yielded 120 copies across **73 branches** — the full RBPA, because no `SUBC` Huelva filter is applied at ingest. Expected at this stage; decide whether to filter at ingest or keep all-province copies and filter at query time (the latter is cheaper to expand for M7).
+> - **Records with zero copies exist** (e.g. TITN=10 persisted with `copies=0`). Confirms the §12.5 "ejemplares virtuales" / no-holdings case is real and the schema tolerates it; double-check we aren't silently dropping virtual copies.
+> - **Run mechanics (dev runbook).** Scrapling's `StealthyFetcher` (v0.4.8) drives a **Patchright Chromium**, not the Camoufox binary — install browsers with `scrapling install`, *not* `camoufox fetch`. Host-run CLI/Alembic need `DATABASE_URL`/`DATABASE_URL_SYNC` overridden from host `postgres` to `localhost:5432`.
+
+
+1. ~~**Does the OPAC's *aviso legal* / `robots.txt` allow systematic crawling?**~~ **RESOLVED 2026-05-29 — yes, with conditions.** `robots.txt` for `www.juntadeandalucia.es` does **not** disallow the `/cultura/absys/...` OPAC path for the generic `user-agent: *` (only `PetalBot` is fully banned; we are not it), and sets no `Crawl-delay`. The portal *aviso legal* (`/informacion/legal.html`) grants reuse under **Creative Commons Reconocimiento 3.0 ES (CC-BY)** — copying, redistribution, commercial use and derivatives are all allowed, provided we (a) attribute the source with the exact phrase **"Información obtenida del Portal de la Junta de Andalucía"** in a visible place, (b) propagate that same attribution obligation in any derivative, (c) do not distort the data, and (d) do not reproduce the Junta's logos/escudos/marcas. The *términos de uso* also forbid any access that **damages, degrades or overloads ("sobrecarga")** the service — which makes the §6.3 politeness budget (1 req/s, single-threaded, nightly window) a hard compliance requirement, not just good manners. **Action carried forward:** surface the attribution string in the frontend footer and in any data export before M6 public deploy.
 2. **Does AbsysNet expose a per-record MARC export URL on the public OPAC?** If yes, the parser collapses from "fragile HTML scraping" to "pymarc". This is the single biggest unknown that could simplify the project.
 3. **Is there a published `OAI-PMH` endpoint** for the RBPA we missed? Unlikely (AbsysNet's OAI module is optional and Comunidad Baratz suggests it's not active here), but worth one more probe — try the conventional path `/cgi-bin/abnetcl?ACC=OAI` and similar.
 4. **eBiblio Andalucía** (the eBook lending platform) is a separate system, not AbsysNet. Decision: out of scope for v1, revisit at M7.
@@ -542,6 +631,7 @@ These are the things I am **not** confident about. Address before committing too
 6. **Goodreads ToS for re-importing** — they have intermittently restricted scraping. CSV export is allowed for the user themselves; we just consume what they bring us. No Goodreads-side scraping.
 7. **Vector index migration path** — if pgvector hits a wall, the `EmbeddingService` port lets us swap to Qdrant. **Acceptance criterion**: when query p95 latency exceeds 250 ms on the production homelab, migrate. Not before.
 8. **Spanish-specific tokenisation** for FTS — Postgres ships a `spanish` config; verify accent handling and stopwords against real queries.
+9. **Google Books cover ToS** — their terms expect thumbnails to be *displayed linking back*, not stored/redistributed. Decision (§7.5.2): use Google Books only as a **display-time hotlink fallback**, and treat **Open Library** (permissive) as the only *storable* source. Re-read both terms before M-covers ships, and keep per-cover `license`/`source` so a source can be purged cleanly if its terms change.
 
 ---
 
@@ -557,6 +647,7 @@ These are the things I am **not** confident about. Address before committing too
 - Scraper: **Scrapling** primary, plain `httpx` for non-JS pages.
 - Embeddings: **local BGE-M3**.
 - LLM: **OpenRouter free tier** for user-facing inference only; **no batch jobs** through it.
+- Covers: a **separate `covers` bounded context**, resolved **asynchronously off the OPAC path**, **never hotlinked at request time**. **Open Library** is the storable primary source; **Google Books** is a display-time fallback only; a deterministic **placeholder** is a first-class state. Stored in **MinIO, content-addressed by sha256**, served immutable through Caddy + Cloudflare. Resolution is **lazy / popular-first**, never a full 2.66M pre-fetch. (Full design: §7.5.)
 
 ---
 
