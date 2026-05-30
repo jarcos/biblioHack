@@ -1,0 +1,32 @@
+# Build-context excludes (applies to backend.Dockerfile + frontend.Dockerfile,
+# both built with context: .). Keeps images small and — importantly — keeps
+# macOS AppleDouble (._*) cruft out of the image: alembic globs versions/*.py
+# and would try to load `._<migration>.py`, which contains null bytes.
+
+# macOS metadata
+**/.DS_Store
+**/._*
+
+# VCS
+.git
+.gitignore
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pytest_cache/
+
+# Node / Astro
+**/node_modules/
+**/dist/
+**/.astro/
+
+# Home-lab infra reference (contains secrets) — never in a build context
+homelab-josearcos-me-infra-reference.md
+
+# Dev scratch
+scripts/*.log
+scripts/*.done
