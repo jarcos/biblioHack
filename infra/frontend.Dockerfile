@@ -29,8 +29,12 @@ RUN corepack enable && corepack prepare pnpm@9.14.4 --activate
 ENV NODE_ENV=production
 
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/node_modules ./node_modules
+
+# Astro output is fully static, so serve dist/ with a plain static server.
+# `astro preview` (Vite) enforces a Host allowlist that's awkward behind the
+# Cloudflare Tunnel; `serve` has no such check and is the right tool for static
+# output. (Installed at build time, where host networking is available.)
+RUN npm install -g serve@14.2.4
 
 EXPOSE 4321
-CMD ["pnpm", "preview", "--host", "0.0.0.0", "--port", "4321"]
+CMD ["serve", "dist", "-l", "tcp://0.0.0.0:4321"]

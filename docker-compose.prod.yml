@@ -51,6 +51,9 @@ services:
     build:
       context: .
       dockerfile: infra/backend.Dockerfile
+      # Build RUN steps use the host network so package downloads resolve DNS
+      # (Synology BuildKit otherwise gives "dns error ... Try again").
+      network: host
     container_name: bibliohack-api
     restart: unless-stopped
     environment:
@@ -76,6 +79,7 @@ services:
     build:
       context: .
       dockerfile: infra/frontend.Dockerfile
+      network: host # build RUN steps need host DNS (see api note)
       args:
         # Astro inlines PUBLIC_* at build time, so the public API base URL must
         # be baked here. Same-origin path routing (/api/*) means no CORS.
