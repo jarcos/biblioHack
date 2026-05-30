@@ -22,6 +22,7 @@ serves real HTML, or our own recorded fixtures).
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -143,6 +144,7 @@ class ScraplingOpacGateway:
             latency_ms = int((time.monotonic() - started) * 1000)
             status = int(getattr(page, "status", 0))
             body = str(getattr(page, "html_content", "") or getattr(page, "body", ""))
+            body = _repair_charset(body)
             final_url = str(getattr(page, "url", url))
 
             if status == 200:
@@ -199,3 +201,42 @@ def _looks_like_not_found(html: str) -> bool:
         return False
     lowered = html.lower()
     return any(marker in lowered for marker in _NOT_FOUND_MARKERS)
+
+
+# AbsysNET pages declare `<meta charset=iso-8859-1>` but actually serve UTF-8.
+# Chromium honours the (wrong) declaration and decodes the UTF-8 bytes as
+# Latin-1, so the rendered DOM contains mojibake ("Jesús" -> "JesÃºs").
+_LATIN1_DECL = re.compile(r'charset=["\']?\s*(?:iso-8859-1|latin-?1)', re.I)
+
+
+def _repair_charset(html: str) -> str:
+    """Undo the Latin-1-misread-of-UTF-8 mojibake on AbsysNET pages.
+
+    Because Chromium decoded the *entire* document as Latin-1, every code
+    point is <= U+00FF, so re-encoding the string as Latin-1 recovers the
+    original response bytes and decoding those as UTF-8 restores the text.
+
+    Guards keep this safe:
+    - only attempt it when the page declares a Latin-1 family charset, and
+    - keep the original on any Unicode error — a genuinely Latin-1 page (or
+      one Chromium left with stray non-Latin-1 chars) will not round-trip as
+      UTF-8, so we never corrupt correctly-decoded text.
+    """
+    if not html or not _LATIN1_DECL.search(html[:4096]):
+        return html
+    try:
+        raw = html.encode("latin-1")
+    except UnicodeEncodeError:
+        # Document isn't uniformly Latin-1 (Chromium left genuine Unicode in
+        # places) — not the simple mojibake case, leave it untouched.
+        return html
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        # The bibliographic text is valid UTF-8, but a stray non-UTF-8 byte
+        # elsewhere in the page (typically inside an inline script) would make
+        # a strict whole-document decode fail and silently leave the mojibake
+        # in place. Decode leniently so the content fields are still repaired;
+        # replacement chars only land on the genuinely-invalid bytes, which are
+        # never in the title/author/publisher fields we parse.
+        return raw.decode("utf-8", errors="replace")

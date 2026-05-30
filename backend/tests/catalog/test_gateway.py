@@ -224,3 +224,82 @@ async def test_repeated_exceptions_raise_unavailable(
 
     with pytest.raises(OpacUnavailableError):
         await ScraplingOpacGateway(fast_config).fetch_record(Titn(1))
+
+
+# ───────────────────────────────────────────────────────────────
+# Charset repair — AbsysNET declares iso-8859-1 but serves UTF-8, so
+# Chromium hands us mojibake. The gateway must undo it before returning.
+# ───────────────────────────────────────────────────────────────
+
+
+def _mojibake(text: str) -> str:
+    """Reproduce the bug: UTF-8 bytes decoded as Latin-1 (what Chromium does)."""
+    return text.encode("utf-8").decode("latin-1")
+
+
+def test_repair_charset_undoes_latin1_misread_of_utf8() -> None:
+    from bibliohack.catalog.infrastructure.absysnet.gateway import _repair_charset
+
+    original = "091 / Juan Jesús García, Juan Enrique Gómez."
+    page = (
+        '<html><head><meta charset="iso-8859-1"></head>'
+        f"<body><span>{_mojibake(original)}</span></body></html>"
+    )
+    repaired = _repair_charset(page)
+    assert original in repaired
+    assert "Ã" not in repaired
+
+
+def test_repair_charset_left_alone_when_no_latin1_declaration() -> None:
+    """A correctly-served UTF-8 page (no Latin-1 declaration) is untouched."""
+    from bibliohack.catalog.infrastructure.absysnet.gateway import _repair_charset
+
+    page = '<html><head><meta charset="utf-8"></head><body><span>Gómez</span></body></html>'
+    assert _repair_charset(page) == page
+
+
+def test_repair_charset_recovers_fields_despite_stray_invalid_byte() -> None:
+    """A stray non-UTF-8 byte elsewhere must not block repairing the content.
+
+    Real OPAC pages are UTF-8 mis-decoded as Latin-1, but carry the odd
+    invalid byte inside inline scripts. A strict whole-doc decode would throw
+    and silently leave mojibake; the lenient fallback still recovers the
+    bibliographic text and only replaces the genuinely-invalid byte.
+    """
+    from bibliohack.catalog.infrastructure.absysnet.gateway import _repair_charset
+
+    original = "Jesús García"
+    page = (
+        '<html><head><meta charset="iso-8859-1"></head>'
+        f"<body><span>{_mojibake(original)}</span>"
+        "<script>var x='\x9d';</script></body></html>"  # 0x9d: invalid UTF-8
+    )
+    repaired = _repair_charset(page)
+    assert original in repaired  # content recovered
+    assert "Ã" not in repaired
+
+
+def test_repair_charset_skips_pages_without_latin1_declaration() -> None:
+    """No Latin-1 declaration → never touched (guards correctly-served pages)."""
+    from bibliohack.catalog.infrastructure.absysnet.gateway import _repair_charset
+
+    page = "<html><body>caf\xe9</body></html>"  # no charset meta at all
+    assert _repair_charset(page) == page
+
+
+async def test_fetch_record_returns_repaired_html(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    original = "García, Juan Jesús."
+    html = (
+        '<html><head><meta charset="iso-8859-1"></head>'
+        f"<body><span>{_mojibake(original)}</span></body></html>"
+    )
+    fake = FakeFetcher([FakePage(status=200, html_content=html)])
+    install_fake_fetcher(fake)
+
+    result = await ScraplingOpacGateway(fast_config).fetch_record(Titn(1))
+
+    assert result.outcome is FetchOutcome.OK
+    assert original in result.html
+    assert "Ã" not in result.html
