@@ -134,12 +134,7 @@ async def test_ingest_drops_one_snapshot_per_copy(applied_db: str) -> None:
 
         async with factory() as s:
             rows = (
-                await s.execute(
-                    text(
-                        "SELECT status FROM availability_snapshots "
-                        "ORDER BY status"
-                    )
-                )
+                await s.execute(text("SELECT status FROM availability_snapshots ORDER BY status"))
             ).all()
         statuses = [r[0] for r in rows]
         # Domain mapping: Disponible→available, Prestado→loaned,
