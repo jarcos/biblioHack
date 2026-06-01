@@ -299,3 +299,81 @@ describe("catalog scope + literary profile", () => {
     expect(result.items[0]?.literary_form).toBe("unknown");
   });
 });
+
+describe("availability fields", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("parses copy status + due_back_at, defaulting a missing status to 'unknown'", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        titn: 9,
+        title: "Con ejemplares",
+        subtitle: null,
+        document_type: null,
+        language: "spa",
+        pub_year: null,
+        publisher: null,
+        classification: null,
+        audience: "adult",
+        literary_form: "literary",
+        authors: [],
+        subjects: [],
+        isbns: [],
+        copies: [
+          {
+            branch_code: "HU01",
+            branch_name: "Huelva",
+            status: "loaned",
+            due_back_at: "2026-06-20",
+          },
+          { branch_code: "SE01", branch_name: "Sevilla" },
+        ],
+        source_url: "https://example.test/?TITN=9",
+      }),
+    });
+
+    const rec = await fetchRecord("http://api.test", 9);
+    expect(rec.copies[0]?.status).toBe("loaned");
+    expect(rec.copies[0]?.due_back_at).toBe("2026-06-20");
+    expect(rec.copies[1]?.status).toBe("unknown");
+  });
+
+  it("parses summary available_count, defaulting to 0 when omitted", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        query: "x",
+        total: 2,
+        limit: 20,
+        offset: 0,
+        has_more: false,
+        items: [
+          {
+            titn: 1,
+            title: "A",
+            authors: [],
+            publisher: null,
+            pub_year: null,
+            copies_count: 3,
+            available_count: 2,
+          },
+          { titn: 2, title: "B", authors: [], publisher: null, pub_year: null, copies_count: 1 },
+        ],
+      }),
+    });
+
+    const page = await searchCatalog("http://api.test", { query: "x" });
+    expect(page.items[0]?.available_count).toBe(2);
+    expect(page.items[1]?.available_count).toBe(0);
+  });
+});

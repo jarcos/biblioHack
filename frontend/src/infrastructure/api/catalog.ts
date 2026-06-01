@@ -30,9 +30,23 @@ export const LiteraryFormSchema = z.enum(LITERARY_FORMS).catch("unknown");
 /** Search scope — mirrors the backend `SearchScope` query param. */
 export type SearchScope = "literary" | "all";
 
+/** Latest availability of a copy (mirrors backend `AvailabilityStatus`). */
+export const AVAILABILITY_STATUSES = [
+  "available",
+  "loaned",
+  "reserved",
+  "unavailable",
+  "unknown",
+] as const;
+export type AvailabilityStatus = (typeof AVAILABILITY_STATUSES)[number];
+export const AvailabilityStatusSchema = z.enum(AVAILABILITY_STATUSES).catch("unknown");
+
 export const CopySchema = z.object({
   branch_code: z.string(),
   branch_name: z.string(),
+  signature: z.string().nullable().optional(),
+  status: AvailabilityStatusSchema,
+  due_back_at: z.string().nullable().optional(),
 });
 
 export const CatalogRecordSchema = z.object({
@@ -63,6 +77,7 @@ export const CatalogRecordSummarySchema = z.object({
   copies_count: z.number().int().nonnegative(),
   audience: AudienceSchema,
   literary_form: LiteraryFormSchema,
+  available_count: z.number().int().nonnegative().catch(0),
 });
 export type CatalogRecordSummary = z.infer<typeof CatalogRecordSummarySchema>;
 

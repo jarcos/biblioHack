@@ -3,6 +3,7 @@ import { useMemo, type ReactElement } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { availabilityLabel, availabilityVariant } from "@/lib/availability";
 import { audienceLabel, formLabel, inDefaultScope } from "@/lib/literary";
 import { CatalogApiError, fetchRecord, type CatalogRecord } from "@infrastructure/api/catalog";
 
@@ -74,6 +75,9 @@ function RecordBody({ record }: { record: CatalogRecord }): ReactElement {
   ].filter((part): part is string => part !== null);
 
   const branches = groupByBranch(record);
+  const totalAvailable = branches.reduce((sum, b) => sum + b.available, 0);
+  const branchesWithAvailable = branches.filter((b) => b.available > 0).length;
+  const hasAvailabilityData = record.copies.some((c) => c.status !== "unknown");
 
   return (
     <div className="space-y-8">
@@ -127,20 +131,53 @@ function RecordBody({ record }: { record: CatalogRecord }): ReactElement {
               Sin ejemplares registrados (posible recurso virtual).
             </p>
           ) : (
-            <ul className="divide-y divide-border">
-              {branches.map((branch) => (
-                <li key={branch.code} className="flex items-center justify-between py-2 text-sm">
-                  <span className="text-foreground">{branch.name}</span>
-                  <Badge variant="outline" className="shrink-0">
-                    {branch.count} ejemplar{branch.count === 1 ? "" : "es"}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
+            <>
+              <div className="mb-3 flex items-center gap-2 text-sm">
+                {!hasAvailabilityData ? (
+                  <span className="text-muted-foreground">Disponibilidad aún sin rastrear.</span>
+                ) : totalAvailable > 0 ? (
+                  <>
+                    <Badge variant="available">Disponible ahora</Badge>
+                    <span className="text-muted-foreground">
+                      {totalAvailable} ejemplar{totalAvailable === 1 ? "" : "es"} en{" "}
+                      {branchesWithAvailable} sucursal{branchesWithAvailable === 1 ? "" : "es"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Ningún ejemplar disponible ahora mismo.
+                  </span>
+                )}
+              </div>
+              <ul className="divide-y divide-border">
+                {branches.map((branch) => (
+                  <li
+                    key={branch.code}
+                    className="flex items-center justify-between gap-3 py-2 text-sm"
+                  >
+                    <span className="text-foreground">
+                      {branch.name}
+                      <span className="text-muted-foreground">
+                        {" · "}
+                        {branch.count} ejemplar{branch.count === 1 ? "" : "es"}
+                      </span>
+                    </span>
+                    {branch.available > 0 ? (
+                      <Badge variant="available" className="shrink-0">
+                        {branch.available} disponible{branch.available === 1 ? "" : "s"}
+                      </Badge>
+                    ) : (
+                      <Badge variant={availabilityVariant(branch.status)} className="shrink-0">
+                        {availabilityLabel(branch.status)}
+                      </Badge>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
           <p className="pt-4 text-xs text-muted-foreground">
-            La disponibilidad en tiempo real (en préstamo / en estantería) llegará cuando la API
-            exponga el historial del contexto de disponibilidad (M2).
+            Disponibilidad según el último rastreo del espejo, no en vivo contra el OPAC.
           </p>
         </CardContent>
       </Card>
@@ -203,14 +240,41 @@ interface BranchGroup {
   code: string;
   name: string;
   count: number;
+  available: number;
+  // Representative status for the branch badge when nothing is available.
+  status: string;
+}
+
+// When a branch has no available copy, summarise it with the status
+// "closest to borrowable" so the badge stays the most useful signal.
+const STATUS_PRIORITY = ["available", "loaned", "reserved", "unavailable", "unknown"];
+
+function rank(status: string): number {
+  const i = STATUS_PRIORITY.indexOf(status);
+  return i === -1 ? STATUS_PRIORITY.length : i;
+}
+
+function betterStatus(a: string, b: string): string {
+  return rank(b) < rank(a) ? b : a;
 }
 
 function groupByBranch(record: CatalogRecord): BranchGroup[] {
   const byCode = new Map<string, BranchGroup>();
   for (const copy of record.copies) {
     const existing = byCode.get(copy.branch_code);
-    if (existing) existing.count += 1;
-    else byCode.set(copy.branch_code, { code: copy.branch_code, name: copy.branch_name, count: 1 });
+    if (existing) {
+      existing.count += 1;
+      if (copy.status === "available") existing.available += 1;
+      existing.status = betterStatus(existing.status, copy.status);
+    } else {
+      byCode.set(copy.branch_code, {
+        code: copy.branch_code,
+        name: copy.branch_name,
+        count: 1,
+        available: copy.status === "available" ? 1 : 0,
+        status: copy.status,
+      });
+    }
   }
   return [...byCode.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
 }

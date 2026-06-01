@@ -86,4 +86,39 @@ describe("RecordDetail", () => {
     expect(screen.getByText(/falta el identificador/i)).toBeInTheDocument();
     expect(globalThis.fetch as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
+
+  it("renders availability badges from each copy's latest status", async () => {
+    window.history.replaceState({}, "", "/record?titn=50");
+    mockRecord({
+      titn: 50,
+      title: "Con disponibilidad",
+      subtitle: null,
+      document_type: null,
+      language: "spa",
+      pub_year: 2000,
+      publisher: "Ed",
+      classification: null,
+      audience: "adult",
+      literary_form: "literary",
+      authors: [],
+      subjects: [],
+      isbns: [],
+      copies: [
+        { branch_code: "HU01", branch_name: "Huelva", status: "available" },
+        { branch_code: "HU01", branch_name: "Huelva", status: "loaned" },
+        { branch_code: "SE01", branch_name: "Sevilla", status: "loaned" },
+      ],
+      source_url: "https://example.test/?TITN=50",
+    });
+
+    render(<RecordDetail apiBaseUrl="http://api.test" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Con disponibilidad")).toBeInTheDocument();
+    });
+    // Overall "on shelf now" summary + Huelva shows 1 available, Sevilla loaned.
+    expect(screen.getByText("Disponible ahora")).toBeInTheDocument();
+    expect(screen.getByText("1 disponible")).toBeInTheDocument();
+    expect(screen.getByText("Prestado")).toBeInTheDocument();
+  });
 });

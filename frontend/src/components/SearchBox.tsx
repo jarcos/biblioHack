@@ -225,9 +225,14 @@ function ResultRow({ record }: { record: CatalogRecordSummary }): ReactElement {
           </div>
         )}
       </div>
-      <Badge variant="outline" className="shrink-0">
-        {record.copies_count} ejemplar{record.copies_count === 1 ? "" : "es"}
-      </Badge>
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        {record.available_count > 0 && (
+          <Badge variant="available">{record.available_count} disp. ahora</Badge>
+        )}
+        <Badge variant="outline">
+          {record.copies_count} ejemplar{record.copies_count === 1 ? "" : "es"}
+        </Badge>
+      </div>
     </a>
   );
 }

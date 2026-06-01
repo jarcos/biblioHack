@@ -127,4 +127,34 @@ describe("SearchBox", () => {
       expect(calledUrl).toContain("scope=all");
     });
   });
+
+  it("shows an 'available now' badge when a result has copies on the shelf", async () => {
+    mockSearchResponse({
+      query: "x",
+      total: 1,
+      limit: 20,
+      offset: 0,
+      has_more: false,
+      items: [
+        {
+          titn: 1,
+          title: "Disponible",
+          authors: [],
+          publisher: null,
+          pub_year: null,
+          copies_count: 3,
+          available_count: 2,
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    render(<SearchBox apiBaseUrl="http://api.test" />);
+    await user.type(screen.getByLabelText(/buscar en el catálogo/i), "x");
+    await user.click(screen.getByRole("button", { name: /buscar/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("2 disp. ahora")).toBeInTheDocument();
+    });
+  });
 });
