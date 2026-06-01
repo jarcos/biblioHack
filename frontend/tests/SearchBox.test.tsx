@@ -102,4 +102,29 @@ describe("SearchBox", () => {
     });
     expect(screen.getByText(/503/)).toBeInTheDocument();
   });
+
+  it("searches with scope=all once the include-everything toggle is on", async () => {
+    mockSearchResponse({
+      query: "x",
+      total: 0,
+      limit: 20,
+      offset: 0,
+      has_more: false,
+      items: [],
+    });
+
+    const user = userEvent.setup();
+    render(<SearchBox apiBaseUrl="http://api.test" />);
+
+    await user.click(screen.getByRole("checkbox", { name: /incluir infantil/i }));
+    await user.type(screen.getByLabelText(/buscar en el catálogo/i), "x");
+    await user.click(screen.getByRole("button", { name: /buscar/i }));
+
+    await waitFor(() => {
+      const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+      expect(mockFetch).toHaveBeenCalled();
+      const calledUrl = mockFetch.mock.calls.at(-1)?.[0] as string;
+      expect(calledUrl).toContain("scope=all");
+    });
+  });
 });

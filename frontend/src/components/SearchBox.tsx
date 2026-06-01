@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { audienceLabel, formLabel, inDefaultScope } from "@/lib/literary";
 import {
   CatalogApiError,
   searchCatalog,
@@ -59,10 +60,18 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
   // two means typing doesn't trigger fresh requests on every keystroke.
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
+  // Default scope is the literary catalogue (adult, all genres). The toggle
+  // flips to `all` so children's / youth / non-fiction become searchable.
+  const [includeAll, setIncludeAll] = useState(false);
 
   const { data, error, isFetching, isSuccess } = useQuery({
-    queryKey: ["catalog-search", query],
-    queryFn: ({ signal }) => searchCatalog(apiBaseUrl, { query }, signal),
+    queryKey: ["catalog-search", query, includeAll ? "all" : "literary"],
+    queryFn: ({ signal }) =>
+      searchCatalog(
+        apiBaseUrl,
+        { query, ...(includeAll ? { scope: "all" as const } : {}) },
+        signal,
+      ),
     enabled: query.length > 0,
   });
 
@@ -93,6 +102,16 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
             Buscar
           </Button>
         </form>
+
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={includeAll}
+            onChange={(event) => setIncludeAll(event.target.checked)}
+            className="h-4 w-4 rounded border-border accent-primary"
+          />
+          Incluir infantil, juvenil y no ficción
+        </label>
 
         <SearchState
           isLoading={isFetching}
@@ -183,8 +202,15 @@ function ResultRow({ record }: { record: CatalogRecordSummary }): ReactElement {
     record.pub_year != null ? String(record.pub_year) : null,
   ].filter((part): part is string => part !== null);
 
+  // In `scope=all` mode the list surfaces children's/youth/non-fiction rows;
+  // badge those so it's clear why they appear outside the literary default.
+  const flagged = !inDefaultScope(record.audience, record.literary_form);
+
   return (
-    <article className="flex items-start justify-between gap-4 rounded-md border border-border bg-card p-4">
+    <a
+      href={`/record?titn=${record.titn}`}
+      className="flex items-start justify-between gap-4 rounded-md border border-border bg-card p-4 transition-colors hover:border-foreground/30 hover:bg-muted/40"
+    >
       <div className="space-y-1">
         <h3 className="font-serif text-lg font-semibold leading-tight tracking-tight">
           {record.title}
@@ -192,11 +218,17 @@ function ResultRow({ record }: { record: CatalogRecordSummary }): ReactElement {
         {subtitleParts.length > 0 && (
           <p className="text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p>
         )}
+        {flagged && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
+            <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
+          </div>
+        )}
       </div>
       <Badge variant="outline" className="shrink-0">
         {record.copies_count} ejemplar{record.copies_count === 1 ? "" : "es"}
       </Badge>
-    </article>
+    </a>
   );
 }
 

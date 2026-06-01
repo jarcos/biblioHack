@@ -170,4 +170,132 @@ describe("fetchRecord", () => {
       detail: "Internal Server Error",
     });
   });
+
+  it("parses audience + literary_form when present", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        titn: 7,
+        title: "Un cuento infantil",
+        subtitle: null,
+        document_type: "Monografías",
+        language: "spa",
+        pub_year: 2018,
+        publisher: "SM",
+        classification: "087.5",
+        audience: "children",
+        literary_form: "literary",
+        authors: [],
+        subjects: ["Cuentos infantiles"],
+        isbns: [],
+        copies: [],
+        source_url: "https://example.test/?TITN=7",
+      }),
+    });
+
+    const record = await fetchRecord("http://api.test", 7);
+    expect(record.audience).toBe("children");
+    expect(record.literary_form).toBe("literary");
+  });
+});
+
+describe("catalog scope + literary profile", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function mockEmptyPage(): void {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        query: "x",
+        total: 0,
+        limit: 20,
+        offset: 0,
+        has_more: false,
+        items: [],
+      }),
+    });
+  }
+
+  it("adds scope=all to the URL when scope is 'all'", async () => {
+    mockEmptyPage();
+    await searchCatalog("http://api.test", { query: "x", scope: "all" });
+    const calledUrl = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    expect(calledUrl).toContain("scope=all");
+  });
+
+  it("omits scope from the URL by default", async () => {
+    mockEmptyPage();
+    await searchCatalog("http://api.test", { query: "x" });
+    const calledUrl = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    expect(calledUrl).not.toContain("scope=");
+  });
+
+  it("defaults audience + literary_form to 'unknown' when the backend omits them", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        query: "x",
+        total: 1,
+        limit: 20,
+        offset: 0,
+        has_more: false,
+        items: [
+          {
+            titn: 1,
+            title: "Legacy-shaped row",
+            authors: [],
+            publisher: null,
+            pub_year: null,
+            copies_count: 0,
+          },
+        ],
+      }),
+    });
+
+    const result = await searchCatalog("http://api.test", { query: "x" });
+    expect(result.items[0]?.audience).toBe("unknown");
+    expect(result.items[0]?.literary_form).toBe("unknown");
+  });
+
+  it("degrades an unrecognised profile value to 'unknown' instead of throwing", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        query: "x",
+        total: 1,
+        limit: 20,
+        offset: 0,
+        has_more: false,
+        items: [
+          {
+            titn: 2,
+            title: "Weird profile",
+            authors: [],
+            publisher: null,
+            pub_year: null,
+            copies_count: 1,
+            audience: "martian",
+            literary_form: "interpretive-dance",
+          },
+        ],
+      }),
+    });
+
+    const result = await searchCatalog("http://api.test", { query: "x" });
+    expect(result.items[0]?.audience).toBe("unknown");
+    expect(result.items[0]?.literary_form).toBe("unknown");
+  });
 });

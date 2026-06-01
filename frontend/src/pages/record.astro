@@ -1,0 +1,13 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { RecordDetail } from "@/components/RecordDetail";
+
+// Static page (one HTML shell). The record itself is fetched client-side by
+// the island from `?titn=`, so the build never enumerates the 2.66M-record
+// TITN space. `client:only` skips SSR so the island can read window.location.
+const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+---
+
+<Layout title="biblioHack — registro">
+  <RecordDetail apiBaseUrl={apiBaseUrl} client:only="react" />
+</Layout>

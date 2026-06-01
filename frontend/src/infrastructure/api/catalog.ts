@@ -13,6 +13,23 @@ import { z } from "zod";
 
 // ── Schemas (kept in sync with backend manually until OpenAPI codegen) ──
 
+/**
+ * Literary profile (see backend `catalog/domain/literary_profile.py`).
+ * `.catch("unknown")` makes both axes resilient: a missing field (older
+ * backend) or an unexpected value degrades to `unknown` rather than failing
+ * the whole parse — `unknown` is a first-class, in-scope value anyway.
+ */
+export const AUDIENCES = ["adult", "youth", "children", "unknown"] as const;
+export type Audience = (typeof AUDIENCES)[number];
+export const AudienceSchema = z.enum(AUDIENCES).catch("unknown");
+
+export const LITERARY_FORMS = ["literary", "nonfiction", "unknown"] as const;
+export type LiteraryForm = (typeof LITERARY_FORMS)[number];
+export const LiteraryFormSchema = z.enum(LITERARY_FORMS).catch("unknown");
+
+/** Search scope — mirrors the backend `SearchScope` query param. */
+export type SearchScope = "literary" | "all";
+
 export const CopySchema = z.object({
   branch_code: z.string(),
   branch_name: z.string(),
@@ -27,6 +44,8 @@ export const CatalogRecordSchema = z.object({
   pub_year: z.number().int().nullable().optional(),
   publisher: z.string().nullable().optional(),
   classification: z.string().nullable().optional(),
+  audience: AudienceSchema,
+  literary_form: LiteraryFormSchema,
   authors: z.array(z.string()),
   subjects: z.array(z.string()),
   isbns: z.array(z.string()),
@@ -42,6 +61,8 @@ export const CatalogRecordSummarySchema = z.object({
   publisher: z.string().nullable().optional(),
   pub_year: z.number().int().nullable().optional(),
   copies_count: z.number().int().nonnegative(),
+  audience: AudienceSchema,
+  literary_form: LiteraryFormSchema,
 });
 export type CatalogRecordSummary = z.infer<typeof CatalogRecordSummarySchema>;
 
@@ -79,6 +100,12 @@ export interface SearchParams {
   query: string;
   limit?: number;
   offset?: number;
+  /**
+   * `literary` (backend default: adult literature, all genres) or `all`
+   * (whole mirror). Omitted from the request when undefined so the default
+   * stays server-side and the URL stays clean.
+   */
+  scope?: SearchScope;
 }
 
 /**
@@ -88,13 +115,14 @@ export interface SearchParams {
  */
 export async function searchCatalog(
   apiBaseUrl: string,
-  { query, limit, offset }: SearchParams,
+  { query, limit, offset, scope }: SearchParams,
   signal?: AbortSignal,
 ): Promise<SearchResponse> {
   const url = new URL("/catalog/search", apiBaseUrl);
   url.searchParams.set("q", query);
   if (limit !== undefined) url.searchParams.set("limit", String(limit));
   if (offset !== undefined) url.searchParams.set("offset", String(offset));
+  if (scope !== undefined) url.searchParams.set("scope", scope);
 
   const response = await fetch(url.toString(), {
     headers: { Accept: "application/json" },
