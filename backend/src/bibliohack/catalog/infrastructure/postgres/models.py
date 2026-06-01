@@ -63,9 +63,7 @@ class BibliographicRecordModel(Base):
     # reads by default. 'unknown' stays inside the default scope, so existing
     # rows (server_default below) remain visible until re-crawled.
     audience: Mapped[str] = mapped_column(String(16), nullable=False, server_default="unknown")
-    literary_form: Mapped[str] = mapped_column(
-        String(16), nullable=False, server_default="unknown"
-    )
+    literary_form: Mapped[str] = mapped_column(String(16), nullable=False, server_default="unknown")
 
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
