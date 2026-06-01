@@ -141,7 +141,7 @@ Six contexts. Each one is a **module** in the backend repo (`packages/<context>/
 
 | Context | Aggregates | Ports (interfaces) | Adapters |
 | --- | --- | --- | --- |
-| **Catalog** | `BibliographicRecord` (root), `Edition`, `Contributor`, `Subject` | `BibliographicRepository`, `OpacGateway`, `EmbeddingService` | Postgres repo, AbsysNet HTML adapter, sentence-transformers adapter |
+| **Catalog** | `BibliographicRecord` (root), `Edition`, `Contributor`, `Subject`, `LiteraryProfile` (VO, §5.5) | `BibliographicRepository`, `OpacGateway`, `EmbeddingService` | Postgres repo, AbsysNet HTML adapter, sentence-transformers adapter |
 | **Holdings** | `Copy` (root), `Branch`, `Signature`, `Loan` | `HoldingsRepository`, `OpacGateway` | Postgres repo, AbsysNet adapter |
 | **Availability** | `AvailabilitySnapshot` (root, immutable) | `AvailabilityRepository`, `AvailabilityProbe` | Postgres / Timescale repo, AbsysNet adapter |
 | **ReadingHistory** | `Bookshelf` (root), `ReadEntry`, `Rating`, `ImportJob` | `BookshelfRepository`, `Importer` | Postgres repo, Goodreads CSV adapter, StoryGraph CSV adapter |
@@ -198,6 +198,9 @@ bibliographic_records (
   language        text,
   pub_year        int,
   publisher       text,
+  classification  text,                          -- UDC/CDU (MARC T080)
+  audience        text NOT NULL DEFAULT 'unknown',   -- adult|youth|children|unknown  (see §5.5)
+  literary_form   text NOT NULL DEFAULT 'unknown',   -- literary|nonfiction|unknown   (see §5.5)
   subjects        text[],
   summary         text,
   marc_raw        jsonb,                         -- whatever MARC-ish blob we recovered
@@ -280,6 +283,40 @@ Test pyramid, top-to-bottom:
 4. **End-to-end** — Playwright drives the Astro UI against the full Docker Compose stack, asserting on a small smoke-test catalog.
 
 Coverage targets: domain & application ≥95%, infrastructure ≥75%, interfaces ≥60%. We *don't* chase 100% — coverage measures the wrong thing on adapter code.
+
+---
+
+## 5.5 Catalogue scope — audience & literary-form classification
+
+> **Status: BUILT 2026-06-01.** Domain classifier + ingest persistence + `?scope=` on the search API. Frontend badge/toggle still to wire.
+
+biblioHack is for adult readers of **literature** — novels and every genre of fiction (sci-fi, crime, fantasy…) plus poetry and drama. It is *not* a catalogue of children's picture books, school textbooks, or reference works. But we still want those rows in the database (M7 other provinces, a future "kids mode", correcting a misclassification), so the rule is **classify, don't discard**: every book the media-type filter accepts is ingested, tagged with a *literary profile*, and that profile is used only to **scope reads** (search + recommender) by default. A query can always widen the scope, and re-running the classifier re-derives everything without a re-crawl.
+
+The one axis we *do* hard-filter at ingest is **media type** (magazines, CDs, DVDs, audiobooks) — a stable, high-confidence MARC-leader signal that is genuinely out of scope (the books-only `MediaTypeFilter`, §6.1 / §13). Audience and fiction/non-fiction are fuzzier — YA that adults read, literary non-fiction — so they are *tags*, not a delete.
+
+**Why not filter the crawl itself?** Discovery enumerates TITN; we only learn a record's type *after* fetching it, so dropping it at ingest saves storage and embedding compute, never the polite-crawl budget — the request is already spent (§6.3). The compute saving (not embedding out-of-scope records) we get from the tag anyway. So "noise" is a **presentation** problem, solved at query time, not an acquisition problem.
+
+**Two axes** (`catalog/domain/literary_profile.py`), each with an explicit `unknown` that stays *inside* the default scope, so an under-catalogued novel is shown rather than hidden:
+
+| Axis | Values |
+| --- | --- |
+| `Audience` | `adult` · `youth` · `children` · `unknown` |
+| `LiteraryForm` | `literary` (belles-lettres) · `nonfiction` · `unknown` |
+
+**Signals, strongest first:**
+
+| Signal | Source | How it reads |
+| --- | --- | --- |
+| Copy signature (tejuelo) | holdings `data-sign` | `N…` → adult narrative; `P…`/`T…` → poesía/teatro; `I…` → infantil; `J…`/`J-N…` → juvenil; topographic/deposit codes (`3-B-522`, `UNI 6383`) → no signal |
+| CDU / UDC (MARC T080) | record `classification` | `82…`/`860…` → literature; `.09` → criticism (non-fiction); `-93`/`087.5` → infantil/juvenil; any other class (incl. `80`/`81` linguistics) → non-fiction |
+| MARC 008/22 target audience | *not parsed yet* | future refinement |
+| Subjects (T650/T651/T655) | record `subjects` | feeds genre faceting, **not** the keep/hide decision |
+
+**Resolution.** A record can hold copies across several sections (a poem shelved in both the adult *and* the children's room). We let **ADULT evidence win** — the question the default scope answers is "can an adult reader get this?" — and **LITERARY win over NONFICTION**, so a borderline title stays visible. With no usable signal the profile is `unknown/unknown`, which is still in scope.
+
+**Where it runs.** Computed at ingest from the parsed CDU + the copies' signatures (no extra I/O, no cross-context call — the parser hands us both in one `ParseResult`), then persisted on `bibliographic_records` (`classification`, `audience`, `literary_form`, with a btree index on the latter two). The read API exposes `GET /catalog/search?scope=literary|all`: `literary` (default) hides only records *confidently* classified as children's/youth or non-fiction; `scope=all` searches the whole mirror. `audience` and `literary_form` ride on both the search-result and full-record responses so the frontend can badge them and offer a "show everything" toggle.
+
+**Validated** against the `titn_1` fixture: CDU `821.134.2-1` (Spanish poetry) + copies in adult (`N ARS roh`), juvenil (`J-N SAL cab`) and two deposit shelves → resolves to `adult` + `literary`, in the default scope. Two caveats carried forward: (a) the exact `js-` class AbsysNET uses for *materias* is unconfirmed — titn_1 is a poetry book with no 6XX headings, so the parser is exercised on synthetic HTML; re-confirm on the next crawl of a record that has subjects. (b) Pre-existing rows default to `unknown` (so they stay visible) until a re-crawl recomputes a real value — trivial while the production mirror is still empty.
 
 ---
 
@@ -659,7 +696,7 @@ These are the things I am **not** confident about. Address before committing too
 > - **TITN high-water mark is `2,662,739`** (lowest missing `2,662,740`), found in 42 polite fetches. That's ~1.8× the ~1.5M estimate in §5.1 — re-baseline the bootstrap duration (§6.8) and the embedding storage math (§5.1) against ~2.66M, not 1.5M.
 > - **The `?TITN=N` → `…/{SESSION}?ACC=161` session-token redirect (§6.4) works transparently** through Scrapling's stealth fetcher. No per-worker session pinning was needed — strategy (b) holds.
 > - **🐞 Encoding bug (must-fix before any real ingest).** Persisted titles are double-UTF-8-encoded mojibake: "Juan Jesús García" stored as "Juan JesÃºs GarcÃ­a". Byte dump confirms `ú` (UTF-8 `C3 BA`) stored as `C3 83 C2 BA` — i.e. the UTF-8 page bytes were decoded as Latin-1/cp1252 and re-encoded. The fix is in the fetch→parse path (force the correct source charset before parsing); existing rows are recoverable via `convert_from(convert_to(col,'LATIN1'),'UTF8')` but a re-crawl is cleaner. This corrupts *all* accented text and will wreck FTS/embeddings, so it blocks a wider crawl.
-> - **`subjects` table is empty** after 16 records (`contributors` populated, 13 rows). Either these low-TITN records genuinely lack materia headings or the subject parser isn't wired — verify against a record known to have subjects before trusting M3 semantic input.
+> - **`subjects` table is empty** after 16 records (`contributors` populated, 13 rows). Either these low-TITN records genuinely lack materia headings or the subject parser isn't wired — verify against a record known to have subjects before trusting M3 semantic input. **UPDATE 2026-06-01:** the subject parser is now wired (MARC T650/T651/T655 → `subjects`, deduped + ordered); titn_1 is confirmed to genuinely carry no 6XX headings, so the empty table was real, not a parser gap. The exact `js-` class still needs confirming against a record that *does* expose materias on the next crawl (see §5.5).
 > - **Copies are network-wide, not Huelva-only.** 16 records yielded 120 copies across **73 branches** — the full RBPA, because no `SUBC` Huelva filter is applied at ingest. Expected at this stage; decide whether to filter at ingest or keep all-province copies and filter at query time (the latter is cheaper to expand for M7).
 > - **Records with zero copies exist** (e.g. TITN=10 persisted with `copies=0`). Confirms the §12.5 "ejemplares virtuales" / no-holdings case is real and the schema tolerates it; double-check we aren't silently dropping virtual copies.
 > - **Run mechanics (dev runbook).** Scrapling's `StealthyFetcher` (v0.4.8) drives a **Patchright Chromium**, not the Camoufox binary — install browsers with `scrapling install`, *not* `camoufox fetch`. Host-run CLI/Alembic need `DATABASE_URL`/`DATABASE_URL_SYNC` overridden from host `postgres` to `localhost:5432`.
@@ -691,6 +728,7 @@ These are the things I am **not** confident about. Address before committing too
 - Embeddings: **local BGE-M3**.
 - LLM: **OpenRouter free tier** for user-facing inference only; **no batch jobs** through it.
 - Covers: a **separate `covers` bounded context**, resolved **asynchronously off the OPAC path**, **never hotlinked at request time**. **Open Library** is the storable primary source; **Google Books** is a display-time fallback only; a deterministic **placeholder** is a first-class state. Stored in **MinIO, content-addressed by sha256**, served immutable through Caddy + Cloudflare. Resolution is **lazy / popular-first**, never a full 2.66M pre-fetch. (Full design: §7.5.)
+- Catalogue scope: **classify, don't discard.** Every accepted book is ingested and tagged with a `LiteraryProfile` (audience + literary form); the default search/recommender scope surfaces **adult literature, all genres**, hiding only records *confidently* children's/youth or non-fiction. Media type stays a hard ingest-time filter; audience and form are reversible tags applied at read time. (Full design: §5.5.)
 
 ---
 
