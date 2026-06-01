@@ -15,10 +15,19 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class CopyView:
-    """One copy in a branch — minimal info for read endpoints."""
+    """One copy in a branch — minimal info for read endpoints.
+
+    `status` is the *latest* availability snapshot for this copy (the
+    availability bounded context's `AvailabilityStatus` value); it defaults
+    to ``"unknown"`` when we have no snapshot yet. `due_back_at` is the ISO
+    date the copy is expected back when loaned, when the OPAC reported it.
+    """
 
     branch_code: str
     branch_name: str
+    signature: str | None = None
+    status: str = "unknown"
+    due_back_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +63,8 @@ class CatalogRecordSummary:
     copies_count: int
     audience: str = "unknown"
     literary_form: str = "unknown"
+    # How many copies are on the shelf right now (latest snapshot == available).
+    available_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

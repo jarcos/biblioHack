@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from bibliohack.availability.domain.status import AvailabilityStatus
+from bibliohack.availability.infrastructure.postgres.models import AvailabilitySnapshotModel
 from bibliohack.catalog.application.dto import (
     CatalogRecordSummary,
     CatalogRecordView,
@@ -70,6 +72,22 @@ class PostgresCatalogReadRepository:
         )
         copies_rows = (await self._session.execute(copies_stmt)).all()
 
+        # Enrich each copy with its latest availability snapshot.
+        status_by_copy = await self._latest_status_by_copy([copy.id for copy, _ in copies_rows])
+        unknown = (AvailabilityStatus.UNKNOWN.value, None)
+        copy_views: list[CopyView] = []
+        for copy, branch_name in copies_rows:
+            status, due_back_at = status_by_copy.get(copy.id, unknown)
+            copy_views.append(
+                CopyView(
+                    branch_code=copy.branch_code,
+                    branch_name=branch_name,
+                    signature=copy.signature,
+                    status=status,
+                    due_back_at=due_back_at,
+                )
+            )
+
         return CatalogRecordView(
             titn=record.titn,
             title=record.title,
@@ -84,12 +102,38 @@ class PostgresCatalogReadRepository:
             authors=tuple(c.name for c in record.contributors if c.role == "author"),
             subjects=tuple(s.subject for s in record.subjects),
             isbns=tuple(i.isbn for i in record.isbns),
-            copies=tuple(
-                CopyView(branch_code=copy.branch_code, branch_name=branch_name)
-                for copy, branch_name in copies_rows
-            ),
+            copies=tuple(copy_views),
             source_url=record.source_url,
         )
+
+    async def _latest_status_by_copy(
+        self, copy_ids: list[object]
+    ) -> dict[object, tuple[str, str | None]]:
+        """Latest (status, due_back_at) per copy via DISTINCT ON (copy_id).
+
+        Reads the availability context's snapshot table directly — a read-model
+        join, the same pragmatic shape as the holdings join above. Returns ISO
+        date strings so the application/HTTP layers stay free of `date`.
+        """
+        if not copy_ids:
+            return {}
+        stmt = (
+            select(
+                AvailabilitySnapshotModel.copy_id,
+                AvailabilitySnapshotModel.status,
+                AvailabilitySnapshotModel.due_back_at,
+            )
+            .where(AvailabilitySnapshotModel.copy_id.in_(copy_ids))
+            .distinct(AvailabilitySnapshotModel.copy_id)
+            .order_by(
+                AvailabilitySnapshotModel.copy_id,
+                AvailabilitySnapshotModel.observed_at.desc(),
+            )
+        )
+        out: dict[object, tuple[str, str | None]] = {}
+        for copy_id, status, due in (await self._session.execute(stmt)).all():
+            out[copy_id] = (status, due.isoformat() if due is not None else None)
+        return out
 
     async def search(
         self,
@@ -149,6 +193,38 @@ class PostgresCatalogReadRepository:
                 rid: int(n) for rid, n in (await self._session.execute(counts_stmt)).all()
             }
 
+        # How many copies are *available right now* per record: take each
+        # copy's latest snapshot (DISTINCT ON), keep the 'available' ones,
+        # count per record. Bounded to the page's copies via the subquery WHERE.
+        available_count_by_id: dict[object, int] = {}
+        if ids:
+            record_copy_ids = select(CopyModel.id).where(CopyModel.record_id.in_(ids))
+            latest_status = (
+                select(
+                    AvailabilitySnapshotModel.copy_id.label("copy_id"),
+                    AvailabilitySnapshotModel.status.label("status"),
+                )
+                .where(AvailabilitySnapshotModel.copy_id.in_(record_copy_ids))
+                .distinct(AvailabilitySnapshotModel.copy_id)
+                .order_by(
+                    AvailabilitySnapshotModel.copy_id,
+                    AvailabilitySnapshotModel.observed_at.desc(),
+                )
+                .subquery()
+            )
+            avail_stmt = (
+                select(CopyModel.record_id, func.count())
+                .join(latest_status, latest_status.c.copy_id == CopyModel.id)
+                .where(
+                    CopyModel.record_id.in_(ids),
+                    latest_status.c.status == AvailabilityStatus.AVAILABLE.value,
+                )
+                .group_by(CopyModel.record_id)
+            )
+            available_count_by_id = {
+                rid: int(n) for rid, n in (await self._session.execute(avail_stmt)).all()
+            }
+
         items = tuple(
             CatalogRecordSummary(
                 titn=r.titn,
@@ -159,6 +235,7 @@ class PostgresCatalogReadRepository:
                 copies_count=copies_count_by_id.get(r.id, 0),
                 audience=r.audience,
                 literary_form=r.literary_form,
+                available_count=available_count_by_id.get(r.id, 0),
             )
             for r in rows
         )

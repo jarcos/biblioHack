@@ -15,6 +15,12 @@ class CopySchema(BaseModel):
 
     branch_code: str = Field(..., description="AbsysNET branch code, e.g. 'JA23'.")
     branch_name: str = Field(..., description="Human-readable branch name.")
+    signature: str | None = Field(None, description="Shelf mark / tejuelo, e.g. 'N ARS roh'.")
+    status: str = Field(
+        "unknown",
+        description="Latest availability: available | loaned | reserved | unavailable | unknown.",
+    )
+    due_back_at: str | None = Field(None, description="ISO date the copy is due back, if loaned.")
 
 
 class CatalogRecordSchema(BaseModel):
@@ -48,6 +54,7 @@ class CatalogRecordSummarySchema(BaseModel):
     copies_count: int = 0
     audience: str = Field("unknown", description="adult | youth | children | unknown.")
     literary_form: str = Field("unknown", description="literary | nonfiction | unknown.")
+    available_count: int = Field(0, ge=0, description="Copies on the shelf right now.")
 
 
 class SearchResponseSchema(BaseModel):

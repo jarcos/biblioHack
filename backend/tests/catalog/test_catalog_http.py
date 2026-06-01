@@ -9,6 +9,7 @@ the worker uses in production).
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -308,3 +309,51 @@ async def test_search_caps_limit(client: AsyncClient) -> None:
     """Passing limit > 100 should be rejected by the Query validator."""
     r = await client.get("/catalog/search", params={"q": "x", "limit": 500})
     assert r.status_code == 422
+
+
+# ───────────────────────────────────────────────────────────────
+# Availability read-side (latest snapshot per copy)
+# ───────────────────────────────────────────────────────────────
+
+
+async def test_read_side_reflects_latest_availability(
+    client: AsyncClient, seeded_session: AsyncSession
+) -> None:
+    """The record detail exposes each copy's *latest* status, and search
+    reports how many copies are available right now.
+
+    Record 1 has two copies (HU01, SE01). We give HU01 a newer 'loaned' over
+    an older 'available' (latest must win) and SE01 a single 'available'."""
+    copy_rows = (
+        await seeded_session.execute(
+            text(
+                "SELECT c.id, c.branch_code FROM copies c "
+                "JOIN bibliographic_records r ON r.id = c.record_id "
+                "WHERE r.titn = 1 ORDER BY c.branch_code"
+            )
+        )
+    ).all()
+    by_branch = {branch_code: copy_id for copy_id, branch_code in copy_rows}
+    t0 = datetime(2026, 5, 30, 8, 0, tzinfo=UTC)
+    t1 = t0 + timedelta(hours=1)
+    await seeded_session.execute(
+        text(
+            "INSERT INTO availability_snapshots (copy_id, observed_at, status) VALUES "
+            "(:hu, :t0, 'available'), (:hu, :t1, 'loaned'), (:se, :t1, 'available')"
+        ),
+        {"hu": by_branch["HU01"], "se": by_branch["SE01"], "t0": t0, "t1": t1},
+    )
+    await seeded_session.commit()
+
+    # Detail: HU01 resolves to the newer 'loaned'; SE01 to 'available'.
+    detail = await client.get("/catalog/records/1")
+    assert detail.status_code == 200
+    copies = {c["branch_code"]: c for c in detail.json()["copies"]}
+    assert copies["HU01"]["status"] == "loaned"
+    assert copies["SE01"]["status"] == "available"
+
+    # Search: exactly one of record 1's copies is on the shelf right now.
+    found = await client.get("/catalog/search", params={"q": "soledad"})
+    assert found.status_code == 200
+    item = next(i for i in found.json()["items"] if i["titn"] == 1)
+    assert item["available_count"] == 1

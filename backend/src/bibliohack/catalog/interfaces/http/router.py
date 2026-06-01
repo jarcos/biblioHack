@@ -112,7 +112,14 @@ def _record_to_schema(view: CatalogRecordView) -> CatalogRecordSchema:
         subjects=list(view.subjects),
         isbns=list(view.isbns),
         copies=[
-            CopySchema(branch_code=c.branch_code, branch_name=c.branch_name) for c in view.copies
+            CopySchema(
+                branch_code=c.branch_code,
+                branch_name=c.branch_name,
+                signature=c.signature,
+                status=c.status,
+                due_back_at=c.due_back_at,
+            )
+            for c in view.copies
         ],
         source_url=view.source_url,
     )
@@ -128,6 +135,7 @@ def _summary_to_schema(summary: CatalogRecordSummary) -> CatalogRecordSummarySch
         copies_count=summary.copies_count,
         audience=summary.audience,
         literary_form=summary.literary_form,
+        available_count=summary.available_count,
     )
 
 
