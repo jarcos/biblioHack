@@ -13,6 +13,8 @@ Reference (MARC 21 bibliographic fields we use):
 - T245 : title statement
 - T260 : imprint (publisher, place, year)
 - T080 : UDC classification
+- T6XX : subject access (T650 = topical term, T651 = geographic name,
+         T655 = genre/form term). Folded together into `subjects`.
 - T008 : control field (fixed-length: pub_year, language, country …)
 
 Copies are in `<div class="copias_data js-copias_data">` blocks, one per branch.
@@ -51,6 +53,7 @@ class ParsedRecord:
     titn: int
     title: str
     authors: tuple[str, ...] = ()
+    subjects: tuple[str, ...] = ()  # MARC T650/T651/T655, deduped, in order
     publisher: str | None = None
     classification: str | None = None  # UDC / T080
     document_type: str | None = None
@@ -151,6 +154,11 @@ def parse_record_html(html: str, *, expected_titn: Titn | None = None) -> ParseR
     # ── Authors (T1XX) ────────────────────────────────────────
     authors = tuple(_all_js_fields(tree, "T1XX"))
 
+    # ── Subjects (T650 topical / T651 geographic / T655 genre) ─
+    # Folded into one ordered, deduped list. These feed subject facets,
+    # the literary-form classifier, and (later, M3) the embedding text.
+    subjects = tuple(_extract_subjects(tree))
+
     # ── Publisher (T260) ──────────────────────────────────────
     publisher = _first_js_field(tree, "T260") or _first_js_field(tree, "T260ab")
     # T260 sometimes contains "Place : Publisher, Year". We try to keep just
@@ -184,6 +192,7 @@ def parse_record_html(html: str, *, expected_titn: Titn | None = None) -> ParseR
         titn=titn,
         title=title.strip(),
         authors=tuple(a.strip() for a in authors if a.strip()),
+        subjects=subjects,
         publisher=publisher or None,
         classification=classification or None,
         document_type=document_type,
@@ -243,6 +252,32 @@ def _all_js_fields(tree: HTMLParser, name: str) -> list[str]:
         if text and text not in seen:
             seen.add(text)
             out.append(text)
+    return out
+
+
+# MARC 6XX subject-access fields the OPAC may expose, in priority order.
+# T650 (topical term) dominates; the rest appear only on richer records.
+# AbsysNET renders each as a `js-T6xx` span, same convention as every other
+# MARC field, so we reuse `_all_js_fields`. NOTE: the canonical titn_1
+# fixture (a poetry collection) carries no 6XX headings, so this extraction
+# is exercised by synthetic snippets in the tests — re-confirm the exact
+# `js-` class against a record known to have materias on the next live crawl.
+_SUBJECT_FIELDS: tuple[str, ...] = ("T650", "T651", "T655", "T600", "T610", "T611", "T630")
+
+
+def _extract_subjects(tree: HTMLParser) -> list[str]:
+    """Collect MARC 6XX subject headings into one ordered, deduped list.
+
+    First-seen order is preserved and exact duplicates are dropped, so a
+    heading repeated across subfields (e.g. T650 and T655) appears once.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for code in _SUBJECT_FIELDS:
+        for value in _all_js_fields(tree, code):
+            if value not in seen:
+                seen.add(value)
+                out.append(value)
     return out
 
 

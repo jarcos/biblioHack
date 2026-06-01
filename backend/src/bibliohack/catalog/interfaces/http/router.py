@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 # TYPE_CHECKING block.
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
+from bibliohack.catalog.domain.literary_profile import SearchScope
 from bibliohack.catalog.domain.titn import Titn
 from bibliohack.catalog.infrastructure.postgres.catalog_read_repository import (
     PostgresCatalogReadRepository,
@@ -75,14 +76,20 @@ async def search_catalog(
     session: Annotated[AsyncSession, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
+    scope: Annotated[
+        SearchScope,
+        Query(description="'literary' (default: adult literature, all genres) or 'all'."),
+    ] = SearchScope.LITERARY,
 ) -> SearchResponseSchema:
     """Full-text search over title + subtitle + publisher + summary.
 
     Ranked by `ts_rank_cd` against the `spanish_unaccent` tsquery — most
-    relevant first. Use `limit` + `offset` to paginate.
+    relevant first. Use `limit` + `offset` to paginate. `scope` defaults to
+    `literary`, which hides records confidently classified as children's/
+    youth or non-fiction; pass `scope=all` to search the whole mirror.
     """
     repo = PostgresCatalogReadRepository(session)
-    page = await repo.search(query=q, limit=limit, offset=offset)
+    page = await repo.search(query=q, limit=limit, offset=offset, scope=scope)
     return _page_to_schema(page)
 
 
@@ -99,6 +106,8 @@ def _record_to_schema(view: CatalogRecordView) -> CatalogRecordSchema:
         pub_year=view.pub_year,
         publisher=view.publisher,
         classification=view.classification,
+        audience=view.audience,
+        literary_form=view.literary_form,
         authors=list(view.authors),
         subjects=list(view.subjects),
         isbns=list(view.isbns),
@@ -117,6 +126,8 @@ def _summary_to_schema(summary: CatalogRecordSummary) -> CatalogRecordSummarySch
         publisher=summary.publisher,
         pub_year=summary.pub_year,
         copies_count=summary.copies_count,
+        audience=summary.audience,
+        literary_form=summary.literary_form,
     )
 
 

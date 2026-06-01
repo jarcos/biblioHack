@@ -21,6 +21,11 @@ from bibliohack.catalog.application.dto import (
     CopyView,
     SearchPage,
 )
+from bibliohack.catalog.domain.literary_profile import (
+    SearchScope,
+    default_scope_audiences,
+    default_scope_forms,
+)
 from bibliohack.catalog.infrastructure.postgres.models import (
     BibliographicRecordModel,
 )
@@ -73,7 +78,9 @@ class PostgresCatalogReadRepository:
             language=record.language,
             pub_year=record.pub_year,
             publisher=record.publisher,
-            classification=None,  # not yet exposed on the model — comes from T080
+            classification=record.classification,
+            audience=record.audience,
+            literary_form=record.literary_form,
             authors=tuple(c.name for c in record.contributors if c.role == "author"),
             subjects=tuple(s.subject for s in record.subjects),
             isbns=tuple(i.isbn for i in record.isbns),
@@ -84,7 +91,14 @@ class PostgresCatalogReadRepository:
             source_url=record.source_url,
         )
 
-    async def search(self, *, query: str, limit: int = 20, offset: int = 0) -> SearchPage:
+    async def search(
+        self,
+        *,
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+        scope: SearchScope = SearchScope.LITERARY,
+    ) -> SearchPage:
         cleaned = query.strip()
         if not cleaned:
             return SearchPage(query=query, items=(), total=0, limit=limit, offset=offset)
@@ -98,6 +112,15 @@ class PostgresCatalogReadRepository:
         rank = func.ts_rank_cd(BibliographicRecordModel.fts, tsq)
 
         base_q = select(BibliographicRecordModel).where(BibliographicRecordModel.fts.op("@@")(tsq))
+
+        # Default ("literary") scope: adult literature, all genres. Hide only
+        # records we are confident are children's/youth or non-fiction;
+        # 'unknown' on either axis stays visible. SearchScope.ALL skips this.
+        if scope is SearchScope.LITERARY:
+            base_q = base_q.where(
+                BibliographicRecordModel.audience.in_(default_scope_audiences()),
+                BibliographicRecordModel.literary_form.in_(default_scope_forms()),
+            )
 
         # Count first (separate query — keeps the main fetch indexable).
         total = (
@@ -134,6 +157,8 @@ class PostgresCatalogReadRepository:
                 publisher=r.publisher,
                 pub_year=r.pub_year,
                 copies_count=copies_count_by_id.get(r.id, 0),
+                audience=r.audience,
+                literary_form=r.literary_form,
             )
             for r in rows
         )

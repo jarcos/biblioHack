@@ -52,6 +52,21 @@ class BibliographicRecordModel(Base):
     pub_year: Mapped[int | None] = mapped_column(Integer)
     publisher: Mapped[str | None] = mapped_column(Text)
     summary: Mapped[str | None] = mapped_column(Text)
+
+    # UDC/CDU classification (MARC T080), e.g. '821.134.2-1"19"'. Kept raw so
+    # the literary-form classifier — and future genre faceting — can re-read
+    # it without a re-crawl.
+    classification: Mapped[str | None] = mapped_column(String(64))
+
+    # Literary profile (see catalog/domain/literary_profile.py). Stored as the
+    # StrEnum *values*; computed at ingest, used to scope search/recommender
+    # reads by default. 'unknown' stays inside the default scope, so existing
+    # rows (server_default below) remain visible until re-crawled.
+    audience: Mapped[str] = mapped_column(String(16), nullable=False, server_default="unknown")
+    literary_form: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="unknown"
+    )
+
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(
@@ -104,6 +119,8 @@ class BibliographicRecordModel(Base):
             postgresql_using="gin",
             postgresql_ops={"title": "gin_trgm_ops"},
         ),
+        # Supports the default "literary" scope filter on search/listing.
+        Index("ix_bibliographic_records_scope", "audience", "literary_form"),
     )
 
 

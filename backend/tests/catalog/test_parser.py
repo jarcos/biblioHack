@@ -64,6 +64,50 @@ def test_parses_marc_leader_positions_06_07_from_real_fixture(titn_1_html: str) 
     assert result.record.bibliographic_level == "m"
 
 
+def test_real_titn_1_fixture_has_no_subjects(titn_1_html: str) -> None:
+    """titn_1 is a poetry collection catalogued without 6XX materia headings.
+
+    Documents the reality the classifier must tolerate — the subject parser
+    must return an empty tuple here rather than inventing headings. The
+    extraction logic itself is exercised on synthetic HTML below.
+    """
+    result = parse_record_html(titn_1_html)
+    assert result.record.subjects == ()
+
+
+def test_extracts_subjects_from_marc_6xx_spans() -> None:
+    """T650/T651/T655 spans are folded into one ordered, deduped tuple."""
+    html = """
+    <html><body>
+      <span class="js-TITN">5</span>
+      <span class="js-T245">Una novela con materias</span>
+      <span class="js-T650">Ciencia ficción</span>
+      <span class="js-T650">Distopías</span>
+      <span class="js-T651">Madrid (España)</span>
+      <span class="js-T655">Novela</span>
+      <span class="js-T650">Distopías</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.subjects == (
+        "Ciencia ficción",
+        "Distopías",
+        "Madrid (España)",
+        "Novela",
+    )
+
+
+def test_subjects_empty_when_no_6xx_present() -> None:
+    html = """
+    <html><body>
+      <span class="js-TITN">6</span>
+      <span class="js-T245">Sin materias</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.subjects == ()
+
+
 def test_parses_all_branches_from_real_fixture(titn_1_html: str) -> None:
     result = parse_record_html(titn_1_html)
     # 4 copies in 4 different branches per the live OPAC.

@@ -33,6 +33,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from bibliohack.availability.domain.snapshot import AvailabilitySnapshot
 from bibliohack.availability.domain.status import map_opac_status
 from bibliohack.catalog.application.ports import IngestResult
+from bibliohack.catalog.domain.literary_profile import classify_literary_profile
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,6 +90,15 @@ class PostgresCatalogIngestRepository:
         # in `fts` (a generated column can only see its own row's data).
         authors_text = _join_authors(parsed_record.authors)
 
+        # Classify audience + literary form from the CDU and the copy
+        # signatures we have in hand (no extra I/O, no cross-context call).
+        # Drives the default "literary" search/recommender scope; stored, not
+        # used to discard — see catalog/domain/literary_profile.py.
+        profile = classify_literary_profile(
+            classification=parsed_record.classification,
+            signatures=[copy.signature for copy in parsed_copies],
+        )
+
         # ── 1. Upsert the bibliographic record ────────────────
         existing = await self._find_record_by_titn(parsed_record.titn)
         if existing is None:
@@ -104,6 +114,9 @@ class PostgresCatalogIngestRepository:
                     pub_year=parsed_record.pub_year,
                     publisher=parsed_record.publisher,
                     summary=None,
+                    classification=parsed_record.classification,
+                    audience=profile.audience.value,
+                    literary_form=profile.form.value,
                     source_url=source_url,
                     source_hash=source_hash,
                     authors_text=authors_text,
@@ -117,6 +130,9 @@ class PostgresCatalogIngestRepository:
             existing.language = parsed_record.language
             existing.pub_year = parsed_record.pub_year
             existing.publisher = parsed_record.publisher
+            existing.classification = parsed_record.classification
+            existing.audience = profile.audience.value
+            existing.literary_form = profile.form.value
             existing.source_url = source_url
             existing.source_hash = source_hash
             existing.authors_text = authors_text

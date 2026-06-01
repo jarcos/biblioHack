@@ -33,6 +33,8 @@ class CatalogRecordView:
     pub_year: int | None = None
     publisher: str | None = None
     classification: str | None = None
+    audience: str = "unknown"
+    literary_form: str = "unknown"
     authors: tuple[str, ...] = ()
     subjects: tuple[str, ...] = ()
     isbns: tuple[str, ...] = ()
@@ -50,6 +52,8 @@ class CatalogRecordSummary:
     publisher: str | None
     pub_year: int | None
     copies_count: int
+    audience: str = "unknown"
+    literary_form: str = "unknown"
 
 
 @dataclass(frozen=True, slots=True)

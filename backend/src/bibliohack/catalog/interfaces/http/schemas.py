@@ -28,6 +28,8 @@ class CatalogRecordSchema(BaseModel):
     pub_year: int | None = None
     publisher: str | None = None
     classification: str | None = Field(None, description="UDC classification (T080).")
+    audience: str = Field("unknown", description="adult | youth | children | unknown.")
+    literary_form: str = Field("unknown", description="literary | nonfiction | unknown.")
     authors: list[str] = Field(default_factory=list)
     subjects: list[str] = Field(default_factory=list)
     isbns: list[str] = Field(default_factory=list)
@@ -44,6 +46,8 @@ class CatalogRecordSummarySchema(BaseModel):
     publisher: str | None = None
     pub_year: int | None = None
     copies_count: int = 0
+    audience: str = Field("unknown", description="adult | youth | children | unknown.")
+    literary_form: str = Field("unknown", description="literary | nonfiction | unknown.")
 
 
 class SearchResponseSchema(BaseModel):
