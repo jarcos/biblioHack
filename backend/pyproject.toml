@@ -56,6 +56,12 @@ scraper = [
     "tenacity>=9.0",
 ]
 
+# Book-cover resolution (§7.5) — image fetch + processing. Opt-in (worker plane).
+covers = [
+    "httpx>=0.28",
+    "pillow>=11",
+]
+
 # AI / embeddings are even heavier (torch). Opt-in.
 ai = [
     "sentence-transformers>=3.3",

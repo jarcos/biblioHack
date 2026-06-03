@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-m3"
     embedding_device: Literal["cpu", "cuda", "mps"] = "cpu"
 
+    # ───── Covers (§7.5) ─────
+    # Content-addressed cover store root. Filesystem for now (dev + NAS
+    # volume); a MinIO/S3 CoverStore is a drop-in behind the same port.
+    covers_store_path: str = "~/biblioHack-data/covers"
+    covers_user_agent: str = "bibliohack/0.1 (+https://biblio.josearcos.me)"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
