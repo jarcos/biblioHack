@@ -9,6 +9,7 @@ then count the snapshots that landed.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -189,5 +190,82 @@ async def test_ingest_without_availability_repo_skips_snapshots(applied_db: str)
                 await s.execute(text("SELECT COUNT(*) FROM availability_snapshots"))
             ).scalar_one()
         assert count == 0
+    finally:
+        await engine.dispose()
+
+
+async def test_reingest_preserves_copy_ids_and_snapshot_history(applied_db: str) -> None:
+    """Re-scraping a record must keep copy ids (matched by barcode) so its
+    availability snapshots accumulate instead of being cascade-deleted —
+    the foundation of the M2 refresh worker."""
+    engine = create_async_engine(applied_db, future=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    def scrape(status_a: str, status_b: str) -> tuple[ParsedRecord, list[ParsedCopy]]:
+        return (
+            ParsedRecord(titn=99, title="Churn test", record_type="a", bibliographic_level="m"),
+            [
+                ParsedCopy(
+                    branch_code="HU01",
+                    branch_name="Huelva",
+                    signature="A 1",
+                    barcode="BC-1",
+                    raw_status=status_a,
+                ),
+                ParsedCopy(
+                    branch_code="HU01",
+                    branch_name="Huelva",
+                    signature="A 2",
+                    barcode="BC-2",
+                    raw_status=status_b,
+                ),
+            ],
+        )
+
+    try:
+        async with factory() as s, s.begin():
+            await s.execute(
+                text(
+                    "TRUNCATE availability_snapshots, copies, contributors, "
+                    "subjects, isbns, bibliographic_records, branches "
+                    "RESTART IDENTITY CASCADE"
+                )
+            )
+
+        async with factory() as s, s.begin():
+            ingest = PostgresCatalogIngestRepository(
+                s, availability_repository=PostgresAvailabilitySnapshotRepository(s)
+            )
+            rec, copies = scrape("Disponible", "Prestado")
+            await ingest.persist_parsed_record(
+                parsed=rec, copies=copies, source_url="u", source_hash=b"\x01" * 32
+            )
+
+        async with factory() as s:
+            ids_before = {r[0] for r in (await s.execute(text("SELECT id FROM copies"))).all()}
+
+        # A distinct observed_at so the second snapshot doesn't collide on the
+        # (copy_id, observed_at) primary key.
+        await asyncio.sleep(0.05)
+
+        async with factory() as s, s.begin():
+            ingest = PostgresCatalogIngestRepository(
+                s, availability_repository=PostgresAvailabilitySnapshotRepository(s)
+            )
+            rec, copies = scrape("Prestado", "Disponible")  # statuses flipped
+            await ingest.persist_parsed_record(
+                parsed=rec, copies=copies, source_url="u", source_hash=b"\x02" * 32
+            )
+
+        async with factory() as s:
+            ids_after = {r[0] for r in (await s.execute(text("SELECT id FROM copies"))).all()}
+            copy_count = (await s.execute(text("SELECT COUNT(*) FROM copies"))).scalar_one()
+            snap_count = (
+                await s.execute(text("SELECT COUNT(*) FROM availability_snapshots"))
+            ).scalar_one()
+
+        assert copy_count == 2  # upserted by barcode, not duplicated
+        assert ids_after == ids_before  # copy ids preserved across the re-scrape
+        assert snap_count == 4  # 2 snapshots per copy → history accumulated, not wiped
     finally:
         await engine.dispose()

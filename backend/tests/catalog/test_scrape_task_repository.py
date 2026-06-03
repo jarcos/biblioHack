@@ -251,3 +251,41 @@ async def test_get_returns_none_for_unknown_titn(
     repo: PostgresScrapeTaskRepository,
 ) -> None:
     assert await repo.get(Titn(999_999)) is None
+
+
+# ───────────────────────────────────────────────────────────────
+# Refresh sweep (M2 availability worker)
+# ───────────────────────────────────────────────────────────────
+
+
+async def test_refresh_claim_returns_due_parsed_records(session: AsyncSession) -> None:
+    """`require_refresh_due` claims `parsed` rows whose refresh_due_at has passed.
+
+    A repo with a negative refresh_interval schedules the next refresh in the
+    past on mark_parsed, so the row is immediately due for a re-scrape.
+    """
+    repo = PostgresScrapeTaskRepository(session, refresh_interval=timedelta(seconds=-1))
+    await repo.seed_one(Titn(500))
+    await repo.mark_parsed(Titn(500), source_hash=b"\x00" * 32)
+
+    # The default (initial-crawl) claim only looks at DISCOVERED — a parsed row
+    # is invisible there.
+    assert await repo.claim_next_batch(limit=5) == []
+
+    # The refresh claim picks it up: refresh_due_at is in the past.
+    claimed = await repo.claim_next_batch(
+        limit=5, states=[TaskState.PARSED], require_refresh_due=True
+    )
+    assert [int(task.titn) for task in claimed] == [500]
+
+
+async def test_refresh_claim_skips_not_yet_due(session: AsyncSession) -> None:
+    """A record refreshed with a future due date is not re-claimed yet."""
+    repo = PostgresScrapeTaskRepository(session, refresh_interval=timedelta(days=7))
+    await repo.seed_one(Titn(501))
+    await repo.mark_parsed(Titn(501), source_hash=b"\x00" * 32)
+
+    claimed = await repo.claim_next_batch(
+        limit=5, states=[TaskState.PARSED], require_refresh_due=True
+    )
+    assert claimed == []

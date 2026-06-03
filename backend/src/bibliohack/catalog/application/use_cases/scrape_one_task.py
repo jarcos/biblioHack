@@ -29,6 +29,7 @@ from bibliohack.catalog.application.ports import (
     FetchOutcome,
     OpacUnavailableError,
     ScrapeTask,
+    TaskState,
 )
 from bibliohack.catalog.domain.media_filter import (
     MediaTypeFilter,
@@ -40,6 +41,8 @@ from bibliohack.catalog.infrastructure.absysnet.parser import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from bibliohack.catalog.application.ports import (
         CatalogIngestRepository,
         OpacGateway,
@@ -86,16 +89,27 @@ class ScrapeOneTask:
         ingest_repository: CatalogIngestRepository,
         gateway: OpacGateway,
         media_filter: MediaTypeFilter | None = None,
+        claim_states: Sequence[TaskState] = (TaskState.DISCOVERED,),
+        require_refresh_due: bool = False,
     ) -> None:
         self._tasks = task_repository
         self._ingest = ingest_repository
         self._gateway = gateway
         # Default: books only (printed + electronic monographs).
         self._media_filter = media_filter or MediaTypeFilter.from_preset(MediaTypeFilterPreset.BOOK)
+        # Initial crawl claims `discovered`; the refresh worker passes
+        # claim_states=(PARSED,) + require_refresh_due=True to re-scrape
+        # records whose availability is due for a fresh snapshot.
+        self._claim_states = claim_states
+        self._require_refresh_due = require_refresh_due
 
     async def execute(self) -> ScrapeStepResult:
         # 1. Claim one task atomically.
-        batch = await self._tasks.claim_next_batch(limit=1)
+        batch = await self._tasks.claim_next_batch(
+            limit=1,
+            states=self._claim_states,
+            require_refresh_due=self._require_refresh_due,
+        )
         if not batch:
             return ScrapeStepResult(outcome=ScrapeStepOutcome.NO_WORK)
         task = batch[0]

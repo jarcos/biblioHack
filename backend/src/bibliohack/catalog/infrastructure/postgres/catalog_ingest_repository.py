@@ -6,16 +6,16 @@ This is the single load-bearing write path for the worker. Each call:
 2. Replaces the record's child rows: `contributors`, `subjects`, `isbns`.
 3. Upserts any new `branches` referenced by the parsed copies (INSERT ...
    ON CONFLICT DO NOTHING).
-4. Replaces the record's `copies` rows — one per parsed ejemplar, with
-   signature + barcode.
+4. Upserts the record's `copies` by natural key (barcode, or
+   (branch, signature) for barcode-less virtual copies), preserving copy
+   ids; copies absent upstream are marked inactive, not deleted.
 5. Records one `availability_snapshots` row per copy reflecting the
    ejemplar's loan status at observation time (M2 foundation).
 
-Replacement (delete-then-insert) for catalog/holdings rows rather than
-diffing: the upstream catalog isn't that volatile, child counts are small
-per record (≤10 ejemplares), and we'd rather have simple obviously-correct
-code than clever diff logic. Availability is append-only — every scrape
-gives us a fresh observation in the time series.
+Contributors / subjects / isbns are delete-then-insert (small, no dependent
+rows). Copies are *upserted* rather than replaced because availability_
+snapshots FK copy_id ON DELETE CASCADE — churning copy rows on each re-scrape
+would wipe the availability time series, which the refresh worker depends on.
 
 Runs inside the caller's session — `mark_parsed` on the scrape task and
 this upsert ride the same transaction so they commit or roll back together.
@@ -148,22 +148,56 @@ class PostgresCatalogIngestRepository:
         # ── 3. Upsert branches referenced by the parsed copies ────────
         branch_codes_seen = await self._upsert_branches(parsed_copies)
 
-        # ── 4. Replace copies for this record (one row per ejemplar) ──
-        await self._session.execute(delete(CopyModel).where(CopyModel.record_id == record_id))
+        # ── 4. Upsert copies for this record, preserving copy ids ─────
+        # Re-scrapes (the refresh worker) must NOT churn copy rows: the
+        # availability_snapshots FK is ON DELETE CASCADE, so deleting a copy
+        # wipes its history. We match existing copies by their natural key —
+        # barcode (the library's per-ejemplar id), or (branch_code, signature)
+        # for barcode-less virtual copies — update them in place, and mark
+        # copies absent upstream as inactive rather than deleting them.
+        existing_copies = (
+            (await self._session.execute(select(CopyModel).where(CopyModel.record_id == record_id)))
+            .scalars()
+            .all()
+        )
+        by_barcode = {c.barcode: c for c in existing_copies if c.barcode is not None}
+        by_signature = {
+            (c.branch_code, c.signature): c for c in existing_copies if c.barcode is None
+        }
         observed_at = datetime.now(tz=UTC)
+        seen_copy_ids: set[UUID] = set()
         copy_ids_with_status: list[tuple[UUID, ParsedCopy]] = []
         for copy in parsed_copies:
-            copy_id = uuid4()
-            self._session.add(
-                CopyModel(
-                    id=copy_id,
-                    record_id=record_id,
-                    branch_code=copy.branch_code,
-                    signature=copy.signature,
-                    barcode=copy.barcode,
-                )
+            match = (
+                by_barcode.get(copy.barcode)
+                if copy.barcode is not None
+                else by_signature.get((copy.branch_code, copy.signature))
             )
+            if match is not None:
+                match.branch_code = copy.branch_code
+                match.signature = copy.signature
+                match.is_active = True
+                match.last_seen_at = observed_at
+                copy_id = match.id
+            else:
+                copy_id = uuid4()
+                self._session.add(
+                    CopyModel(
+                        id=copy_id,
+                        record_id=record_id,
+                        branch_code=copy.branch_code,
+                        signature=copy.signature,
+                        barcode=copy.barcode,
+                    )
+                )
+            seen_copy_ids.add(copy_id)
             copy_ids_with_status.append((copy_id, copy))
+
+        # Copies no longer present upstream → mark inactive (keep their history).
+        for stale in existing_copies:
+            if stale.id not in seen_copy_ids and stale.is_active:
+                stale.is_active = False
+                stale.last_seen_at = observed_at
 
         await self._session.flush()
 

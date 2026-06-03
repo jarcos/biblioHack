@@ -9,7 +9,7 @@ caller's transaction — `mark_parsed` doesn't commit unless the caller does.
 """
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -34,8 +34,14 @@ _INSERT_CHUNK_SIZE = 8_000
 class PostgresScrapeTaskRepository:
     """Concrete `ScrapeTaskRepository` backed by the `scrape_tasks` table."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self, session: AsyncSession, *, refresh_interval: timedelta = timedelta(days=1)
+    ) -> None:
         self._session = session
+        # How far ahead a record's next availability re-scrape is scheduled
+        # when it's parsed. Single interval for now; tiering (hot daily /
+        # stable monthly, ARCHITECTURE §6.8) is a follow-up.
+        self._refresh_interval = refresh_interval
 
     # ───────────────────────────────────────────────────────────
     # Seeding
@@ -85,6 +91,7 @@ class PostgresScrapeTaskRepository:
         *,
         limit: int = 1,
         states: Sequence[TaskState] = (TaskState.DISCOVERED,),
+        require_refresh_due: bool = False,
     ) -> list[ScrapeTask]:
         """Atomic `SELECT ... FOR UPDATE SKIP LOCKED` over due rows."""
         if limit < 1:
@@ -93,22 +100,20 @@ class PostgresScrapeTaskRepository:
         state_values = [s.value for s in states]
         now = datetime.now(tz=UTC)
 
-        # Tasks become "due" when:
-        # - they're in one of the requested states,
-        # - AND either next_retry_at IS NULL (never retried) or in the past.
-        stmt = (
-            select(ScrapeTaskModel)
-            .where(
-                ScrapeTaskModel.status.in_(state_values),
+        stmt = select(ScrapeTaskModel).where(ScrapeTaskModel.status.in_(state_values))
+        if require_refresh_due:
+            # Refresh sweep: rows with a scheduled re-scrape that's now due,
+            # oldest-due first.
+            stmt = stmt.where(
+                ScrapeTaskModel.refresh_due_at.is_not(None),
+                ScrapeTaskModel.refresh_due_at <= now,
+            ).order_by(ScrapeTaskModel.refresh_due_at.asc(), ScrapeTaskModel.titn.asc())
+        else:
+            # Initial crawl: due when never-retried or the backoff has elapsed.
+            stmt = stmt.where(
                 (ScrapeTaskModel.next_retry_at.is_(None)) | (ScrapeTaskModel.next_retry_at <= now),
-            )
-            .order_by(
-                ScrapeTaskModel.priority.asc(),
-                ScrapeTaskModel.titn.asc(),
-            )
-            .limit(limit)
-            .with_for_update(skip_locked=True)
-        )
+            ).order_by(ScrapeTaskModel.priority.asc(), ScrapeTaskModel.titn.asc())
+        stmt = stmt.limit(limit).with_for_update(skip_locked=True)
         result = await self._session.execute(stmt)
         return [_to_domain(row) for row in result.scalars()]
 
@@ -128,6 +133,7 @@ class PostgresScrapeTaskRepository:
                 last_attempted_at=now,
                 last_error=None,
                 next_retry_at=None,
+                refresh_due_at=now + self._refresh_interval,
                 attempt_count=ScrapeTaskModel.attempt_count + 1,
             )
         )

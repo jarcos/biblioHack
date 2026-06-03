@@ -202,7 +202,11 @@ class ScrapeTaskRepository(Protocol):
         ...
 
     async def claim_next_batch(
-        self, *, limit: int = 1, states: Sequence[TaskState] = (TaskState.DISCOVERED,)
+        self,
+        *,
+        limit: int = 1,
+        states: Sequence[TaskState] = (TaskState.DISCOVERED,),
+        require_refresh_due: bool = False,
     ) -> list[ScrapeTask]:
         """Atomically lock and return up to `limit` due tasks.
 
@@ -210,6 +214,11 @@ class ScrapeTaskRepository(Protocol):
         disjoint batches. The locks release when the surrounding transaction
         commits or rolls back; callers are expected to update the rows'
         state before committing.
+
+        `require_refresh_due=True` (the refresh worker) restricts to rows whose
+        `refresh_due_at` is set and in the past, ordered oldest-due first —
+        used to re-scrape already-`parsed` records so the availability
+        time-series stays current.
         """
         ...
 

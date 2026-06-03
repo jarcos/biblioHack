@@ -13,6 +13,7 @@ import typer
 from bibliohack.availability.infrastructure.postgres.availability_snapshot_repository import (
     PostgresAvailabilitySnapshotRepository,
 )
+from bibliohack.catalog.application.ports import TaskState
 from bibliohack.catalog.application.use_cases.discover_via_search import (
     DiscoverViaExpertQuery,
     novedades_expression,
@@ -388,6 +389,94 @@ async def _run_worker(
 
     stats = await worker_run.execute(on_step=_on_step)
 
+    _print_summary(stats)
+
+
+@catalog_app.command("refresh")
+def refresh(
+    max_tasks: int | None = typer.Option(
+        None, "--max-tasks", help="Stop after this many records (default: until none are due)."
+    ),
+    idle_giveup: int = typer.Option(
+        3, "--idle-giveup", help="Stop after this many consecutive empty claims (nothing due)."
+    ),
+    rate_per_second: float = typer.Option(
+        1.0, "--rate", help="Polite per-second request rate to the OPAC."
+    ),
+) -> None:
+    """Re-scrape records whose availability is due, appending fresh snapshots.
+
+    Claims `parsed` records with `refresh_due_at` in the past and re-scrapes
+    them. Copy ids are preserved across re-scrapes, so each run appends one
+    availability snapshot per copy — the time-series behind the "on shelf
+    now" badges. Records are rescheduled for their next refresh on success.
+
+    Usage:
+
+        bibliohack catalog refresh                  # sweep all due records
+        bibliohack catalog refresh --max-tasks 50   # bounded
+
+    Requires the scraper extra (see `worker`).
+    """
+    asyncio.run(_run_refresh(max_tasks, idle_giveup, rate_per_second))
+
+
+async def _run_refresh(max_tasks: int | None, idle_giveup: int, rate_per_second: float) -> None:
+    settings = get_settings()
+    gateway = ScraplingOpacGateway(
+        GatewayConfig(
+            user_agent=settings.scraper_user_agent,
+            rate_per_second=rate_per_second,
+        )
+    )
+
+    async def step_factory() -> AsyncIterator[ScrapeOneTask]:
+        async with transactional_session() as session:
+            availability_repo = PostgresAvailabilitySnapshotRepository(session)
+            ingest_repo = PostgresCatalogIngestRepository(
+                session, availability_repository=availability_repo
+            )
+            yield ScrapeOneTask(
+                task_repository=PostgresScrapeTaskRepository(session),
+                ingest_repository=ingest_repo,
+                gateway=gateway,
+                claim_states=(TaskState.PARSED,),
+                require_refresh_due=True,
+            )
+
+    worker_run = RunScrapeWorker(
+        step_factory=step_factory,
+        max_tasks=max_tasks,
+        idle_giveup=idle_giveup,
+    )
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        with suppress(NotImplementedError):
+            loop.add_signal_handler(sig, worker_run.control.request_stop)
+
+    typer.echo(f"Refreshing due records — max_tasks={max_tasks or '∞'}, rate={rate_per_second}/s")
+    typer.echo("Each line is one re-scraped record (fresh availability snapshot). Ctrl+C to stop.")
+    typer.echo()
+
+    step_counter = [0]
+
+    def _on_step(result: ScrapeStepResult) -> None:
+        if result.outcome is ScrapeStepOutcome.NO_WORK:
+            return
+        step_counter[0] += 1
+        marker = {
+            ScrapeStepOutcome.PERSISTED: typer.style("✓", fg=typer.colors.GREEN),
+            ScrapeStepOutcome.NOT_FOUND: typer.style("✗", fg=typer.colors.YELLOW),
+            ScrapeStepOutcome.PERMANENT_ERROR: typer.style("!", fg=typer.colors.RED),
+            ScrapeStepOutcome.TRANSIENT_ERROR: typer.style("?", fg=typer.colors.MAGENTA),
+            ScrapeStepOutcome.SKIPPED_NON_BOOK: typer.style("~", fg=typer.colors.CYAN),
+        }.get(result.outcome, "?")
+        typer.echo(
+            f"[{step_counter[0]:>5d}] {marker} {result.outcome.value:>17s}  TITN={result.titn}"
+        )
+
+    stats = await worker_run.execute(on_step=_on_step)
     _print_summary(stats)
 
 
