@@ -1,0 +1,11 @@
+# biblioHack autonomous crawl schedule — interpreted by supercronic.
+# Times are UTC (container default). Each run logs to stdout: `docker logs
+# bibliohack-crawler`. A shared flock (see run-job.sh) means a long nightly
+# run will cause the next hourly refresh to skip rather than pile up.
+#
+#  ┌ minute ┌ hour ┌ dom ┌ mon ┌ dow
+#  │        │      │     │     │
+# Nightly catalogue growth: discover recent novedades, then ingest them.
+   0        3      *     *     *   /app/run-job.sh discover_worker
+# Hourly availability refresh for records whose probe is due.
+   0        *      *     *     *   /app/run-job.sh refresh

@@ -1,0 +1,54 @@
+# ───────────────────────────────────────────────────────────────
+# biblioHack — autonomous crawler (the NAS COMPUTE PLANE).
+#
+# Deliberately SEPARATE from docker-compose.prod.yml: the public api/frontend
+# CD must never be blocked by this heavy (Firefox) image build. This runs the
+# Scrapling/Camoufox OPAC crawler on a schedule (supercronic) and reaches the
+# prod Postgres over the existing private `bibliohack_bibliohack` network.
+#
+# Bring up ONCE on the NAS (from /volume1/docker/bibliohack):
+#   docker compose -f docker-compose.crawler.yml up -d --build
+# `restart: unless-stopped` then keeps it crawling across reboots — set & forget.
+#
+# Requires the same .env (POSTGRES_PASSWORD) used by docker-compose.prod.yml.
+# Tune growth/politeness via the env block below. See ARCHITECTURE.md §10.
+# ───────────────────────────────────────────────────────────────
+
+services:
+  crawler:
+    build:
+      context: .
+      dockerfile: infra/crawler.Dockerfile
+      # Synology BuildKit needs host DNS for apt + `camoufox fetch` downloads
+      # (same reason as the api/frontend builds).
+      network: host
+    image: bibliohack-crawler
+    container_name: bibliohack-crawler
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      # Reach the prod Postgres by container name on the shared private network.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bibliohack}:${POSTGRES_PASSWORD}@bibliohack-postgres:5432/${POSTGRES_DB:-bibliohack}
+      DATABASE_URL_SYNC: postgresql+psycopg://${POSTGRES_USER:-bibliohack}:${POSTGRES_PASSWORD}@bibliohack-postgres:5432/${POSTGRES_DB:-bibliohack}
+      # Be a good citizen to the public OPAC.
+      SCRAPER_USER_AGENT: "bibliohack/0.1 (+https://biblio.josearcos.me)"
+      # Crawl budget + nightly bounds (consumed by run-job.sh). Tune here.
+      CRAWL_RATE: "1.0"          # requests/sec to the OPAC
+      DISCOVER_YEAR_FROM: "2024" # novedades window (publication year >=)
+      DISCOVER_MAX: "200"        # TITNs discovered per nightly run
+      WORKER_MAX: "200"          # records ingested per nightly run
+      REFRESH_MAX: "300"         # records re-probed per hourly run
+    networks:
+      - bibliohack
+    # Firefox needs far more shared memory than Docker's 64MB default.
+    shm_size: "1gb"
+    # The NAS runs an old (4.4) kernel; relax seccomp so the browser's
+    # syscalls aren't blocked when it launches headless.
+    security_opt:
+      - seccomp:unconfined
+
+networks:
+  # The private bridge created by docker-compose.prod.yml (project `bibliohack`).
+  bibliohack:
+    external: true
+    name: bibliohack_bibliohack
