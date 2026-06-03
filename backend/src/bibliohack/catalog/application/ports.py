@@ -104,6 +104,22 @@ class OpacGateway(Protocol):
     async def fetch_record(self, titn: Titn) -> FetchResult: ...
 
 
+class OpacSearchGateway(Protocol):
+    """Discovery via AbsysNET's DOSEARCH / expert-query results lists.
+
+    Kept separate from `OpacGateway` (single-record fetch) so the ingest
+    worker needn't implement search, and so test stubs stay small. The
+    adapter paginates the results list politely (per-second throttle) and
+    returns the TITNs it found.
+    """
+
+    async def discover_titns(self, expression: str, *, max_results: int) -> list[int]:
+        """Run an AbsysNET expert query (xsqf99) and return up to `max_results`
+        result TITNs, paginating politely. `expression` is the raw expert
+        syntax, e.g. ``"(@fepu>=2024)"`` for records published since 2024."""
+        ...
+
+
 # ───────────────────────────────────────────────────────────────
 # Scrape state machine — TaskState + ScrapeTaskRepository
 # ───────────────────────────────────────────────────────────────

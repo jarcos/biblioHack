@@ -26,16 +26,19 @@ import re
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+from urllib.parse import urljoin
 
 from bibliohack.catalog.application.ports import (
     FetchOutcome,
     FetchResult,
     OpacUnavailableError,
 )
+from bibliohack.catalog.infrastructure.absysnet.parser import parse_search_results
 from bibliohack.catalog.infrastructure.absysnet.throttle import TokenBucket
 from bibliohack.catalog.infrastructure.absysnet.urls import (
     DEFAULT_ENDPOINTS,
     AbsysnetEndpoints,
+    build_expert_url,
     build_record_url,
 )
 
@@ -182,6 +185,99 @@ class ScraplingOpacGateway:
 
         # Retries exhausted without a usable response.
         msg = f"OPAC unavailable for TITN={titn}: {last_error}"
+        raise OpacUnavailableError(msg)
+
+    async def discover_titns(self, expression: str, *, max_results: int) -> list[int]:
+        """Paginate an expert-query results list, collecting up to `max_results` TITNs.
+
+        Each page fetch goes through the same throttle as `fetch_record`, so
+        discovery stays inside the politeness budget. Stops at `max_results`,
+        when the OPAC reports no "Siguiente" page, or when a page yields no
+        new TITNs (loop guard).
+        """
+        found: list[int] = []
+        seen: set[int] = set()
+        url: str | None = build_expert_url(expression, endpoints=self._config.endpoints)
+        # ~10 results/page; cap pages with slack so a missing/looping 'next'
+        # can't run forever.
+        page_cap = (max_results + 9) // 10 + 2
+        page = 0
+        while url is not None and len(found) < max_results and page < page_cap:
+            page += 1
+            status, body, final_url = await self._fetch_rendered(url, label=f"search page={page}")
+            if status != 200:
+                log.warning("absysnet.search.bad_status status=%d page=%d", status, page)
+                break
+            results = parse_search_results(body)
+            new = [titn for titn in results.titns if titn not in seen]
+            if not new:
+                break
+            for titn in new:
+                seen.add(titn)
+                found.append(titn)
+            if results.next_url is None:
+                break
+            url = urljoin(final_url or url, results.next_url)
+        return found[:max_results]
+
+    async def _fetch_rendered(self, url: str, *, label: str) -> tuple[int, str, str]:
+        """Fetch one rendered page with retries → (status, body, final_url).
+
+        Shares the stealth-fetch + backoff shape with `fetch_record`, but
+        returns the raw status so the caller maps it. Raises
+        `OpacUnavailableError` once transient retries (timeout / 5xx) are
+        exhausted; a 4xx is returned, not retried.
+        """
+        await self._throttle.acquire()
+        try:
+            from scrapling.fetchers import (  # type: ignore[import-not-found,unused-ignore]
+                StealthyFetcher,
+            )
+        except ModuleNotFoundError as exc:
+            msg = (
+                "Scrapling is not installed in this venv. The OPAC scraper "
+                "lives in the [scraper] optional extra. Run:\n"
+                "  cd backend && uv sync --extra scraper\n"
+                "  uv run scrapling install   # downloads the browser"
+            )
+            raise OpacUnavailableError(msg) from exc
+
+        attempt = 0
+        last_error: str | None = None
+        while attempt <= self._config.max_retries:
+            attempt += 1
+            try:
+                page = await StealthyFetcher.async_fetch(
+                    url,
+                    headless=True,
+                    network_idle=True,
+                    timeout=int(self._config.fetch_timeout_seconds * 1000),
+                    extra_headers={"User-Agent": self._config.user_agent},
+                )
+            except Exception as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                log.warning(
+                    "absysnet.fetch.exception %s attempt=%d error=%s", label, attempt, last_error
+                )
+                if attempt > self._config.max_retries:
+                    break
+                await self._backoff(attempt)
+                continue
+
+            status = int(getattr(page, "status", 0))
+            body = _repair_charset(
+                str(getattr(page, "html_content", "") or getattr(page, "body", ""))
+            )
+            final_url = str(getattr(page, "url", url))
+            if status == 200 or 400 <= status < 500:
+                return status, body, final_url
+            last_error = f"upstream status {status}"
+            if attempt > self._config.max_retries:
+                break
+            await self._backoff(attempt)
+            continue
+
+        msg = f"OPAC unavailable for {label}: {last_error}"
         raise OpacUnavailableError(msg)
 
     async def _backoff(self, attempt: int) -> None:

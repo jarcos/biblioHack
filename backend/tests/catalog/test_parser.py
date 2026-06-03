@@ -17,6 +17,7 @@ from bibliohack.catalog.infrastructure.absysnet.parser import (
     ParseError,
     looks_like_not_found,
     parse_record_html,
+    parse_search_results,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -334,3 +335,42 @@ def test_looks_like_not_found_returns_false_on_real_record(titn_1_html: str) -> 
 
 def test_looks_like_not_found_handles_empty_string() -> None:
     assert looks_like_not_found("") is False
+
+
+# ───────────────────────────────────────────────────────────────
+# DOSEARCH results-list parsing (novedades discovery)
+# ───────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def search_results_html() -> str:
+    """A real `xsqf99=(@fepu>=2023)` results page captured from the live OPAC."""
+    return (FIXTURES / "search_novedades.html").read_text(encoding="utf-8")
+
+
+def test_parses_search_results_titns(search_results_html: str) -> None:
+    page = parse_search_results(search_results_html)
+    # The RBPA OPAC shows 10 results per page; each carries a js-TITN span.
+    assert len(page.titns) == 10
+    assert 13168 in page.titns
+    assert all(isinstance(t, int) for t in page.titns)
+
+
+def test_parses_search_results_pagination_and_total(search_results_html: str) -> None:
+    page = parse_search_results(search_results_html)
+    assert page.next_url is not None
+    assert "DOC=" in page.next_url
+    assert page.total == 83607
+
+
+def test_parse_search_results_rejects_empty() -> None:
+    with pytest.raises(ParseError, match="empty results"):
+        parse_search_results("")
+
+
+def test_parse_search_results_no_next_on_last_page() -> None:
+    html = '<html><body><span class="js-TITN">5</span><span class="js-TITN">9</span></body></html>'
+    page = parse_search_results(html)
+    assert page.titns == (5, 9)
+    assert page.next_url is None
+    assert page.total is None

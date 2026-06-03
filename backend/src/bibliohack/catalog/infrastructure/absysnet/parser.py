@@ -98,6 +98,21 @@ class ParseResult:
     copies: tuple[ParsedCopy, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True, slots=True)
+class SearchResultsPage:
+    """One page of an AbsysNET DOSEARCH results list.
+
+    `titns` are the records shown on this page (10 per page on the RBPA OPAC),
+    extracted from the `js-TITN` spans. `next_url` is the (root-relative) href
+    of the "Siguiente" control, or None on the last page. `total` is the
+    reported result count ("N Registros") when present.
+    """
+
+    titns: tuple[int, ...]
+    next_url: str | None = None
+    total: int | None = None
+
+
 # ───────────────────────────────────────────────────────────────
 # Errors
 # ───────────────────────────────────────────────────────────────
@@ -206,6 +221,68 @@ def parse_record_html(html: str, *, expected_titn: Titn | None = None) -> ParseR
     copies = tuple(_parse_copies(tree))
 
     return ParseResult(record=record, copies=copies)
+
+
+_RESULTS_TOTAL_RE = re.compile(r"([\d.]+)\s+Registros", re.IGNORECASE)
+
+
+def parse_search_results(html: str) -> SearchResultsPage:
+    """Parse a DOSEARCH results-list page into TITNs + pagination info.
+
+    AbsysNET embeds each result's TITN in a `js-TITN` span (same convention
+    as the record page) and paginates via an ``<a aria-label="Siguiente">``
+    whose href carries the session token + a ``DOC=`` offset. Validated
+    against ``tests/catalog/fixtures/search_novedades.html``.
+    """
+    if not html or not html.strip():
+        msg = "Cannot parse empty results HTML"
+        raise ParseError(msg)
+    tree = HTMLParser(html)
+
+    titns: list[int] = []
+    seen: set[int] = set()
+    for node in tree.css(".js-TITN"):
+        text = node.text(strip=True)
+        if not text:
+            continue
+        try:
+            value = int(text)
+        except ValueError:
+            continue
+        if value not in seen:
+            seen.add(value)
+            titns.append(value)
+
+    return SearchResultsPage(
+        titns=tuple(titns),
+        next_url=_extract_next_page(tree),
+        total=_extract_results_total(tree),
+    )
+
+
+def _extract_next_page(tree: HTMLParser) -> str | None:
+    """The 'Siguiente' control's href, or None when there's no next page.
+
+    On the last page the control is absent or disabled, so it won't carry a
+    usable ``DOC=`` offset — we treat that as 'no more pages'.
+    """
+    node = tree.css_first('a[aria-label="Siguiente"]') or tree.css_first('a[title="Siguiente"]')
+    if node is None:
+        return None
+    href = node.attributes.get("href")
+    if not href or "abnetcl.cgi" not in href or "DOC=" not in href:
+        return None
+    return href
+
+
+def _extract_results_total(tree: HTMLParser) -> int | None:
+    match = _RESULTS_TOTAL_RE.search(tree.text())
+    if match is None:
+        return None
+    try:
+        return int(match.group(1).replace(".", ""))
+    except ValueError:
+        return None
 
 
 def looks_like_not_found(html: str) -> bool:
