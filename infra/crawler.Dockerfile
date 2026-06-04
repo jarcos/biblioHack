@@ -38,7 +38,6 @@ RUN useradd --create-home --shell /bin/bash --uid 1000 bibliohack
 WORKDIR /app
 
 COPY --from=builder --chown=bibliohack:bibliohack /app/.venv /app/.venv
-COPY --from=builder --chown=bibliohack:bibliohack /app/src /app/src
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
@@ -70,6 +69,11 @@ USER bibliohack
 RUN patchright install chromium && camoufox fetch
 USER root
 
+# Application code + schedule LAST, so editing them (the frequent case) only
+# rebuilds these cheap layers — never the multi-hundred-MB browser layers.
+# The venv installs bibliohack editable against /app/src, so this is the code
+# the worker actually runs.
+COPY --from=builder --chown=bibliohack:bibliohack /app/src /app/src
 COPY infra/crawler/crontab /app/crontab
 COPY infra/crawler/run-job.sh /app/run-job.sh
 RUN chmod +x /app/run-job.sh && chown -R bibliohack:bibliohack /app
