@@ -104,6 +104,20 @@ class OpacGateway(Protocol):
     async def fetch_record(self, titn: Titn) -> FetchResult: ...
 
 
+@dataclass(frozen=True, slots=True)
+class DiscoverySlice:
+    """One paginated slice of an expert-query results list.
+
+    `titns` are the results collected this run; `next_offset` is the DOC
+    offset to resume at next time (start_offset + len(titns)); `total` is the
+    OPAC's reported result count for the query (drives the wrap/clamp).
+    """
+
+    titns: list[int]
+    next_offset: int
+    total: int | None
+
+
 class OpacSearchGateway(Protocol):
     """Discovery via AbsysNET's DOSEARCH / expert-query results lists.
 
@@ -117,6 +131,45 @@ class OpacSearchGateway(Protocol):
         """Run an AbsysNET expert query (xsqf99) and return up to `max_results`
         result TITNs, paginating politely. `expression` is the raw expert
         syntax, e.g. ``"(@fepu>=2024)"`` for records published since 2024."""
+        ...
+
+    async def discover_slice(
+        self, expression: str, *, start_offset: int = 0, max_results: int
+    ) -> DiscoverySlice:
+        """Like `discover_titns`, but resumes at `start_offset` (a DOC offset).
+
+        The OPAC results list supports jumping directly to an arbitrary DOC
+        offset within a session, so this fetches page 1 once (to mint the
+        session token + read the total), jumps to `start_offset`, and walks
+        forward collecting up to `max_results` TITNs. Returns the slice plus
+        the offset to resume at — so a persisted cursor can march through the
+        entire result set across runs."""
+        ...
+
+
+# ───────────────────────────────────────────────────────────────
+# Discovery cursor — resumable expert-query pagination
+# ───────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryCursor:
+    """Persisted pagination state for one expert-query expression."""
+
+    expression: str
+    next_offset: int
+    total: int | None = None
+
+
+class DiscoveryCursorRepository(Protocol):
+    """Persistence for how far each expert query has been paginated."""
+
+    async def get(self, expression: str) -> DiscoveryCursor | None:
+        """Return the saved cursor for `expression`, or None if never run."""
+        ...
+
+    async def save(self, expression: str, *, next_offset: int, total: int | None) -> None:
+        """Upsert the cursor for `expression`."""
         ...
 
 

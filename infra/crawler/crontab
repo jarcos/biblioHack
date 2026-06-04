@@ -6,7 +6,10 @@
 # nightly — otherwise they race for the lock and one skips ("another crawl job
 # is still running"), which previously starved the nightly every day.
 #
-# Nightly catalogue growth: discover recent novedades, then ingest them.
-0 3 * * * /app/run-job.sh discover_worker
-# Availability refresh, hourly at :30.
-30 * * * * /app/run-job.sh refresh
+# Catalogue growth every hour at :00 — discover advances a resumable cursor
+# through the result set, then the worker ingests the new slice. With
+# DISCOVER_MAX/WORKER_MAX ~200 this finishes well before :30.
+0 * * * * /app/run-job.sh discover_worker
+# Availability refresh every 6 hours at :30 (offset from the hourly growth so
+# they never race for the flock). Re-scrapes records whose probe is due.
+30 */6 * * * /app/run-job.sh refresh

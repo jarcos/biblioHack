@@ -49,6 +49,9 @@ from bibliohack.catalog.infrastructure.postgres import (
 from bibliohack.catalog.infrastructure.postgres.catalog_ingest_repository import (
     PostgresCatalogIngestRepository,
 )
+from bibliohack.catalog.infrastructure.postgres.discovery_cursor_repository import (
+    PostgresDiscoveryCursorRepository,
+)
 from bibliohack.shared.infrastructure import (
     get_settings,
     transactional_session,
@@ -209,32 +212,40 @@ def discover(
     max_results: int = typer.Option(
         200,
         "--max-results",
-        help="Stop after collecting this many TITNs (politeness / time box).",
+        help="TITNs to collect this run (the slice size; cursor advances by it).",
     ),
     rate_per_second: float = typer.Option(
         1.0, "--rate", help="Polite per-second request rate to the OPAC."
     ),
+    reset: bool = typer.Option(
+        False,
+        "--reset",
+        help="Restart pagination from the top (ignore the saved cursor).",
+    ),
 ) -> None:
     """Seed `scrape_tasks` from a publication-year ("novedades") expert query.
 
-    Runs the AbsysNET expert query `@fepu>=year`, paginates the results list
-    politely, and seeds the resulting TITNs as `discovered`. Follow with
-    `bibliohack catalog worker` to ingest them — recent records skew literary,
-    so this is how the default catalogue fills with novels rather than the
-    low-TITN institutional backlog.
+    Runs the AbsysNET expert query `@fepu>=year` and seeds the result TITNs as
+    `discovered`. Pagination is **resumable**: a persisted cursor records how
+    far we've gone, so each run advances `--max-results` deeper through the
+    result set (~55k for 2024+) rather than re-scanning the top. Follow with
+    `bibliohack catalog worker` to ingest — recent records skew literary, so
+    this fills the catalogue with novels rather than the institutional backlog.
 
     Usage:
 
         bibliohack catalog discover --year-from 2024 --max-results 200
-        bibliohack catalog discover --year-from 2020 --year-to 2022
+        bibliohack catalog discover --year-from 2024 --reset   # from the top
 
     Requires the scraper extra (see `worker`).
     """
     expression = novedades_expression(year_from=year_from, year_to=year_to)
-    asyncio.run(_run_discover(expression, max_results, rate_per_second))
+    asyncio.run(_run_discover(expression, max_results, rate_per_second, reset=reset))
 
 
-async def _run_discover(expression: str, max_results: int, rate_per_second: float) -> None:
+async def _run_discover(
+    expression: str, max_results: int, rate_per_second: float, *, reset: bool = False
+) -> None:
     settings = get_settings()
     gateway = ScraplingOpacGateway(
         GatewayConfig(
@@ -243,17 +254,19 @@ async def _run_discover(expression: str, max_results: int, rate_per_second: floa
         )
     )
     typer.echo(f"Discovering via expert query: {expression}  (max_results={max_results})")
-    typer.echo("Paginating the results list politely — follow with `catalog worker` to ingest.")
+    typer.echo("Resumable pagination — follow with `catalog worker` to ingest.")
     typer.echo()
     try:
         async with transactional_session() as session:
             tasks = PostgresScrapeTaskRepository(session)
-            use_case = DiscoverViaExpertQuery(gateway=gateway, tasks=tasks)
-            result = await use_case.execute(expression, max_results=max_results)
+            cursors = PostgresDiscoveryCursorRepository(session)
+            use_case = DiscoverViaExpertQuery(gateway=gateway, tasks=tasks, cursors=cursors)
+            result = await use_case.execute(expression, max_results=max_results, reset=reset)
     except Exception as exc:
         typer.echo(typer.style(f"Discovery failed: {exc}", fg=typer.colors.RED), err=True)
         raise typer.Exit(code=1) from exc
 
+    pct = f"{100 * result.next_offset / result.total:.1f}%" if result.total else "?"
     typer.echo()
     typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
     typer.echo(typer.style("Discovery complete.", fg=typer.colors.GREEN, bold=True))
@@ -261,6 +274,12 @@ async def _run_discover(expression: str, max_results: int, rate_per_second: floa
     typer.echo(f"  TITNs found:   {result.titns_found:,}")
     typer.echo(f"  newly seeded:  {typer.style(f'{result.seeded:,}', bold=True)}")
     typer.echo(f"  already known: {result.titns_found - result.seeded:,}")
+    typer.echo(
+        f"  cursor:        {result.start_offset:,} → {result.next_offset:,}"
+        f" of {result.total:,} ({pct})"
+        if result.total is not None
+        else f"  cursor:        {result.start_offset:,} → {result.next_offset:,}"
+    )
     typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
 
 

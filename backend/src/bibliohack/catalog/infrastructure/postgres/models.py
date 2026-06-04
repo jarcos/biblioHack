@@ -213,3 +213,21 @@ class ScrapeLogModel(Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     bytes_in: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
+
+
+class DiscoveryCursorModel(Base):
+    """How far we've paginated through an expert query's results list.
+
+    One row per expression (e.g. '(@fepu>=2024)'). `next_offset` is the DOC
+    offset to resume at next run; advancing it lets discovery march through
+    the whole result set across runs instead of re-scanning page 1.
+    """
+
+    __tablename__ = "discovery_cursors"
+
+    expression: Mapped[str] = mapped_column(Text, primary_key=True)
+    next_offset: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    total: Mapped[int | None] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

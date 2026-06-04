@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urljoin
 
 from bibliohack.catalog.application.ports import (
+    DiscoverySlice,
     FetchOutcome,
     FetchResult,
     OpacUnavailableError,
@@ -188,27 +189,70 @@ class ScraplingOpacGateway:
         raise OpacUnavailableError(msg)
 
     async def discover_titns(self, expression: str, *, max_results: int) -> list[int]:
-        """Paginate an expert-query results list, collecting up to `max_results` TITNs.
+        """Paginate from the top, collecting up to `max_results` TITNs.
 
-        Each page fetch goes through the same throttle as `fetch_record`, so
-        discovery stays inside the politeness budget. Stops at `max_results`,
-        when the OPAC reports no "Siguiente" page, or when a page yields no
-        new TITNs (loop guard).
+        Thin wrapper over `discover_slice(start_offset=0)` — kept for callers
+        that don't need the resume cursor.
+        """
+        slice_ = await self.discover_slice(expression, start_offset=0, max_results=max_results)
+        return slice_.titns
+
+    async def discover_slice(
+        self, expression: str, *, start_offset: int = 0, max_results: int
+    ) -> DiscoverySlice:
+        """Paginate an expert-query results list starting at `start_offset`.
+
+        Fetches page 1 once (to mint the session token + read the total),
+        jumps to `DOC=start_offset+1` when resuming, then walks "Siguiente"
+        forward collecting up to `max_results` new TITNs. Each fetch goes
+        through the same throttle as `fetch_record`, so discovery stays inside
+        the politeness budget. Returns the collected TITNs plus the offset to
+        resume at next run (start_offset + count).
         """
         found: list[int] = []
         seen: set[int] = set()
-        url: str | None = build_expert_url(expression, endpoints=self._config.endpoints)
         # ~10 results/page; cap pages with slack so a missing/looping 'next'
         # can't run forever.
         page_cap = (max_results + 9) // 10 + 2
+
+        base = build_expert_url(expression, endpoints=self._config.endpoints)
+        status, body, final_url = await self._fetch_rendered(base, label="search page=1")
+        if status != 200:
+            log.warning("absysnet.search.bad_status status=%d page=1", status)
+            return DiscoverySlice(titns=[], next_offset=start_offset, total=None)
+        first = parse_search_results(body)
+        total = first.total
+
+        # Nothing left beyond what we've already covered.
+        if total is not None and start_offset >= total:
+            return DiscoverySlice(titns=[], next_offset=start_offset, total=total)
+
+        if start_offset <= 0:
+            # Resume from the top: page 1's own results count.
+            for titn in first.titns:
+                if titn not in seen:
+                    seen.add(titn)
+                    found.append(titn)
+            next_url = first.next_url
+        elif first.next_url is None:
+            # No pagination control → only one page exists; can't jump.
+            return DiscoverySlice(titns=[], next_offset=start_offset, total=total)
+        else:
+            # Jump directly to the resume offset by rewriting the DOC= in the
+            # 'Siguiente' href (which carries this session's token).
+            next_url = re.sub(r"DOC=\d+", f"DOC={start_offset + 1}", first.next_url)
+
         page = 0
+        url: str | None = urljoin(final_url or base, next_url) if next_url else None
         while url is not None and len(found) < max_results and page < page_cap:
             page += 1
-            status, body, final_url = await self._fetch_rendered(url, label=f"search page={page}")
+            status, body, final_url = await self._fetch_rendered(url, label=f"search page+{page}")
             if status != 200:
-                log.warning("absysnet.search.bad_status status=%d page=%d", status, page)
+                log.warning("absysnet.search.bad_status status=%d page+%d", status, page)
                 break
             results = parse_search_results(body)
+            if results.total is not None:
+                total = results.total
             new = [titn for titn in results.titns if titn not in seen]
             if not new:
                 break
@@ -218,7 +262,9 @@ class ScraplingOpacGateway:
             if results.next_url is None:
                 break
             url = urljoin(final_url or url, results.next_url)
-        return found[:max_results]
+
+        titns = found[:max_results]
+        return DiscoverySlice(titns=titns, next_offset=start_offset + len(titns), total=total)
 
     async def _fetch_rendered(self, url: str, *, label: str) -> tuple[int, str, str]:
         """Fetch one rendered page with retries → (status, body, final_url).
