@@ -77,6 +77,14 @@ See [`ARCHITECTURE.md` §11](./ARCHITECTURE.md#11-roadmap-proposed-milestones) f
 
 ---
 
+## Observability
+
+The production `api` is instrumented with **OpenTelemetry** (APM / distributed tracing). The container runtime wraps `uvicorn` with `opentelemetry-instrument`, which auto-instruments **FastAPI** and **asyncpg** — HTTP requests and DB queries become spans with no application-code changes. It's a **no-op locally**: instrumentation only activates when the `OTEL_*` env vars are set, and those are defined only in `docker-compose.prod.yml`, so dev runs and tests are unaffected.
+
+In production, telemetry is exported via **OTLP** (`OTEL_EXPORTER_OTLP_ENDPOINT=http://shared-otel-collector:4317`, gRPC) to a shared OpenTelemetry collector running in a separate monitoring stack on the NAS, which fans traces out to **Grafana Tempo** and **SigNoz** (`service.name=bibliohack-api`). Production deps: `opentelemetry-distro[otlp]`, `opentelemetry-instrumentation-fastapi`, `opentelemetry-instrumentation-asyncpg`. See [`ARCHITECTURE.md` §10](./ARCHITECTURE.md) for the full picture.
+
+---
+
 ## Contributing
 
 This is a side project, not currently accepting external PRs. Feel free to fork.
