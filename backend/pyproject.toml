@@ -23,6 +23,12 @@ dependencies = [
 
     # ───── Observability ─────
     "structlog>=24.4",
+    # OpenTelemetry APM. `opentelemetry-instrument` (from -distro) auto-loads any
+    # installed instrumentation packages and exports OTLP to the shared collector
+    # (which fans out to Tempo + SigNoz). See ../monitoring/instrumentation.
+    "opentelemetry-distro[otlp]>=0.50b0",
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
+    "opentelemetry-instrumentation-asyncpg>=0.50b0",
 
     # ───── HTML parsing ─────
     # Used by the catalog parser. Small C-extension; we keep it in core deps

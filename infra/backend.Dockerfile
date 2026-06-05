@@ -57,4 +57,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status == 200 else 1)" \
         || exit 1
 
-CMD ["uvicorn", "bibliohack.interfaces.http.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# `opentelemetry-instrument` wraps uvicorn and auto-instruments FastAPI + asyncpg,
+# exporting OTLP per the OTEL_* env in docker-compose.prod.yml. It's a no-op if
+# those env vars are unset, so local runs are unaffected.
+CMD ["opentelemetry-instrument", "uvicorn", "bibliohack.interfaces.http.app:app", "--host", "0.0.0.0", "--port", "8000"]
