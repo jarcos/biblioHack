@@ -161,14 +161,10 @@ async def test_upsert_is_idempotent_and_reports_insert_vs_update(seeded: AsyncSe
     from sqlalchemy import text
 
     count = (
-        await seeded.execute(
-            text("SELECT count(*) FROM shelf_entries WHERE source_book_id = 'g1'")
-        )
+        await seeded.execute(text("SELECT count(*) FROM shelf_entries WHERE source_book_id = 'g1'"))
     ).scalar_one()
     rating = (
-        await seeded.execute(
-            text("SELECT rating FROM shelf_entries WHERE source_book_id = 'g1'")
-        )
+        await seeded.execute(text("SELECT rating FROM shelf_entries WHERE source_book_id = 'g1'"))
     ).scalar_one()
     assert count == 1
     assert rating == 3  # the update took
