@@ -54,6 +54,7 @@ class ParsedRecord:
     title: str
     authors: tuple[str, ...] = ()
     subjects: tuple[str, ...] = ()  # MARC T650/T651/T655, deduped, in order
+    isbns: tuple[str, ...] = ()  # MARC T020$a, normalized to ISBN-13, deduped
     publisher: str | None = None
     classification: str | None = None  # UDC / T080
     document_type: str | None = None
@@ -174,6 +175,12 @@ def parse_record_html(html: str, *, expected_titn: Titn | None = None) -> ParseR
     # the literary-form classifier, and (later, M3) the embedding text.
     subjects = tuple(_extract_subjects(tree))
 
+    # ── ISBNs (T020 $a) ───────────────────────────────────────
+    # AbsysNET renders the ISBN subfield $a as `js-T020a` (the `js-T020aq`
+    # variant carries trailing qualifier junk, so target $a exactly).
+    # Normalized to ISBN-13 — the form the covers context is keyed on.
+    isbns = tuple(_extract_isbns(tree))
+
     # ── Publisher (T260) ──────────────────────────────────────
     publisher = _first_js_field(tree, "T260") or _first_js_field(tree, "T260ab")
     # T260 sometimes contains "Place : Publisher, Year". We try to keep just
@@ -208,6 +215,7 @@ def parse_record_html(html: str, *, expected_titn: Titn | None = None) -> ParseR
         title=title.strip(),
         authors=tuple(a.strip() for a in authors if a.strip()),
         subjects=subjects,
+        isbns=isbns,
         publisher=publisher or None,
         classification=classification or None,
         document_type=document_type,
@@ -356,6 +364,44 @@ def _extract_subjects(tree: HTMLParser) -> list[str]:
                 seen.add(value)
                 out.append(value)
     return out
+
+
+def _extract_isbns(tree: HTMLParser) -> list[str]:
+    """Collect MARC 020 $a ISBNs, normalized to ISBN-13, first-seen order.
+
+    AbsysNET renders the clean ISBN as `js-T020a`; the `js-T020aq` variant
+    carries trailing qualifier junk, so we target `T020a` exactly. ISBN-10s
+    are converted to ISBN-13 (the form the `covers` context is keyed on);
+    unparseable values are dropped.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in _all_js_fields(tree, "T020a"):
+        isbn = _normalize_isbn(raw)
+        if isbn is not None and isbn not in seen:
+            seen.add(isbn)
+            out.append(isbn)
+    return out
+
+
+def _normalize_isbn(raw: str) -> str | None:
+    """Strip a raw 020 $a value to a 13-digit ISBN, or None if implausible."""
+    # Keep only ISBN characters (digits + the ISBN-10 check 'X'); drop hyphens,
+    # spaces and any trailing price/format note.
+    cleaned = re.sub(r"[^0-9Xx]", "", raw).upper()
+    if len(cleaned) == 13 and cleaned.isdigit():
+        return cleaned
+    if len(cleaned) == 10 and re.fullmatch(r"[0-9]{9}[0-9X]", cleaned):
+        return _isbn10_to_13(cleaned)
+    return None
+
+
+def _isbn10_to_13(isbn10: str) -> str:
+    """Convert a (validated) ISBN-10 to ISBN-13 with a recomputed check digit."""
+    core = "978" + isbn10[:9]
+    total = sum((1 if i % 2 == 0 else 3) * int(digit) for i, digit in enumerate(core))
+    check = (10 - (total % 10)) % 10
+    return core + str(check)
 
 
 def _extract_document_type(tree: HTMLParser) -> str | None:
