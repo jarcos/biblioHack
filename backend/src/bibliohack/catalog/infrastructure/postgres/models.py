@@ -47,8 +47,11 @@ class BibliographicRecordModel(Base):
     titn: Mapped[int] = mapped_column(Integer, unique=True, nullable=False, index=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     subtitle: Mapped[str | None] = mapped_column(Text)
-    document_type: Mapped[str | None] = mapped_column(String(64))
-    language: Mapped[str | None] = mapped_column(String(8))
+    # TEXT (not bounded VARCHAR): upstream records occasionally carry long /
+    # multi-valued document-type and language strings that overflowed the old
+    # varchar(64)/varchar(8) and aborted the whole ingest run.
+    document_type: Mapped[str | None] = mapped_column(Text)
+    language: Mapped[str | None] = mapped_column(Text)
     pub_year: Mapped[int | None] = mapped_column(Integer)
     publisher: Mapped[str | None] = mapped_column(Text)
     summary: Mapped[str | None] = mapped_column(Text)
@@ -56,7 +59,7 @@ class BibliographicRecordModel(Base):
     # UDC/CDU classification (MARC T080), e.g. '821.134.2-1"19"'. Kept raw so
     # the literary-form classifier — and future genre faceting — can re-read
     # it without a re-crawl.
-    classification: Mapped[str | None] = mapped_column(String(64))
+    classification: Mapped[str | None] = mapped_column(Text)
 
     # Literary profile (see catalog/domain/literary_profile.py). Stored as the
     # StrEnum *values*; computed at ingest, used to scope search/recommender
