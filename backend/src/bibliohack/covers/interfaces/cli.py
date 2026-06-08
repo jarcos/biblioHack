@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 import typer
 
 from bibliohack.covers.application.use_cases.resolve_cover import ResolveCover
 from bibliohack.covers.infrastructure.images.pillow_processor import PillowImageProcessor
 from bibliohack.covers.infrastructure.postgres.cover_repository import PostgresCoverRepository
+from bibliohack.covers.infrastructure.providers.googlebooks import GoogleBooksCoverProvider
 from bibliohack.covers.infrastructure.providers.openlibrary import OpenLibraryCoverProvider
 from bibliohack.covers.infrastructure.store.filesystem import FilesystemCoverStore
 from bibliohack.shared.infrastructure import get_settings, transactional_session
+
+if TYPE_CHECKING:
+    from bibliohack.covers.application.ports import CoverProvider
 
 covers_app = typer.Typer(no_args_is_help=True, help="Cover-image resolution commands.")
 
@@ -34,7 +39,12 @@ def resolve(
 
 async def _run_resolve(limit: int) -> None:
     settings = get_settings()
-    providers = [OpenLibraryCoverProvider(user_agent=settings.covers_user_agent)]
+    # Open Library first (permissively licensed, storable); Google Books as a
+    # fallback for the long tail OL doesn't have.
+    providers: list[CoverProvider] = [
+        OpenLibraryCoverProvider(user_agent=settings.covers_user_agent),
+        GoogleBooksCoverProvider(user_agent=settings.covers_user_agent),
+    ]
     processor = PillowImageProcessor()
     store = FilesystemCoverStore(settings.covers_store_path)
 

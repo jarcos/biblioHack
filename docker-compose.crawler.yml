@@ -43,6 +43,7 @@ services:
       # the discovered backlog every run.
       WORKER_MAX: "500"          # records ingested per hourly run (cap; rarely reached)
       REFRESH_MAX: "300"         # records re-probed per 6-hourly run
+      COVERS_MAX: "100"          # cover ISBNs resolved per 2-hourly run (off-OPAC)
       # Resolve covers into the shared store (the api serves them read-only).
       COVERS_STORE_PATH: /covers
     networks:

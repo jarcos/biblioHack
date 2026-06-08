@@ -11,10 +11,16 @@ set -euo pipefail
 # `bibliohack` resolves regardless of how the scheduler sets PATH.
 export PATH="/app/.venv/bin:${PATH:-/usr/local/bin:/usr/bin:/bin}"
 
-JOB="${1:?usage: run-job.sh discover_worker|refresh}"
+JOB="${1:?usage: run-job.sh discover_worker|refresh|covers}"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-LOCK="/tmp/bibliohack-crawl.lock"
+# OPAC jobs share one lock (one polite OPAC budget). Cover resolution hits
+# Open Library / Google Books, not the OPAC, so it gets its own lock and can
+# run alongside an OPAC crawl.
+case "$JOB" in
+  covers) LOCK="/tmp/bibliohack-covers.lock" ;;
+  *) LOCK="/tmp/bibliohack-crawl.lock" ;;
+esac
 exec 9>"$LOCK"
 if ! flock -n 9; then
   echo "[$(ts)] $JOB skipped — another crawl job is still running"
@@ -36,6 +42,10 @@ case "$JOB" in
     bibliohack catalog refresh \
       --max-tasks "${REFRESH_MAX:-300}" \
       --rate "${CRAWL_RATE:-1.0}"
+    ;;
+  covers)
+    # Off-OPAC: resolves cover images for catalogue ISBNs into the shared store.
+    bibliohack covers resolve --limit "${COVERS_MAX:-100}"
     ;;
   *)
     echo "[$(ts)] unknown job: $JOB" >&2
