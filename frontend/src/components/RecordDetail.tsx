@@ -5,7 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { availabilityLabel, availabilityVariant } from "@/lib/availability";
 import { audienceLabel, formLabel, inDefaultScope } from "@/lib/literary";
-import { CatalogApiError, fetchRecord, type CatalogRecord } from "@infrastructure/api/catalog";
+import {
+  CatalogApiError,
+  fetchRecord,
+  fetchSimilar,
+  type CatalogRecord,
+  type CatalogRecordSummary,
+} from "@infrastructure/api/catalog";
 
 /**
  * RecordDetail — the per-record page. Mounted by `record.astro` as a
@@ -201,6 +207,8 @@ function RecordBody({
         </CardContent>
       </Card>
 
+      <SimilarStrip titn={record.titn} apiBaseUrl={apiBaseUrl} />
+
       <footer className="space-y-1 border-t border-border pt-4 text-xs text-muted-foreground">
         {record.isbns.length > 0 && <p>ISBN: {record.isbns.join(", ")}</p>}
         <p>
@@ -215,6 +223,79 @@ function RecordBody({
         </p>
       </footer>
     </div>
+  );
+}
+
+function SimilarStrip({
+  titn,
+  apiBaseUrl,
+}: {
+  titn: number;
+  apiBaseUrl: string;
+}): ReactElement | null {
+  // "Más como este" — pure pgvector KNN over the record's stored embedding.
+  // Returns an empty list when the record isn't embedded yet; we then render
+  // nothing rather than an empty heading. Failures are swallowed (it's an
+  // enhancement, not core content).
+  const { data, isSuccess } = useQuery({
+    queryKey: ["catalog-similar", titn],
+    queryFn: ({ signal }) => fetchSimilar(apiBaseUrl, titn, 8, signal),
+    enabled: titn > 0,
+  });
+
+  if (!isSuccess || data.items.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-medium text-foreground">Más como este</h2>
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {data.items.map((item) => (
+          <li key={item.titn}>
+            <SimilarCard record={item} apiBaseUrl={apiBaseUrl} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function SimilarCard({
+  record,
+  apiBaseUrl,
+}: {
+  record: CatalogRecordSummary;
+  apiBaseUrl: string;
+}): ReactElement {
+  const coverSrc = record.cover?.url ? `${apiBaseUrl}${record.cover.url}` : null;
+  const author = record.authors[0] ?? null;
+
+  return (
+    <a
+      href={`/record?titn=${record.titn}`}
+      className="flex h-full flex-col gap-2 rounded-md border border-border bg-card p-3 transition-colors hover:border-foreground/30 hover:bg-muted/40"
+    >
+      {coverSrc !== null ? (
+        <img
+          src={coverSrc}
+          alt=""
+          loading="lazy"
+          className="h-32 w-auto self-center rounded border border-border object-cover"
+        />
+      ) : (
+        <div
+          aria-hidden="true"
+          className="flex h-32 items-center justify-center rounded border border-dashed border-border bg-muted/50 text-muted-foreground"
+        >
+          <span className="text-xl">📚</span>
+        </div>
+      )}
+      <div className="min-w-0 space-y-0.5">
+        <h3 className="line-clamp-2 font-serif text-sm font-semibold leading-snug">
+          {record.title}
+        </h3>
+        {author !== null && <p className="truncate text-xs text-muted-foreground">{author}</p>}
+      </div>
+    </a>
   );
 }
 

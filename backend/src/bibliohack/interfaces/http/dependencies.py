@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends
 
+from bibliohack.catalog.infrastructure.embeddings.huggingface import HuggingFaceEmbedder
 from bibliohack.shared.infrastructure.db import (
     make_engine,
     make_session_factory,
@@ -60,3 +61,27 @@ async def get_session(
     _, factory = _engine_factory_pair(settings)
     async with factory() as session:
         yield session
+
+
+@lru_cache(maxsize=1)
+def _embedder_for_token(token: str, endpoint: str) -> HuggingFaceEmbedder | None:
+    """Build (and cache) the query embedder, or None when no token is set.
+
+    Cached on the token+endpoint so each request reuses one embedder rather
+    than reconstructing it (the embedder is stateless apart from config).
+    Returns None when `HUGGINGFACE_API_TOKEN` is empty — semantic search then
+    degrades gracefully to keyword search at the router.
+    """
+    if not token:
+        return None
+    return HuggingFaceEmbedder(api_token=token, endpoint=endpoint)
+
+
+def get_embedder(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> HuggingFaceEmbedder | None:
+    """FastAPI dependency: the query embedder, or None if HF isn't configured."""
+    return _embedder_for_token(
+        settings.huggingface_api_token,
+        settings.huggingface_embedding_endpoint,
+    )

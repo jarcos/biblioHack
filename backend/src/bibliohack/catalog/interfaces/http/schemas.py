@@ -73,8 +73,25 @@ class SearchResponseSchema(BaseModel):
     """A page of search results."""
 
     query: str
+    mode: str = Field(
+        "keyword",
+        description=(
+            "Effective ranking used: 'keyword' (FTS) or 'semantic' (vector KNN). "
+            "May differ from the requested mode if semantic search is unavailable."
+        ),
+    )
     total: int = Field(..., ge=0, description="Total matching records across all pages.")
     limit: int = Field(..., ge=1)
     offset: int = Field(..., ge=0)
     has_more: bool
     items: list[CatalogRecordSummarySchema]
+
+
+class SimilarResponseSchema(BaseModel):
+    """ "More like this" — nearest neighbours of a record in embedding space."""
+
+    titn: int = Field(..., description="The anchor record these are similar to.")
+    items: list[CatalogRecordSummarySchema] = Field(
+        default_factory=list,
+        description="Nearest records by cosine distance. Empty if the anchor isn't embedded yet.",
+    )

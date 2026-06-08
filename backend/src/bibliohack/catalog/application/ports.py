@@ -398,6 +398,33 @@ class CatalogReadRepository(Protocol):
         """
         ...
 
+    async def semantic_search(
+        self,
+        *,
+        query_vector: Sequence[float],
+        query: str = "",
+        limit: int = 20,
+        offset: int = 0,
+    ) -> object:  # SearchPage
+        """K-NN search over BGE-M3 embeddings (pgvector cosine distance).
+
+        The caller embeds the user's query with the same model; this ranks
+        records by cosine distance against the HNSW index. Only records that
+        already carry an embedding participate. An empty `query_vector`
+        returns an empty page.
+        """
+        ...
+
+    async def similar_to(
+        self, titn: Titn, *, limit: int = 8
+    ) -> object:  # tuple[CatalogRecordSummary, ...]
+        """Records nearest to `titn` in embedding space ("more like this").
+
+        Uses the record's stored vector (no model call). Returns an empty
+        result when the record is unknown or not yet embedded.
+        """
+        ...
+
 
 class CatalogIngestRepository(Protocol):
     """One-call port: turn a `ParsedRecord` + `list[ParsedCopy]` into rows.

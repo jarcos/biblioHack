@@ -30,6 +30,10 @@ export const LiteraryFormSchema = z.enum(LITERARY_FORMS).catch("unknown");
 /** Search scope — mirrors the backend `SearchScope` query param. */
 export type SearchScope = "literary" | "all";
 
+/** Search ranking mode — mirrors the backend `SearchMode` query param.
+ * `keyword` is FTS; `semantic` ranks by BGE-M3 vector similarity. */
+export type SearchMode = "keyword" | "semantic";
+
 /** Latest availability of a copy (mirrors backend `AvailabilityStatus`). */
 export const AVAILABILITY_STATUSES = [
   "available",
@@ -99,6 +103,11 @@ export type CatalogRecordSummary = z.infer<typeof CatalogRecordSummarySchema>;
 
 export const SearchResponseSchema = z.object({
   query: z.string(),
+  /** Effective ranking used. May differ from the requested mode when semantic
+   * search is unavailable (no embedder configured) → backend falls back to
+   * keyword and reports it here. `.catch("keyword")` tolerates an older backend
+   * that doesn't yet send the field. */
+  mode: z.enum(["keyword", "semantic"]).catch("keyword"),
   total: z.number().int().nonnegative(),
   limit: z.number().int().positive(),
   offset: z.number().int().nonnegative(),
@@ -106,6 +115,13 @@ export const SearchResponseSchema = z.object({
   items: z.array(CatalogRecordSummarySchema),
 });
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
+
+/** Mirrors backend `SimilarResponseSchema` ("más como este"). */
+export const SimilarResponseSchema = z.object({
+  titn: z.number().int(),
+  items: z.array(CatalogRecordSummarySchema),
+});
+export type SimilarResponse = z.infer<typeof SimilarResponseSchema>;
 
 // ── Errors ───────────────────────────────────────────────────────────
 
@@ -137,6 +153,11 @@ export interface SearchParams {
    * stays server-side and the URL stays clean.
    */
   scope?: SearchScope;
+  /**
+   * `keyword` (backend default: FTS) or `semantic` (BGE-M3 vector KNN).
+   * Omitted when undefined so the server-side default holds.
+   */
+  mode?: SearchMode;
 }
 
 /**
@@ -146,7 +167,7 @@ export interface SearchParams {
  */
 export async function searchCatalog(
   apiBaseUrl: string,
-  { query, limit, offset, scope }: SearchParams,
+  { query, limit, offset, scope, mode }: SearchParams,
   signal?: AbortSignal,
 ): Promise<SearchResponse> {
   const url = new URL("/catalog/search", apiBaseUrl);
@@ -154,6 +175,7 @@ export async function searchCatalog(
   if (limit !== undefined) url.searchParams.set("limit", String(limit));
   if (offset !== undefined) url.searchParams.set("offset", String(offset));
   if (scope !== undefined) url.searchParams.set("scope", scope);
+  if (mode !== undefined) url.searchParams.set("mode", mode);
 
   const response = await fetch(url.toString(), {
     headers: { Accept: "application/json" },
@@ -164,6 +186,31 @@ export async function searchCatalog(
   }
   const json: unknown = await response.json();
   return SearchResponseSchema.parse(json);
+}
+
+/**
+ * `GET /catalog/records/{titn}/similar`. Returns the nearest records by
+ * embedding ("más como este"); `items` is empty when the record isn't
+ * embedded yet, in which case the UI hides the strip.
+ */
+export async function fetchSimilar(
+  apiBaseUrl: string,
+  titn: number,
+  limit?: number,
+  signal?: AbortSignal,
+): Promise<SimilarResponse> {
+  const url = new URL(`/catalog/records/${titn}/similar`, apiBaseUrl);
+  if (limit !== undefined) url.searchParams.set("limit", String(limit));
+
+  const response = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+    ...(signal ? { signal } : {}),
+  });
+  if (!response.ok) {
+    throw new CatalogApiError(response.status, await readDetail(response));
+  }
+  const json: unknown = await response.json();
+  return SimilarResponseSchema.parse(json);
 }
 
 /**

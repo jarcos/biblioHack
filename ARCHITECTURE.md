@@ -679,7 +679,7 @@ deploy:
 | **M1 — Catalog ingest, Huelva** | AbsysNet adapter, parser, persistence. First polite crawl of the Huelva subset. Read-only catalog API + bare-bones search UI (FTS only). | 3–4 weekends |
 | **M2 — Availability history** | Availability snapshot worker, time-series schema, simple "is it on the shelf?" badge in the UI. | 1–2 weekends |
 | **M2.5 — Book covers** | `covers` context + async resolution worker (OpenLibrary → Google Books → placeholder), MinIO content-addressed store, immutable serving, `srcset` + lazy-load in the UI. Enriches search/detail UI dramatically. (Design: §7.5.) | 1–2 weekends |
-| **M3 — Semantic search** | Local BGE-M3 embedding pipeline, pgvector index, hybrid retriever, "more like this" links on detail pages. | 2 weekends |
+| **M3 — Semantic search** | BGE-M3 embedding pipeline, pgvector HNSW index, semantic search + "more like this" links on detail pages. **(Shipped 2026-06-08.** Embeddings run via the **HuggingFace Inference API**, not locally — the torch model wants more RAM than the NAS has spare; see §5.5 note below. `GET /catalog/search?mode=semantic` embeds the query → pgvector cosine KNN; `GET /catalog/records/{titn}/similar` uses the stored vector. Embed backfill runs on the crawler plane every 3h. Hybrid keyword+vector fusion deferred.) | 2 weekends |
 | **M4 — Goodreads import** | CSV importer, matching to catalog, bookshelf UI. | 1–2 weekends |
 | **M5 — Recommender v1** | Cold-start + content-based recommendations, OpenRouter rationales, "recommended right now in your branch" view. | 2 weekends |
 | **M6 — Polish + public deploy** | Caddy/Cloudflare Tunnel, rate limiting, error pages, backups. **(Deploy done 2026-05-30 — see §10.)** | 1 weekend |
@@ -729,7 +729,7 @@ These are the things I am **not** confident about. Address before committing too
 - Scraping cadence: **polite + slow**, 1 req/s nightly window.
 - Database: **PostgreSQL 16 + pgvector** (single store, with `EmbeddingService` port to allow swapping to Qdrant later).
 - Scraper: **Scrapling** primary, plain `httpx` for non-JS pages.
-- Embeddings: **local BGE-M3**.
+- Embeddings: **BGE-M3 (1024-d), hosted via the HuggingFace Inference API.** Originally planned local (sentence-transformers + torch), but the NAS RAM headroom is too tight to co-host the model with the monitoring stack, so the embed pipeline calls HF over HTTPS instead. Same vectors, same pgvector schema; the local adapter remains available behind the `Embedder` port for an off-NAS box later. (Shipped 2026-06-08.)
 - LLM: **OpenRouter free tier** for user-facing inference only; **no batch jobs** through it.
 - Covers: a **separate `covers` bounded context**, resolved **asynchronously off the OPAC path**, **never hotlinked at request time**. **Open Library** is the storable primary source; **Google Books** is a display-time fallback only; a deterministic **placeholder** is a first-class state. Stored in **MinIO, content-addressed by sha256**, served immutable through Caddy + Cloudflare. Resolution is **lazy / popular-first**, never a full 2.66M pre-fetch. (Full design: §7.5.)
 - Catalogue scope: **classify, don't discard.** Every accepted book is ingested and tagged with a `LiteraryProfile` (audience + literary form); the default search/recommender scope surfaces **adult literature, all genres**, hiding only records *confidently* children's/youth or non-fiction. Media type stays a hard ingest-time filter; audience and form are reversible tags applied at read time. (Full design: §5.5.)

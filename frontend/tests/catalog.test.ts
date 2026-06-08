@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CatalogApiError, fetchRecord, searchCatalog } from "../src/infrastructure/api/catalog";
+import {
+  CatalogApiError,
+  fetchRecord,
+  fetchSimilar,
+  searchCatalog,
+} from "../src/infrastructure/api/catalog";
 
 describe("searchCatalog", () => {
   beforeEach(() => {
@@ -98,6 +103,132 @@ describe("searchCatalog", () => {
     await expect(searchCatalog("http://api.test", { query: "" })).rejects.toBeInstanceOf(
       CatalogApiError,
     );
+  });
+});
+
+describe("searchCatalog — semantic mode", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function mockPage(mode?: string): void {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        query: "x",
+        ...(mode !== undefined ? { mode } : {}),
+        total: 0,
+        limit: 20,
+        offset: 0,
+        has_more: false,
+        items: [],
+      }),
+    });
+  }
+
+  it("adds mode=semantic to the URL when requested", async () => {
+    mockPage("semantic");
+    await searchCatalog("http://api.test", { query: "x", mode: "semantic" });
+    const calledUrl = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    expect(calledUrl).toContain("mode=semantic");
+  });
+
+  it("omits mode from the URL by default", async () => {
+    mockPage("keyword");
+    await searchCatalog("http://api.test", { query: "x" });
+    const calledUrl = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    expect(calledUrl).not.toContain("mode=");
+  });
+
+  it("parses the effective mode the backend reports", async () => {
+    mockPage("semantic");
+    const page = await searchCatalog("http://api.test", { query: "x", mode: "semantic" });
+    expect(page.mode).toBe("semantic");
+  });
+
+  it("defaults mode to 'keyword' when the backend omits it (older API)", async () => {
+    mockPage(undefined);
+    const page = await searchCatalog("http://api.test", { query: "x" });
+    expect(page.mode).toBe("keyword");
+  });
+});
+
+describe("fetchSimilar", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns the parsed neighbours on 200", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        titn: 1,
+        items: [
+          {
+            titn: 2,
+            title: "El amor en los tiempos del cólera",
+            authors: ["García Márquez, Gabriel"],
+            publisher: "Oveja Negra",
+            pub_year: 1985,
+            copies_count: 1,
+          },
+        ],
+      }),
+    });
+
+    const result = await fetchSimilar("http://api.test", 1);
+    expect(result.titn).toBe(1);
+    expect(result.items[0]?.titn).toBe(2);
+
+    const calledUrl = mockFetch.mock.calls[0]?.[0] as string;
+    expect(calledUrl).toBe("http://api.test/catalog/records/1/similar");
+  });
+
+  it("forwards limit when provided", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ titn: 1, items: [] }),
+    });
+
+    await fetchSimilar("http://api.test", 1, 4);
+    const calledUrl = mockFetch.mock.calls[0]?.[0] as string;
+    expect(calledUrl).toContain("limit=4");
+  });
+
+  it("returns an empty strip when the record isn't embedded", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ titn: 5, items: [] }),
+    });
+
+    const result = await fetchSimilar("http://api.test", 5);
+    expect(result.items).toEqual([]);
+  });
+
+  it("throws CatalogApiError(422) on an invalid titn", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      statusText: "Unprocessable Content",
+      json: async () => ({ detail: "TITN must be a positive integer" }),
+    });
+
+    await expect(fetchSimilar("http://api.test", 0)).rejects.toBeInstanceOf(CatalogApiError);
   });
 });
 

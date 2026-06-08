@@ -63,17 +63,33 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
   // Default scope is the literary catalogue (adult, all genres). The toggle
   // flips to `all` so children's / youth / non-fiction become searchable.
   const [includeAll, setIncludeAll] = useState(false);
+  // Keyword (FTS) by default; semantic ranks by meaning via BGE-M3 vectors.
+  const [semantic, setSemantic] = useState(false);
 
   const { data, error, isFetching, isSuccess } = useQuery({
-    queryKey: ["catalog-search", query, includeAll ? "all" : "literary"],
+    queryKey: [
+      "catalog-search",
+      query,
+      includeAll ? "all" : "literary",
+      semantic ? "semantic" : "keyword",
+    ],
     queryFn: ({ signal }) =>
       searchCatalog(
         apiBaseUrl,
-        { query, ...(includeAll ? { scope: "all" as const } : {}) },
+        {
+          query,
+          ...(includeAll ? { scope: "all" as const } : {}),
+          ...(semantic ? { mode: "semantic" as const } : {}),
+        },
         signal,
       ),
     enabled: query.length > 0,
   });
+
+  // The backend may downgrade a semantic request to keyword when no embedder
+  // is configured; `data.mode` reports what actually ran.
+  const requestedSemantic = semantic;
+  const fellBackToKeyword = requestedSemantic && isSuccess && data.mode === "keyword";
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -103,15 +119,61 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
           </Button>
         </form>
 
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={includeAll}
-            onChange={(event) => setIncludeAll(event.target.checked)}
-            className="h-4 w-4 rounded border-border accent-primary"
-          />
-          Incluir infantil, juvenil y no ficción
-        </label>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div
+            role="group"
+            aria-label="Modo de búsqueda"
+            className="inline-flex rounded-md border border-border p-0.5"
+          >
+            <button
+              type="button"
+              aria-pressed={!semantic}
+              onClick={() => setSemantic(false)}
+              className={`rounded px-3 py-1 text-sm transition-colors ${
+                !semantic
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Palabra clave
+            </button>
+            <button
+              type="button"
+              aria-pressed={semantic}
+              onClick={() => setSemantic(true)}
+              className={`rounded px-3 py-1 text-sm transition-colors ${
+                semantic
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Semántica
+            </button>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={includeAll}
+              onChange={(event) => setIncludeAll(event.target.checked)}
+              className="h-4 w-4 rounded border-border accent-primary"
+            />
+            Incluir infantil, juvenil y no ficción
+          </label>
+        </div>
+
+        {semantic && (
+          <p className="text-xs text-muted-foreground">
+            La búsqueda semántica encuentra libros por significado (vectores BGE-M3), no solo por
+            coincidencia de palabras.
+          </p>
+        )}
+        {fellBackToKeyword && (
+          <p className="text-xs text-amber-600 dark:text-amber-500">
+            La búsqueda semántica no está disponible ahora mismo; mostrando resultados por palabra
+            clave.
+          </p>
+        )}
 
         <SearchState
           isLoading={isFetching}
