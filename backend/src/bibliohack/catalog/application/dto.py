@@ -31,6 +31,21 @@ class CopyView:
 
 
 @dataclass(frozen=True, slots=True)
+class CoverView:
+    """Cover state for a record (resolved asynchronously, off the OPAC path).
+
+    `url` is the served cover URL when `status == "resolved"`, else None — the
+    frontend renders the image when present and a placeholder otherwise.
+    `source` is which provider it came from (openlibrary | googlebooks |
+    placeholder | unknown).
+    """
+
+    status: str
+    source: str
+    url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class CatalogRecordView:
     """Full read-side projection of a `bibliographic_records` row."""
 
@@ -49,6 +64,7 @@ class CatalogRecordView:
     isbns: tuple[str, ...] = ()
     copies: tuple[CopyView, ...] = ()
     source_url: str = ""
+    cover: CoverView | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +81,7 @@ class CatalogRecordSummary:
     literary_form: str = "unknown"
     # How many copies are on the shelf right now (latest snapshot == available).
     available_count: int = 0
+    cover: CoverView | None = None
 
 
 @dataclass(frozen=True, slots=True)

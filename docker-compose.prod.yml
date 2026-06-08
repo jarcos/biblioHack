@@ -72,6 +72,12 @@ services:
       OTEL_METRICS_EXPORTER: otlp
       OTEL_LOGS_EXPORTER: otlp
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment=prod,service.namespace=biblio
+      # Read-only access to the content-addressed cover store, shared with the
+      # crawler (which writes it). Served via GET /catalog/covers/{sha}.webp.
+      COVERS_STORE_PATH: /covers
+    volumes:
+      # Shared cover store (resolver writes, api serves). Read-only here.
+      - /volume1/docker/bibliohack/covers:/covers:ro
     depends_on:
       postgres:
         condition: service_healthy

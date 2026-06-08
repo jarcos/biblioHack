@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from bibliohack import __version__
 from bibliohack.catalog.interfaces.http import router as catalog_router
+from bibliohack.covers.interfaces.http.router import router as covers_router
 from bibliohack.interfaces.http.routers import health
 from bibliohack.shared.infrastructure import configure_logging, get_settings
 
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(catalog_router)
+    app.include_router(covers_router)
 
     return app
 

@@ -21,6 +21,12 @@ class FilesystemCoverStore:
     async def exists(self, sha256: str) -> bool:
         return self._path(sha256).is_file()
 
+    async def get(self, sha256: str) -> bytes | None:
+        path = self._path(sha256)
+        if not path.is_file():
+            return None
+        return path.read_bytes()
+
     async def put(self, sha256: str, data: bytes) -> None:
         path = self._path(sha256)
         if path.is_file():  # immutable — content address already stored

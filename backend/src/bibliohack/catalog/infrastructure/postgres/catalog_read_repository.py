@@ -21,6 +21,7 @@ from bibliohack.catalog.application.dto import (
     CatalogRecordSummary,
     CatalogRecordView,
     CopyView,
+    CoverView,
     SearchPage,
 )
 from bibliohack.catalog.domain.literary_profile import (
@@ -30,10 +31,14 @@ from bibliohack.catalog.domain.literary_profile import (
 )
 from bibliohack.catalog.infrastructure.postgres.models import (
     BibliographicRecordModel,
+    IsbnModel,
 )
+from bibliohack.covers.infrastructure.postgres.models import CoverModel
 from bibliohack.holdings.infrastructure.postgres.models import BranchModel, CopyModel
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from bibliohack.catalog.domain.titn import Titn
@@ -41,6 +46,13 @@ if TYPE_CHECKING:
 # Hard upper bound on `limit` so a pathological caller can't request a
 # million rows in one go.
 _MAX_SEARCH_LIMIT = 100
+
+# Served, content-addressed cover URL (under /catalog so it rides the existing
+# tunnel route to the api). Immutable, so it's safe to cache hard at the edge.
+_COVER_URL = "/catalog/covers/{}.webp"
+# CoverModel.status value that means the image is in the store (kept as a
+# literal here to avoid importing the covers domain enum into this read model).
+_COVER_RESOLVED = "resolved"
 
 
 class PostgresCatalogReadRepository:
@@ -88,6 +100,8 @@ class PostgresCatalogReadRepository:
                 )
             )
 
+        covers = await self._covers_by_record([record.id])
+
         return CatalogRecordView(
             titn=record.titn,
             title=record.title,
@@ -104,6 +118,7 @@ class PostgresCatalogReadRepository:
             isbns=tuple(i.isbn for i in record.isbns),
             copies=tuple(copy_views),
             source_url=record.source_url,
+            cover=covers.get(record.id),
         )
 
     async def _latest_status_by_copy(
@@ -133,6 +148,37 @@ class PostgresCatalogReadRepository:
         out: dict[object, tuple[str, str | None]] = {}
         for copy_id, status, due in (await self._session.execute(stmt)).all():
             out[copy_id] = (status, due.isoformat() if due is not None else None)
+        return out
+
+    async def _covers_by_record(self, record_ids: Sequence[object]) -> dict[object, CoverView]:
+        """One CoverView per record, joined via ISBN (records → isbns → covers).
+
+        Prefers a `resolved` cover when a record has several ISBNs; returns the
+        status/source even when not resolved, so the frontend can show the
+        right placeholder state rather than nothing.
+        """
+        if not record_ids:
+            return {}
+        stmt = (
+            select(
+                IsbnModel.record_id,
+                CoverModel.status,
+                CoverModel.source,
+                CoverModel.sha256,
+            )
+            .join(CoverModel, CoverModel.isbn_13 == IsbnModel.isbn)
+            .where(IsbnModel.record_id.in_(record_ids))
+            .distinct(IsbnModel.record_id)
+            .order_by(
+                IsbnModel.record_id,
+                (CoverModel.status == _COVER_RESOLVED).desc(),
+                CoverModel.isbn_13,
+            )
+        )
+        out: dict[object, CoverView] = {}
+        for record_id, cstatus, source, sha256 in (await self._session.execute(stmt)).all():
+            url = _COVER_URL.format(sha256) if cstatus == _COVER_RESOLVED and sha256 else None
+            out[record_id] = CoverView(status=cstatus, source=source, url=url)
         return out
 
     async def search(
@@ -225,6 +271,8 @@ class PostgresCatalogReadRepository:
                 rid: int(n) for rid, n in (await self._session.execute(avail_stmt)).all()
             }
 
+        covers_by_id = await self._covers_by_record(ids)
+
         items = tuple(
             CatalogRecordSummary(
                 titn=r.titn,
@@ -236,6 +284,7 @@ class PostgresCatalogReadRepository:
                 audience=r.audience,
                 literary_form=r.literary_form,
                 available_count=available_count_by_id.get(r.id, 0),
+                cover=covers_by_id.get(r.id),
             )
             for r in rows
         )

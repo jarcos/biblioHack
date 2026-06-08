@@ -25,6 +25,7 @@ from bibliohack.catalog.interfaces.http.schemas import (
     CatalogRecordSchema,
     CatalogRecordSummarySchema,
     CopySchema,
+    CoverSchema,
     SearchResponseSchema,
 )
 from bibliohack.interfaces.http.dependencies import get_session
@@ -96,6 +97,14 @@ async def search_catalog(
 # ─── helpers ─────────────────────────────────────────────────
 
 
+def _cover_to_schema(cover: object) -> CoverSchema | None:
+    # `cover` is a CoverView | None (typed loosely to avoid importing the DTO
+    # at runtime just for an isinstance).
+    if cover is None:
+        return None
+    return CoverSchema(status=cover.status, source=cover.source, url=cover.url)  # type: ignore[attr-defined]
+
+
 def _record_to_schema(view: CatalogRecordView) -> CatalogRecordSchema:
     return CatalogRecordSchema(
         titn=view.titn,
@@ -122,6 +131,7 @@ def _record_to_schema(view: CatalogRecordView) -> CatalogRecordSchema:
             for c in view.copies
         ],
         source_url=view.source_url,
+        cover=_cover_to_schema(view.cover),
     )
 
 
@@ -136,6 +146,7 @@ def _summary_to_schema(summary: CatalogRecordSummary) -> CatalogRecordSummarySch
         audience=summary.audience,
         literary_form=summary.literary_form,
         available_count=summary.available_count,
+        cover=_cover_to_schema(summary.cover),
     )
 
 

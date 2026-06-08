@@ -23,6 +23,16 @@ class CopySchema(BaseModel):
     due_back_at: str | None = Field(None, description="ISO date the copy is due back, if loaned.")
 
 
+class CoverSchema(BaseModel):
+    """Cover state for a record. `url` is set only when `status == 'resolved'`."""
+
+    status: str = Field(..., description="resolved | nofound | pending | failed | unknown.")
+    source: str = Field("unknown", description="openlibrary | googlebooks | placeholder | unknown.")
+    url: str | None = Field(
+        None, description="Served, content-addressed cover URL when resolved, else null."
+    )
+
+
 class CatalogRecordSchema(BaseModel):
     """Full bibliographic record + its copies."""
 
@@ -41,6 +51,7 @@ class CatalogRecordSchema(BaseModel):
     isbns: list[str] = Field(default_factory=list)
     copies: list[CopySchema] = Field(default_factory=list)
     source_url: str = Field(..., description="OPAC URL the record was originally scraped from.")
+    cover: CoverSchema | None = None
 
 
 class CatalogRecordSummarySchema(BaseModel):
@@ -55,6 +66,7 @@ class CatalogRecordSummarySchema(BaseModel):
     audience: str = Field("unknown", description="adult | youth | children | unknown.")
     literary_form: str = Field("unknown", description="literary | nonfiction | unknown.")
     available_count: int = Field(0, ge=0, description="Copies on the shelf right now.")
+    cover: CoverSchema | None = None
 
 
 class SearchResponseSchema(BaseModel):

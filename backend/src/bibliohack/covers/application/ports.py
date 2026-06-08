@@ -56,6 +56,10 @@ class CoverStore(Protocol):
         """Store `data` under its content address. Idempotent (immutable blobs)."""
         ...
 
+    async def get(self, sha256: str) -> bytes | None:
+        """Return the stored bytes for `sha256`, or None if absent."""
+        ...
+
 
 class CoverRepository(Protocol):
     """Persistence for `covers` metadata rows."""

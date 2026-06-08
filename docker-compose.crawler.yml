@@ -43,8 +43,13 @@ services:
       # the discovered backlog every run.
       WORKER_MAX: "500"          # records ingested per hourly run (cap; rarely reached)
       REFRESH_MAX: "300"         # records re-probed per 6-hourly run
+      # Resolve covers into the shared store (the api serves them read-only).
+      COVERS_STORE_PATH: /covers
     networks:
       - bibliohack
+    volumes:
+      # Shared cover store: the resolver writes here; the api mounts it ro.
+      - /volume1/docker/bibliohack/covers:/covers
     # Firefox needs far more shared memory than Docker's 64MB default.
     shm_size: "1gb"
     # The NAS runs an old (4.4) kernel; relax seccomp so the browser's

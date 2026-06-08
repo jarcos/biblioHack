@@ -20,6 +20,15 @@ async def test_put_then_exists_and_fans_out_by_prefix(tmp_path: Path) -> None:
     assert (tmp_path / sha[:2] / f"{sha}.webp").read_bytes() == b"webp-bytes"
 
 
+async def test_get_returns_bytes_then_none(tmp_path: Path) -> None:
+    store = FilesystemCoverStore(tmp_path)
+    sha = "cd" + "0" * 62
+
+    assert await store.get(sha) is None  # absent
+    await store.put(sha, b"webp-bytes")
+    assert await store.get(sha) == b"webp-bytes"
+
+
 async def test_put_is_idempotent_immutable(tmp_path: Path) -> None:
     store = FilesystemCoverStore(tmp_path)
     sha = "ab" + "0" * 62
