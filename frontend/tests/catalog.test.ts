@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CatalogApiError,
   fetchRecord,
+  fetchShelf,
   fetchSimilar,
   searchCatalog,
 } from "../src/infrastructure/api/catalog";
@@ -229,6 +230,79 @@ describe("fetchSimilar", () => {
     });
 
     await expect(fetchSimilar("http://api.test", 0)).rejects.toBeInstanceOf(CatalogApiError);
+  });
+});
+
+describe("fetchShelf", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("parses the grouped shelf, including a matched book's catalogue projection", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        counts: { total: 2, matched: 1, read: 1, currently_reading: 0, to_read: 1 },
+        read: [
+          {
+            source_book_id: "m1",
+            title: "Cien años de soledad",
+            author: "Gabriel García Márquez",
+            isbn_13: "9788497592208",
+            rating: 5,
+            date_read: null,
+            matched_via: "isbn",
+            match: {
+              titn: 1,
+              title: "Cien años de soledad",
+              authors: ["García Márquez, Gabriel"],
+              publisher: null,
+              pub_year: null,
+              copies_count: 2,
+              available_count: 1,
+            },
+          },
+        ],
+        currently_reading: [],
+        to_read: [
+          {
+            source_book_id: "u1",
+            title: "Libro sin catalogar",
+            author: "Anon",
+            isbn_13: null,
+            rating: null,
+            date_read: null,
+            matched_via: "none",
+            match: null,
+          },
+        ],
+      }),
+    });
+
+    const shelf = await fetchShelf("http://api.test");
+    expect(shelf.counts.matched).toBe(1);
+    expect(shelf.read[0]?.match?.titn).toBe(1);
+    expect(shelf.read[0]?.match?.available_count).toBe(1);
+    expect(shelf.to_read[0]?.match).toBeNull();
+
+    const calledUrl = mockFetch.mock.calls[0]?.[0] as string;
+    expect(calledUrl).toBe("http://api.test/shelf");
+  });
+
+  it("throws CatalogApiError on a non-2xx", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      json: async () => ({ detail: "boom" }),
+    });
+    await expect(fetchShelf("http://api.test")).rejects.toBeInstanceOf(CatalogApiError);
   });
 });
 

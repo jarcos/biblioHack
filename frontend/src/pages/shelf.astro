@@ -1,0 +1,22 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { BookShelf } from "@/components/BookShelf";
+
+// The shelf is fetched client-side by the island, so this is a static shell.
+const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+---
+
+<Layout title="biblioHack — mi estantería">
+  <section class="space-y-8">
+    <header class="max-w-3xl space-y-3">
+      <h1 class="font-serif text-3xl font-semibold leading-tight tracking-tight">Mi estantería</h1>
+      <p class="text-base text-muted-foreground">
+        Tu biblioteca de Goodreads, cruzada con el catálogo de la Red de Bibliotecas de Andalucía.
+        Los libros encontrados muestran portada y disponibilidad en vivo y enlazan a su ficha; el
+        resto se volverá a cruzar a medida que crezca el catálogo.
+      </p>
+    </header>
+
+    <BookShelf apiBaseUrl={apiBaseUrl} client:only="react" />
+  </section>
+</Layout>

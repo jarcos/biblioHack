@@ -123,6 +123,38 @@ export const SimilarResponseSchema = z.object({
 });
 export type SimilarResponse = z.infer<typeof SimilarResponseSchema>;
 
+// ── Bookshelf (reading history) ──────────────────────────────────────
+
+/** One logged book; `match` is the catalogue projection when resolved. */
+export const ShelfEntrySchema = z.object({
+  source_book_id: z.string(),
+  title: z.string(),
+  author: z.string().nullable().optional(),
+  isbn_13: z.string().nullable().optional(),
+  rating: z.number().int().min(1).max(5).nullable().optional(),
+  date_read: z.string().nullable().optional(),
+  matched_via: z.string().catch("none"),
+  match: CatalogRecordSummarySchema.nullable().optional().catch(null),
+});
+export type ShelfEntry = z.infer<typeof ShelfEntrySchema>;
+
+export const ShelfCountsSchema = z.object({
+  total: z.number().int().nonnegative(),
+  matched: z.number().int().nonnegative(),
+  read: z.number().int().nonnegative(),
+  currently_reading: z.number().int().nonnegative(),
+  to_read: z.number().int().nonnegative(),
+});
+
+/** Mirrors backend `ShelfResponseSchema` — the whole shelf grouped. */
+export const ShelfResponseSchema = z.object({
+  counts: ShelfCountsSchema,
+  read: z.array(ShelfEntrySchema),
+  currently_reading: z.array(ShelfEntrySchema),
+  to_read: z.array(ShelfEntrySchema),
+});
+export type ShelfResponse = z.infer<typeof ShelfResponseSchema>;
+
 // ── Errors ───────────────────────────────────────────────────────────
 
 /**
@@ -233,6 +265,23 @@ export async function fetchRecord(
   }
   const json: unknown = await response.json();
   return CatalogRecordSchema.parse(json);
+}
+
+/**
+ * `GET /shelf`. Returns the reader's bookshelf grouped by shelf, each book
+ * enriched with its catalogue match (cover + availability) when resolved.
+ */
+export async function fetchShelf(apiBaseUrl: string, signal?: AbortSignal): Promise<ShelfResponse> {
+  const url = new URL("/shelf", apiBaseUrl);
+  const response = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+    ...(signal ? { signal } : {}),
+  });
+  if (!response.ok) {
+    throw new CatalogApiError(response.status, await readDetail(response));
+  }
+  const json: unknown = await response.json();
+  return ShelfResponseSchema.parse(json);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────
