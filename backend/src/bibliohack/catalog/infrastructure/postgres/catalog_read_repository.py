@@ -329,6 +329,28 @@ class PostgresCatalogReadRepository:
         rows = (await self._session.execute(stmt)).scalars().all()
         return await self._summarize(rows)
 
+    async def summaries_by_record_ids(
+        self, record_ids: Sequence[object]
+    ) -> dict[object, CatalogRecordSummary]:
+        """Map record id → enriched summary (cover + availability + copies).
+
+        A cross-context read helper: other contexts (e.g. the reading-history
+        shelf) hold catalogue record ids and need the same display projection
+        search uses, without duplicating the cover/availability joins. Keyed by
+        record id for easy join-back on the caller's side.
+        """
+        ids = list(record_ids)
+        if not ids:
+            return {}
+        stmt = (
+            select(BibliographicRecordModel)
+            .where(BibliographicRecordModel.id.in_(ids))
+            .options(selectinload(BibliographicRecordModel.contributors))
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        summaries = await self._summarize(rows)
+        return {row.id: summary for row, summary in zip(rows, summaries, strict=True)}
+
     @staticmethod
     def _apply_scope(stmt: _SelectT, scope: SearchScope) -> _SelectT:
         """Apply the default literary/non-fiction visibility filter.
