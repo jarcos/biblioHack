@@ -20,10 +20,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from bibliohack.catalog.application.ports import (
     FetchOutcome,
@@ -41,7 +44,9 @@ from bibliohack.catalog.infrastructure.absysnet.parser import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import AsyncIterator, Sequence
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
     from bibliohack.catalog.application.ports import (
         CatalogIngestRepository,
@@ -50,6 +55,19 @@ if TYPE_CHECKING:
     )
 
 log = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _savepoint(session: AsyncSession | None) -> AsyncIterator[None]:
+    """Run a risky write inside a SAVEPOINT so a DB error rolls back only
+    that write — leaving the surrounding worker transaction healthy enough to
+    mark the task failed and carry on. A no-op when no session is supplied
+    (unit tests that wire in-memory fakes)."""
+    if session is None:
+        yield
+        return
+    async with session.begin_nested():
+        yield
 
 
 class ScrapeStepOutcome(StrEnum):
@@ -91,10 +109,16 @@ class ScrapeOneTask:
         media_filter: MediaTypeFilter | None = None,
         claim_states: Sequence[TaskState] = (TaskState.DISCOVERED,),
         require_refresh_due: bool = False,
+        session: AsyncSession | None = None,
     ) -> None:
         self._tasks = task_repository
         self._ingest = ingest_repository
         self._gateway = gateway
+        # The session backing the repositories. When provided, the persist
+        # runs inside a SAVEPOINT so a single bad record can't abort the whole
+        # worker run (see `_savepoint`). Optional so unit tests with in-memory
+        # fakes don't need a real session.
+        self._session = session
         # Default: books only (printed + electronic monographs).
         self._media_filter = media_filter or MediaTypeFilter.from_preset(MediaTypeFilterPreset.BOOK)
         # Initial crawl claims `discovered`; the refresh worker passes
@@ -175,12 +199,25 @@ class ScrapeOneTask:
             return ScrapeStepResult(outcome=ScrapeStepOutcome.SKIPPED_NON_BOOK, titn=int(task.titn))
 
         source_hash = hashlib.sha256(fetch.html.encode("utf-8")).digest()
-        ingest = await self._ingest.persist_parsed_record(
-            parsed=parsed.record,
-            copies=list(parsed.copies),
-            source_url=fetch.final_url,
-            source_hash=source_hash,
-        )
+        try:
+            async with _savepoint(self._session):
+                ingest = await self._ingest.persist_parsed_record(
+                    parsed=parsed.record,
+                    copies=list(parsed.copies),
+                    source_url=fetch.final_url,
+                    source_hash=source_hash,
+                )
+        except SQLAlchemyError as exc:
+            # A DB-level write failure (e.g. a value that violates a column
+            # constraint). The SAVEPOINT rolled back just this record, so the
+            # worker transaction is still usable — mark this one failed and let
+            # the loop continue instead of aborting the entire run.
+            detail = f"persist error: {type(exc).__name__}"
+            log.warning("scrape.persist_failed titn=%d error=%s", int(task.titn), str(exc)[:300])
+            await self._tasks.mark_failed(task.titn, error=detail, next_retry_at=None)
+            return ScrapeStepResult(
+                outcome=ScrapeStepOutcome.PERMANENT_ERROR, titn=int(task.titn), error=detail
+            )
         await self._tasks.mark_parsed(task.titn, source_hash=source_hash)
 
         log.info(

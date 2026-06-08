@@ -42,6 +42,9 @@ class WorkerStats:
     transient_errors: int = 0
     skipped_non_book: int = 0
     no_work_hits: int = 0
+    # Iterations where an exception escaped the step entirely (should be ~0 now
+    # that ScrapeOneTask isolates DB errors; tracked as a safety-net signal).
+    unexpected_errors: int = 0
 
     @property
     def total(self) -> int:
@@ -51,6 +54,7 @@ class WorkerStats:
             + self.permanent_errors
             + self.transient_errors
             + self.skipped_non_book
+            + self.unexpected_errors
         )
 
     def record(self, result: ScrapeStepResult) -> None:
@@ -127,18 +131,29 @@ class RunScrapeWorker:
             # Each iteration gets a fresh ScrapeOneTask (and underneath, a
             # fresh session). The factory is an async context manager that
             # commits on clean exit, so each step's writes commit immediately.
-            async for step in self._step_factory():
-                result = await step.execute()
-                stats.record(result)
-                if on_step is not None:
-                    maybe_awaitable = on_step(result)
-                    if maybe_awaitable is not None:
-                        await maybe_awaitable
+            #
+            # Defence in depth: ScrapeOneTask isolates its own DB errors, but
+            # if anything unexpected still escapes a step, log it and keep the
+            # loop alive rather than aborting the whole run. The step's
+            # transaction is rolled back by its context manager on the way out.
+            try:
+                async for step in self._step_factory():
+                    result = await step.execute()
+                    stats.record(result)
+                    if on_step is not None:
+                        maybe_awaitable = on_step(result)
+                        if maybe_awaitable is not None:
+                            await maybe_awaitable
 
-                if result.outcome is ScrapeStepOutcome.NO_WORK:
-                    consecutive_idle += 1
-                else:
-                    consecutive_idle = 0
+                    if result.outcome is ScrapeStepOutcome.NO_WORK:
+                        consecutive_idle += 1
+                    else:
+                        consecutive_idle = 0
+            except Exception:
+                log.exception("worker.iteration_failed — continuing")
+                stats.unexpected_errors += 1
+                consecutive_idle = 0
+                await asyncio.sleep(self._idle_sleep_seconds)
 
             if consecutive_idle >= self._idle_giveup:
                 log.info(

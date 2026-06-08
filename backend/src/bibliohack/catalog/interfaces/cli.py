@@ -365,6 +365,7 @@ async def _run_worker(
                 ingest_repository=ingest_repo,
                 gateway=gateway,
                 media_filter=media_filter,
+                session=session,
             )
 
     worker_run = RunScrapeWorker(
@@ -461,6 +462,7 @@ async def _run_refresh(max_tasks: int | None, idle_giveup: int, rate_per_second:
                 gateway=gateway,
                 claim_states=(TaskState.PARSED,),
                 require_refresh_due=True,
+                session=session,
             )
 
     worker_run = RunScrapeWorker(
@@ -509,5 +511,6 @@ def _print_summary(stats: WorkerStats) -> None:
     typer.echo(f"    skipped_non_book: {stats.skipped_non_book:,}")
     typer.echo(f"    permanent errors: {stats.permanent_errors:,}")
     typer.echo(f"    transient errors: {stats.transient_errors:,}")
+    typer.echo(f"    unexpected errors:{stats.unexpected_errors:,}")
     typer.echo(f"  idle iterations:    {stats.no_work_hits:,}")
     typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
