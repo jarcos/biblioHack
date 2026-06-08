@@ -21,6 +21,7 @@ Conventions:
 from datetime import datetime
 from uuid import UUID
 
+from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
 from sqlalchemy import (
     BigInteger,
     Computed,
@@ -83,6 +84,10 @@ class BibliographicRecordModel(Base):
     # columns in its own row, so we cannot pull from `contributors`
     # directly — `authors_text` is the bridge.
     authors_text: Mapped[str | None] = mapped_column(Text)
+
+    # BGE-M3 dense embedding (1024-d) for semantic search / "more like this".
+    # NULL until the embedder processes the record (off the OPAC path).
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
 
     # Generated full-text-search column, populated by Postgres using the
     # Spanish-unaccent configuration seeded in infra/postgres/init/01-extensions.sql.

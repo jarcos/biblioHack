@@ -148,6 +148,35 @@ class OpacSearchGateway(Protocol):
 
 
 # ───────────────────────────────────────────────────────────────
+# Embeddings — semantic search / "more like this"
+# ───────────────────────────────────────────────────────────────
+
+
+class Embedder(Protocol):
+    """Turns text into dense vectors for semantic search.
+
+    Synchronous: embedding is CPU-bound (no I/O), and the embedder runs as a
+    batch job, so there's nothing to await. The concrete adapter (BGE-M3 via
+    sentence-transformers) lives in `catalog/infrastructure/embeddings/` and is
+    only loaded where the heavy `ai` extra is installed (the embedder plane),
+    never in the read API.
+    """
+
+    @property
+    def dimensions(self) -> int:
+        """Vector size this embedder produces (1024 for BGE-M3)."""
+        ...
+
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        """Embed a batch of record texts — one L2-normalized vector each."""
+        ...
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed a single search query as one L2-normalized vector."""
+        ...
+
+
+# ───────────────────────────────────────────────────────────────
 # Discovery cursor — resumable expert-query pagination
 # ───────────────────────────────────────────────────────────────
 
