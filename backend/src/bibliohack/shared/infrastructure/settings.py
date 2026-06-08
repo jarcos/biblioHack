@@ -55,7 +55,9 @@ class Settings(BaseSettings):
     # keeps the model off the RAM-constrained NAS. Token is a free HF read
     # token, set in the environment (HUGGINGFACE_API_TOKEN).
     huggingface_api_token: str = ""
-    huggingface_embedding_endpoint: str = "https://api-inference.huggingface.co/models/BAAI/bge-m3"
+    huggingface_embedding_endpoint: str = (
+        "https://router.huggingface.co/hf-inference/models/BAAI/bge-m3/pipeline/feature-extraction"
+    )
 
     # ───── Covers (§7.5) ─────
     # Content-addressed cover store root. Filesystem for now (dev + NAS

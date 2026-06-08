@@ -13,6 +13,7 @@ import typer
 from bibliohack.availability.infrastructure.postgres.availability_snapshot_repository import (
     PostgresAvailabilitySnapshotRepository,
 )
+from bibliohack.catalog.application.embedding_text import build_embedding_text
 from bibliohack.catalog.application.ports import TaskState
 from bibliohack.catalog.application.use_cases.discover_via_search import (
     DiscoverViaExpertQuery,
@@ -43,6 +44,7 @@ from bibliohack.catalog.infrastructure.absysnet import (
     GatewayConfig,
     ScraplingOpacGateway,
 )
+from bibliohack.catalog.infrastructure.embeddings.huggingface import HuggingFaceEmbedder
 from bibliohack.catalog.infrastructure.postgres import (
     PostgresScrapeTaskRepository,
 )
@@ -51,6 +53,9 @@ from bibliohack.catalog.infrastructure.postgres.catalog_ingest_repository import
 )
 from bibliohack.catalog.infrastructure.postgres.discovery_cursor_repository import (
     PostgresDiscoveryCursorRepository,
+)
+from bibliohack.catalog.infrastructure.postgres.embedding_repository import (
+    PostgresEmbeddingRepository,
 )
 from bibliohack.shared.infrastructure import (
     get_settings,
@@ -513,4 +518,72 @@ def _print_summary(stats: WorkerStats) -> None:
     typer.echo(f"    transient errors: {stats.transient_errors:,}")
     typer.echo(f"    unexpected errors:{stats.unexpected_errors:,}")
     typer.echo(f"  idle iterations:    {stats.no_work_hits:,}")
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+
+
+@catalog_app.command("embed")
+def embed(
+    limit: int = typer.Option(200, "--limit", help="Max records to embed this run."),
+    batch_size: int = typer.Option(16, "--batch-size", help="Texts per HuggingFace request."),
+) -> None:
+    """Embed catalogue records that lack a vector (BGE-M3 via HuggingFace).
+
+    Reads records with no embedding, builds the embedding text, calls the HF
+    Inference API in batches, and stores the 1024-d vectors for semantic search
+    / "more like this". Off the OPAC path. Requires HUGGINGFACE_API_TOKEN.
+    """
+    asyncio.run(_run_embed(limit, batch_size))
+
+
+async def _run_embed(limit: int, batch_size: int) -> None:
+    settings = get_settings()
+    if not settings.huggingface_api_token:
+        typer.echo(
+            typer.style("HUGGINGFACE_API_TOKEN is not set — cannot embed.", fg=typer.colors.RED),
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    embedder = HuggingFaceEmbedder(
+        api_token=settings.huggingface_api_token,
+        endpoint=settings.huggingface_embedding_endpoint,
+    )
+    async with transactional_session() as session:
+        to_embed = await PostgresEmbeddingRepository(session).records_needing_embedding(limit=limit)
+
+    typer.echo(f"Embedding {len(to_embed)} record(s) via {settings.embedding_model} (HF)…")
+    embedded = 0
+    failed = 0
+    for start in range(0, len(to_embed), batch_size):
+        batch = to_embed[start : start + batch_size]
+        texts = [
+            build_embedding_text(
+                title=r.title,
+                subtitle=r.subtitle,
+                authors=r.authors,
+                subjects=r.subjects,
+                publisher=r.publisher,
+            )
+            for r in batch
+        ]
+        try:
+            # The HF call is sync (httpx); run it off the event loop.
+            vectors = await asyncio.to_thread(embedder.embed_documents, texts)
+        except Exception as exc:
+            failed += len(batch)
+            typer.echo(f"  ! batch failed ({len(batch)}): {type(exc).__name__}: {str(exc)[:120]}")
+            continue
+        async with transactional_session() as session:
+            repo = PostgresEmbeddingRepository(session)
+            for record, vector in zip(batch, vectors, strict=True):
+                await repo.store_embedding(record.record_id, vector)
+        embedded += len(batch)
+        typer.echo(f"  ✓ embedded {embedded}/{len(to_embed)}")
+        await asyncio.sleep(1.0)  # gentle pacing for the HF free tier
+
+    typer.echo()
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+    typer.echo(typer.style("Embedding complete.", fg=typer.colors.GREEN, bold=True))
+    typer.echo(f"  embedded: {embedded}")
+    typer.echo(f"  failed:   {failed}")
     typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))

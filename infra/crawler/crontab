@@ -16,3 +16,6 @@
 # Cover resolution every 2 hours at :15 — off the OPAC (hits Open Library /
 # Google Books), own lock, fills the shared cover store for new ISBNs.
 15 */2 * * * /app/run-job.sh covers
+# Embeddings every 3 hours at :45 — off the OPAC (hits the HF Inference API),
+# own lock, vectorizes records lacking an embedding for semantic search.
+45 */3 * * * /app/run-job.sh embed

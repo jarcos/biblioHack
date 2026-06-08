@@ -44,8 +44,11 @@ services:
       WORKER_MAX: "500"          # records ingested per hourly run (cap; rarely reached)
       REFRESH_MAX: "300"         # records re-probed per 6-hourly run
       COVERS_MAX: "100"          # cover ISBNs resolved per 2-hourly run (off-OPAC)
+      EMBED_MAX: "200"           # records embedded per 3-hourly run (off-OPAC, via HF)
       # Resolve covers into the shared store (the api serves them read-only).
       COVERS_STORE_PATH: /covers
+      # BGE-M3 embeddings via the HF Inference API (token from .env).
+      HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN:-}
     networks:
       - bibliohack
     volumes:

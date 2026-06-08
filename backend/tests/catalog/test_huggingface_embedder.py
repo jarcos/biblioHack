@@ -37,5 +37,4 @@ def test_sends_bearer_token_and_inputs() -> None:
     request = route.calls.last.request
     assert request.headers["authorization"] == "Bearer tok"
     body = json.loads(request.content)
-    assert body["inputs"] == ["hola"]
-    assert body["options"]["wait_for_model"] is True
+    assert body == {"inputs": ["hola"]}

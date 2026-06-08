@@ -5,9 +5,10 @@ but the model runs on HF — the NAS only makes an HTTPS call, keeping the
 ~2.3GB model off its constrained RAM. Vectors are L2-normalized so cosine
 distance reduces to a dot product (matching the HNSW `vector_cosine_ops` index).
 
-`wait_for_model` covers HF's cold-start (the model may take ~20s to load on the
-first call after idle). Implements the synchronous `Embedder` port; the embed
-pipeline decides batch sizes and any rate-limit pacing.
+Uses HF's Inference Providers router (`router.huggingface.co/hf-inference/.../
+pipeline/feature-extraction`); the classic `api-inference.huggingface.co`
+endpoint was retired. Implements the synchronous `Embedder` port; the embed
+pipeline decides batch sizes and any rate-limit pacing / retries.
 """
 
 from __future__ import annotations
@@ -21,7 +22,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 _DIM = 1024
-_DEFAULT_ENDPOINT = "https://api-inference.huggingface.co/models/BAAI/bge-m3"
+_DEFAULT_ENDPOINT = (
+    "https://router.huggingface.co/hf-inference/models/BAAI/bge-m3/pipeline/feature-extraction"
+)
 
 
 class HuggingFaceEmbedder:
@@ -56,7 +59,7 @@ class HuggingFaceEmbedder:
             response = client.post(
                 self._endpoint,
                 headers={"Authorization": f"Bearer {self._token}"},
-                json={"inputs": texts, "options": {"wait_for_model": True}},
+                json={"inputs": texts},
             )
         response.raise_for_status()
         payload = response.json()

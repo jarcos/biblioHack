@@ -75,6 +75,9 @@ services:
       # Read-only access to the content-addressed cover store, shared with the
       # crawler (which writes it). Served via GET /catalog/covers/{sha}.webp.
       COVERS_STORE_PATH: /covers
+      # Embed search queries via the HF Inference API (semantic search). Token
+      # from .env; empty disables semantic search gracefully.
+      HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN:-}
     volumes:
       # Shared cover store (resolver writes, api serves). Read-only here.
       - /volume1/docker/bibliohack/covers:/covers:ro

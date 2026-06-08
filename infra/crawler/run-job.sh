@@ -11,7 +11,7 @@ set -euo pipefail
 # `bibliohack` resolves regardless of how the scheduler sets PATH.
 export PATH="/app/.venv/bin:${PATH:-/usr/local/bin:/usr/bin:/bin}"
 
-JOB="${1:?usage: run-job.sh discover_worker|refresh|covers}"
+JOB="${1:?usage: run-job.sh discover_worker|refresh|covers|embed}"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # OPAC jobs share one lock (one polite OPAC budget). Cover resolution hits
@@ -19,6 +19,7 @@ ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # run alongside an OPAC crawl.
 case "$JOB" in
   covers) LOCK="/tmp/bibliohack-covers.lock" ;;
+  embed) LOCK="/tmp/bibliohack-embed.lock" ;;
   *) LOCK="/tmp/bibliohack-crawl.lock" ;;
 esac
 exec 9>"$LOCK"
@@ -46,6 +47,10 @@ case "$JOB" in
   covers)
     # Off-OPAC: resolves cover images for catalogue ISBNs into the shared store.
     bibliohack covers resolve --limit "${COVERS_MAX:-100}"
+    ;;
+  embed)
+    # Off-OPAC: embeds records lacking a vector via the HF Inference API.
+    bibliohack catalog embed --limit "${EMBED_MAX:-200}"
     ;;
   *)
     echo "[$(ts)] unknown job: $JOB" >&2
