@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # ───── Embeddings ─────
     embedding_model: str = "BAAI/bge-m3"
     embedding_device: Literal["cpu", "cuda", "mps"] = "cpu"
+    # Hosted embeddings via the HuggingFace Inference API (BGE-M3, 1024-d) —
+    # keeps the model off the RAM-constrained NAS. Token is a free HF read
+    # token, set in the environment (HUGGINGFACE_API_TOKEN).
+    huggingface_api_token: str = ""
+    huggingface_embedding_endpoint: str = "https://api-inference.huggingface.co/models/BAAI/bge-m3"
 
     # ───── Covers (§7.5) ─────
     # Content-addressed cover store root. Filesystem for now (dev + NAS

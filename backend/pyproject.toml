@@ -36,6 +36,11 @@ dependencies = [
     # (e.g. re-parsing cached HTML from the API).
     "selectolax>=0.3.27",
 
+    # ───── HTTP client ─────
+    # Hosted-embedding calls (HuggingFace Inference API) + query embedding in
+    # the api. Lightweight; kept in core so both the api and embedder use it.
+    "httpx>=0.28",
+
     # ───── CLI ─────
     "typer>=0.13",
 ]
