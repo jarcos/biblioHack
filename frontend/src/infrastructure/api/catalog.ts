@@ -272,7 +272,9 @@ export async function fetchRecord(
  * enriched with its catalogue match (cover + availability) when resolved.
  */
 export async function fetchShelf(apiBaseUrl: string, signal?: AbortSignal): Promise<ShelfResponse> {
-  const url = new URL("/shelf", apiBaseUrl);
+  // Served at /api/shelf (the tunnel routes /api/* to the backend); a bare
+  // /shelf is the frontend page route, not the API.
+  const url = new URL("/api/shelf", apiBaseUrl);
   const response = await fetch(url.toString(), {
     headers: { Accept: "application/json" },
     ...(signal ? { signal } : {}),

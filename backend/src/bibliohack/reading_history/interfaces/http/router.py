@@ -30,7 +30,11 @@ if TYPE_CHECKING:
     from bibliohack.catalog.application.dto import CatalogRecordSummary
     from bibliohack.reading_history.application.dto import ShelfEntryView
 
-router = APIRouter(prefix="/shelf", tags=["shelf"])
+# Served under /api/* — the prefix the Cloudflare tunnel routes to this API
+# (a bare /shelf would collide with the frontend's /shelf page route and hit
+# the static frontend instead). The catalog routes predate this and use their
+# own /catalog/* tunnel rule.
+router = APIRouter(prefix="/api/shelf", tags=["shelf"])
 
 
 @router.get("", response_model=ShelfResponseSchema)

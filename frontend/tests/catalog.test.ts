@@ -291,7 +291,7 @@ describe("fetchShelf", () => {
     expect(shelf.to_read[0]?.match).toBeNull();
 
     const calledUrl = mockFetch.mock.calls[0]?.[0] as string;
-    expect(calledUrl).toBe("http://api.test/shelf");
+    expect(calledUrl).toBe("http://api.test/api/shelf");
   });
 
   it("throws CatalogApiError on a non-2xx", async () => {

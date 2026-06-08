@@ -141,7 +141,7 @@ async def client(applied_db: str) -> AsyncIterator[AsyncClient]:
 
 
 async def test_shelf_groups_and_enriches(client: AsyncClient) -> None:
-    r = await client.get("/shelf")
+    r = await client.get("/api/shelf")
     assert r.status_code == 200
     body = r.json()
 
