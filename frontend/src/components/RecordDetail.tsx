@@ -60,13 +60,22 @@ function RecordDetailInner({ apiBaseUrl }: Props): ReactElement {
       ) : error ? (
         <ErrorState error={error} titn={titn} />
       ) : isSuccess ? (
-        <RecordBody record={data} />
+        <RecordBody record={data} apiBaseUrl={apiBaseUrl} />
       ) : null}
     </article>
   );
 }
 
-function RecordBody({ record }: { record: CatalogRecord }): ReactElement {
+function RecordBody({
+  record,
+  apiBaseUrl,
+}: {
+  record: CatalogRecord;
+  apiBaseUrl: string;
+}): ReactElement {
+  // cover.url is a relative /catalog/covers/… path; make it absolute against
+  // the API origin (same-origin in prod, cross-origin in dev).
+  const coverSrc = record.cover?.url ? `${apiBaseUrl}${record.cover.url}` : null;
   const meta = [
     record.authors.join(", ") || null,
     record.pub_year != null ? String(record.pub_year) : null,
@@ -81,27 +90,37 @@ function RecordBody({ record }: { record: CatalogRecord }): ReactElement {
 
   return (
     <div className="space-y-8">
-      <header className="space-y-3">
-        <h1 className="font-serif text-3xl font-semibold leading-tight tracking-tight">
-          {record.title}
-        </h1>
-        {record.subtitle != null && record.subtitle.length > 0 && (
-          <p className="text-lg text-muted-foreground">{record.subtitle}</p>
+      <header className="flex flex-col gap-5 sm:flex-row sm:items-start">
+        {coverSrc !== null && (
+          <img
+            src={coverSrc}
+            alt=""
+            loading="lazy"
+            className="h-48 w-auto shrink-0 rounded-md border border-border object-cover shadow-sm"
+          />
         )}
-        {meta.length > 0 && <p className="text-sm text-muted-foreground">{meta.join(" · ")}</p>}
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
-          <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
-          {record.classification != null && record.classification.length > 0 && (
-            <Badge variant="outline" title="Clasificación CDU (MARC T080)">
-              CDU {record.classification}
-            </Badge>
+        <div className="min-w-0 space-y-3">
+          <h1 className="font-serif text-3xl font-semibold leading-tight tracking-tight">
+            {record.title}
+          </h1>
+          {record.subtitle != null && record.subtitle.length > 0 && (
+            <p className="text-lg text-muted-foreground">{record.subtitle}</p>
           )}
-          {!inDefaultScope(record.audience, record.literary_form) && (
-            <span className="text-xs text-muted-foreground">
-              · fuera del catálogo literario por defecto
-            </span>
-          )}
+          {meta.length > 0 && <p className="text-sm text-muted-foreground">{meta.join(" · ")}</p>}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
+            <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
+            {record.classification != null && record.classification.length > 0 && (
+              <Badge variant="outline" title="Clasificación CDU (MARC T080)">
+                CDU {record.classification}
+              </Badge>
+            )}
+            {!inDefaultScope(record.audience, record.literary_form) && (
+              <span className="text-xs text-muted-foreground">
+                · fuera del catálogo literario por defecto
+              </span>
+            )}
+          </div>
         </div>
       </header>
 

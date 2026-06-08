@@ -119,6 +119,7 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
           submittedQuery={query}
           results={isSuccess ? data.items : null}
           total={isSuccess ? data.total : 0}
+          apiBaseUrl={apiBaseUrl}
         />
       </CardContent>
     </Card>
@@ -131,12 +132,14 @@ function SearchState({
   submittedQuery,
   results,
   total,
+  apiBaseUrl,
 }: {
   isLoading: boolean;
   error: unknown;
   submittedQuery: string;
   results: readonly CatalogRecordSummary[] | null;
   total: number;
+  apiBaseUrl: string;
 }): ReactElement | null {
   if (submittedQuery.length === 0) {
     return (
@@ -185,7 +188,7 @@ function SearchState({
         <ul className="space-y-3">
           {results.map((record) => (
             <li key={record.titn}>
-              <ResultRow record={record} />
+              <ResultRow record={record} apiBaseUrl={apiBaseUrl} />
             </li>
           ))}
         </ul>
@@ -195,7 +198,13 @@ function SearchState({
   return null;
 }
 
-function ResultRow({ record }: { record: CatalogRecordSummary }): ReactElement {
+function ResultRow({
+  record,
+  apiBaseUrl,
+}: {
+  record: CatalogRecordSummary;
+  apiBaseUrl: string;
+}): ReactElement {
   const subtitleParts = [
     record.authors.join(", ") || null,
     record.publisher ?? null,
@@ -205,25 +214,43 @@ function ResultRow({ record }: { record: CatalogRecordSummary }): ReactElement {
   // In `scope=all` mode the list surfaces children's/youth/non-fiction rows;
   // badge those so it's clear why they appear outside the literary default.
   const flagged = !inDefaultScope(record.audience, record.literary_form);
+  const coverSrc = record.cover?.url ? `${apiBaseUrl}${record.cover.url}` : null;
 
   return (
     <a
       href={`/record?titn=${record.titn}`}
       className="flex items-start justify-between gap-4 rounded-md border border-border bg-card p-4 transition-colors hover:border-foreground/30 hover:bg-muted/40"
     >
-      <div className="space-y-1">
-        <h3 className="font-serif text-lg font-semibold leading-tight tracking-tight">
-          {record.title}
-        </h3>
-        {subtitleParts.length > 0 && (
-          <p className="text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p>
-        )}
-        {flagged && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
-            <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
+      <div className="flex min-w-0 items-start gap-4">
+        {coverSrc !== null ? (
+          <img
+            src={coverSrc}
+            alt=""
+            loading="lazy"
+            className="h-16 w-11 shrink-0 rounded border border-border object-cover"
+          />
+        ) : (
+          <div
+            aria-hidden="true"
+            className="flex h-16 w-11 shrink-0 items-center justify-center rounded border border-dashed border-border bg-muted/50 text-muted-foreground"
+          >
+            <span className="text-xs">📚</span>
           </div>
         )}
+        <div className="min-w-0 space-y-1">
+          <h3 className="font-serif text-lg font-semibold leading-tight tracking-tight">
+            {record.title}
+          </h3>
+          {subtitleParts.length > 0 && (
+            <p className="text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p>
+          )}
+          {flagged && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
+              <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
+            </div>
+          )}
+        </div>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
         {record.available_count > 0 && (

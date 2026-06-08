@@ -41,6 +41,20 @@ export const AVAILABILITY_STATUSES = [
 export type AvailabilityStatus = (typeof AVAILABILITY_STATUSES)[number];
 export const AvailabilityStatusSchema = z.enum(AVAILABILITY_STATUSES).catch("unknown");
 
+/** Cover state (mirrors backend `CoverSchema`). `url` is set only when
+ * resolved; the UI renders the image when present, a placeholder otherwise.
+ * `.catch(null)` keeps a malformed cover from failing the whole record parse. */
+export const COVER_STATUSES = ["resolved", "nofound", "pending", "failed", "unknown"] as const;
+export type CoverStatus = (typeof COVER_STATUSES)[number];
+export const CoverStatusSchema = z.enum(COVER_STATUSES).catch("unknown");
+
+export const CoverSchema = z.object({
+  status: CoverStatusSchema,
+  source: z.string().catch("unknown"),
+  url: z.string().nullable().optional(),
+});
+export type Cover = z.infer<typeof CoverSchema>;
+
 export const CopySchema = z.object({
   branch_code: z.string(),
   branch_name: z.string(),
@@ -65,6 +79,7 @@ export const CatalogRecordSchema = z.object({
   isbns: z.array(z.string()),
   copies: z.array(CopySchema),
   source_url: z.string(),
+  cover: CoverSchema.nullable().optional().catch(null),
 });
 export type CatalogRecord = z.infer<typeof CatalogRecordSchema>;
 
@@ -78,6 +93,7 @@ export const CatalogRecordSummarySchema = z.object({
   audience: AudienceSchema,
   literary_form: LiteraryFormSchema,
   available_count: z.number().int().nonnegative().catch(0),
+  cover: CoverSchema.nullable().optional().catch(null),
 });
 export type CatalogRecordSummary = z.infer<typeof CatalogRecordSummarySchema>;
 
