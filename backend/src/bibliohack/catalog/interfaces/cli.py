@@ -308,7 +308,7 @@ def worker(
         "--rate",
         help="Polite per-second request rate to the upstream OPAC.",
     ),
-    filter_preset: MediaTypeFilterPreset = typer.Option(  # noqa: B008
+    filter_preset: MediaTypeFilterPreset = typer.Option(
         MediaTypeFilterPreset.BOOK,
         "--filter",
         help=(

@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING
 
 from selectolax.parser import HTMLParser
 
+from bibliohack.catalog.domain.isbn import normalize_to_isbn13
+
 if TYPE_CHECKING:
     from bibliohack.catalog.domain.titn import Titn
 
@@ -384,24 +386,10 @@ def _extract_isbns(tree: HTMLParser) -> list[str]:
     return out
 
 
-def _normalize_isbn(raw: str) -> str | None:
-    """Strip a raw 020 $a value to a 13-digit ISBN, or None if implausible."""
-    # Keep only ISBN characters (digits + the ISBN-10 check 'X'); drop hyphens,
-    # spaces and any trailing price/format note.
-    cleaned = re.sub(r"[^0-9Xx]", "", raw).upper()
-    if len(cleaned) == 13 and cleaned.isdigit():
-        return cleaned
-    if len(cleaned) == 10 and re.fullmatch(r"[0-9]{9}[0-9X]", cleaned):
-        return _isbn10_to_13(cleaned)
-    return None
-
-
-def _isbn10_to_13(isbn10: str) -> str:
-    """Convert a (validated) ISBN-10 to ISBN-13 with a recomputed check digit."""
-    core = "978" + isbn10[:9]
-    total = sum((1 if i % 2 == 0 else 3) * int(digit) for i, digit in enumerate(core))
-    check = (10 - (total % 10)) % 10
-    return core + str(check)
+# ISBN normalization is shared with the Goodreads matcher (reading_history),
+# so the canonical implementation lives in the catalog domain. Keep the private
+# alias here so existing call sites read naturally.
+_normalize_isbn = normalize_to_isbn13
 
 
 def _extract_document_type(tree: HTMLParser) -> str | None:

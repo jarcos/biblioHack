@@ -208,6 +208,11 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S", "PT011"]  # security checks + broad pytest.raises noise
 
+[tool.ruff.lint.flake8-bugbear]
+# Typer's argument/option declarations are calls-in-defaults by design and are
+# effectively immutable; whitelist them so B008 doesn't fire on CLI signatures.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["bibliohack"]
 

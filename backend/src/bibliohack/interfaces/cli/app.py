@@ -17,6 +17,7 @@ import typer
 from bibliohack import __version__
 from bibliohack.catalog.interfaces.cli import catalog_app
 from bibliohack.covers.interfaces.cli import covers_app
+from bibliohack.reading_history.interfaces.cli import shelf_app
 from bibliohack.shared.infrastructure import configure_logging, get_settings
 
 cli = typer.Typer(
@@ -26,6 +27,7 @@ cli = typer.Typer(
 )
 cli.add_typer(catalog_app, name="catalog", help="Catalog ingest and search commands.")
 cli.add_typer(covers_app, name="covers", help="Cover-image resolution commands.")
+cli.add_typer(shelf_app, name="shelf", help="Personal bookshelf (reading history) commands.")
 
 
 @cli.callback()
