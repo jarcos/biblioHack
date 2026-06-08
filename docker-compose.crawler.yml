@@ -35,10 +35,13 @@ services:
       # Crawl budget + nightly bounds (consumed by run-job.sh). Tune here.
       CRAWL_RATE: "1.0"          # requests/sec to the OPAC (polite; don't raise casually)
       DISCOVER_YEAR_FROM: "2024" # novedades window (publication year >=)
-      DISCOVER_MAX: "200"        # TITNs discovered per hourly run (cursor advances by this)
-      # Ingest more per run than we discover, so each hourly run net-drains the
-      # discovered backlog (~300/run) while the cursor still advances.
-      WORKER_MAX: "500"          # records ingested per hourly run
+      # Kept below real worker throughput (~150-250 records/hr, browser-bound
+      # at 1 req/s) so the discovered backlog reliably shrinks instead of
+      # outrunning ingest. Still advances the cursor ~2.4k/day.
+      DISCOVER_MAX: "100"        # TITNs discovered per hourly run (cursor advances by this)
+      # Ingest as much as the hour allows; with DISCOVER_MAX=100 this net-drains
+      # the discovered backlog every run.
+      WORKER_MAX: "500"          # records ingested per hourly run (cap; rarely reached)
       REFRESH_MAX: "300"         # records re-probed per 6-hourly run
     networks:
       - bibliohack
