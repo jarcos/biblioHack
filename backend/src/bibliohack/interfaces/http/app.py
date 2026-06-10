@@ -20,6 +20,7 @@ from bibliohack.covers.interfaces.http.router import router as covers_router
 from bibliohack.identity.interfaces.http.router import router as auth_router
 from bibliohack.interfaces.http.routers import health
 from bibliohack.reading_history.interfaces.http.router import router as shelf_router
+from bibliohack.recommendations.interfaces.http.router import router as recommendations_router
 from bibliohack.shared.infrastructure import configure_logging, get_settings
 
 if TYPE_CHECKING:
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(catalog_router)
     app.include_router(covers_router)
     app.include_router(shelf_router)
+    app.include_router(recommendations_router)
 
     return app
 

@@ -110,6 +110,10 @@ services:
       # Embed search queries via the HF Inference API (semantic search). Token
       # from .env; empty disables semantic search gracefully.
       HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN:-}
+      # Recommendation rationales via OpenRouter; empty key = recommendations
+      # ship without the LLM one-liners.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/auto:free}
     volumes:
       # Shared cover store (resolver writes, api serves). Read-only here.
       - /volume1/docker/bibliohack/covers:/covers:ro

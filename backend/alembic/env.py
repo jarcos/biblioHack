@@ -33,6 +33,9 @@ from bibliohack.identity.infrastructure.postgres import models as _identity_mode
 from bibliohack.reading_history.infrastructure.postgres import (  # noqa: F401
     models as _reading_history_models,
 )
+from bibliohack.recommendations.infrastructure.postgres import (  # noqa: F401
+    models as _recommendations_models,
+)
 from bibliohack.shared.infrastructure.db import Base
 from bibliohack.shared.infrastructure.settings import get_settings
 

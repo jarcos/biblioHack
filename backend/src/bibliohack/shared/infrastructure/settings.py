@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # ───── OpenRouter ─────
     openrouter_api_key: str = ""
     openrouter_model: str = "openrouter/auto:free"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
+    # ───── Recommendations (§4 / M5) ─────
+    recommendations_limit: int = 12
 
     # ───── Embeddings ─────
     embedding_model: str = "BAAI/bge-m3"

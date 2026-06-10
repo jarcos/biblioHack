@@ -55,6 +55,9 @@ const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800
           <nav class="flex items-center gap-4">
             <a href="/" class="transition-colors hover:text-foreground">Inicio</a>
             <a href="/shelf" class="transition-colors hover:text-foreground">Mi estantería</a>
+            <a href="/recommendations" class="transition-colors hover:text-foreground">
+              Recomendaciones
+            </a>
             <UserMenu apiBaseUrl={apiBaseUrl} client:only="react" />
           </nav>
           <ThemeToggle client:load />

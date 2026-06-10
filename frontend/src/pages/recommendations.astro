@@ -1,0 +1,26 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { AuthGate } from "@/components/auth/AuthGate";
+import { Recommendations } from "@/components/Recommendations";
+
+const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+---
+
+<Layout title="biblioHack — recomendaciones">
+  <section class="space-y-8">
+    <header class="max-w-3xl space-y-3">
+      <h1 class="font-serif text-3xl font-semibold leading-tight tracking-tight">
+        Recomendaciones
+      </h1>
+      <p class="text-base text-muted-foreground">
+        Sugerencias del catálogo andaluz a partir de tu estantería: buscamos libros cercanos a los
+        que mejor has valorado y que aún no tengas registrados. Se actualizan solas cuando tu
+        estantería cambia.
+      </p>
+    </header>
+
+    <AuthGate apiBaseUrl={apiBaseUrl} client:only="react">
+      <Recommendations apiBaseUrl={apiBaseUrl} />
+    </AuthGate>
+  </section>
+</Layout>
