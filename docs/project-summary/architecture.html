@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>biblioHack — Architecture</title>
+<style>
+  :root {
+    --bg: #faf7f2; --panel: #ffffff; --ink: #2b2620; --muted: #7a7062;
+    --accent: #8b5e34; --accent-2: #3d6b50; --line: #e8e0d4;
+    --done: #3d6b50; --done-bg: #e7f0ea; --pending: #a8632a; --pending-bg: #f9ecdf;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.65 Georgia, 'Times New Roman', serif; background: var(--bg); color: var(--ink); }
+  header.site { background: var(--ink); color: #f3ede4; padding: 2rem 1.5rem 1.6rem; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 1rem; }
+  header.site h1 { font-size: 1.8rem; margin: 0; }
+  nav.crumbs { background: #3a332b; padding: .55rem 1.5rem; font-family: Verdana, sans-serif; font-size: .8rem; }
+  nav.crumbs a { color: #e8dcc8; text-decoration: none; margin-right: 1.4rem; }
+  nav.crumbs a:hover { text-decoration: underline; }
+  nav.crumbs span.here { color: #fff; font-weight: bold; margin-right: 1.4rem; }
+  main { padding: 2rem 0 4rem; }
+  h2 { font-size: 1.4rem; border-bottom: 2px solid var(--accent); padding-bottom: .3rem; margin-top: 2.4rem; }
+  h3 { font-size: 1.08rem; color: var(--accent); margin-top: 1.6rem; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.1rem 1.3rem; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; background: var(--panel); }
+  th, td { border: 1px solid var(--line); padding: .5rem .65rem; text-align: left; vertical-align: top; }
+  th { background: #f1ebe1; font-family: Verdana, sans-serif; font-size: .76rem; text-transform: uppercase; letter-spacing: .05em; }
+  code { font: .85em/1.4 'SF Mono', Menlo, Consolas, monospace; background: #f1ebe1; padding: .1em .35em; border-radius: 4px; }
+  pre { background: #2f2a23; color: #e8dcc8; border-radius: 8px; padding: 1rem 1.2rem; overflow-x: auto; font: .8rem/1.5 'SF Mono', Menlo, Consolas, monospace; }
+  pre code { background: none; padding: 0; color: inherit; }
+  ul.tight li { margin-bottom: .4rem; }
+  footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; padding: 1.2rem 0 2.5rem; font-family: Verdana, sans-serif; }
+</style>
+</head>
+<body>
+
+<header class="site"><div class="wrap"><h1>Architecture</h1></div></header>
+<nav class="crumbs">
+  <div class="wrap">
+    <a href="index.html">Overview</a>
+    <span class="here">Architecture</span>
+    <a href="identity-milestone.html">Identity Milestone</a>
+    <a href="pending-and-ops.html">Pending &amp; Operations</a>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <p>Condensed from <code>ARCHITECTURE.md</code> (763 lines), updated with what actually shipped. The original document remains the canonical contract.</p>
+
+  <h2>System shape</h2>
+  <pre><code>AbsysNET OPAC ◄── polite, throttled (1 req/s, jittered) ──► bibliohack-crawler (NAS container,
+(Junta de Andalucía)                                          supercronic: hourly discover+worker,
+                                                              6-hourly availability refresh)
+                                                                       │ parsed records + snapshots
+                                                                       ▼
+                              ┌──────────────────────────────────────────────┐
+                              │ PostgreSQL 16 — timescaledb-ha:pg16          │
+                              │  + pgvector (BGE-M3, 1024-d, HNSW)           │
+                              │  + spanish_unaccent FTS  + Timescale         │
+                              └──────────┬───────────────────────────────────┘
+                                         │                    ┌─────────────┐
+        HuggingFace Inference API ◄──────┤                    │  Redis      │ sessions, rate
+        (embeddings — not local)         │                    │             │ limits, Dramatiq
+        OpenRouter ◄─────────────────────┤                    └──────┬──────┘
+        (rationales only, free tier)     ▼                           │
+                              ┌──────────────────┐    ┌──────────────┴──────────────┐
+                              │ FastAPI api      │    │ bibliohack-import-worker    │
+                              │ (OTel-traced)    │    │ (Dramatiq, shelf imports)   │
+                              └──────┬───────────┘    └─────────────────────────────┘
+                                     │ same-origin path routing: /api/* /catalog/* /healthz → api
+                                     ▼                                       else → frontend
+                              ┌──────────────────┐         ┌────────────────┐
+                              │ Cloudflare Tunnel│ ◄─────► │ Astro frontend │ (fully static,
+                              └──────────────────┘         │ React islands  │  served by `serve`)
+                                                           └────────────────┘</code></pre>
+
+  <h2>Bounded contexts (DDD + hexagonal)</h2>
+  <p>One hexagon <em>per context</em>, each with <code>domain / application / infrastructure / interfaces</code> layers under <code>backend/src/bibliohack/</code>. The domain never imports infrastructure; every concrete dependency enters through a port and is injected via FastAPI <code>Depends</code>.</p>
+  <table>
+    <tr><th>Context</th><th>Aggregates</th><th>Key ports</th><th>Notable adapters</th></tr>
+    <tr><td><strong>catalog</strong></td><td><code>BibliographicRecord</code>, <code>LiteraryProfile</code></td><td><code>BibliographicRepository</code>, <code>OpacGateway</code>, <code>Embedder</code></td><td>AbsysNet HTML parser, Postgres, HuggingFace embeddings</td></tr>
+    <tr><td><strong>holdings</strong></td><td><code>Copy</code>, <code>Branch</code></td><td><code>HoldingsRepository</code></td><td>Postgres</td></tr>
+    <tr><td><strong>availability</strong></td><td><code>AvailabilitySnapshot</code> (immutable)</td><td><code>AvailabilityRepository</code>, <code>AvailabilityProbe</code></td><td>Timescale hypertable</td></tr>
+    <tr><td><strong>covers</strong></td><td><code>Cover</code></td><td><code>CoverProvider</code>, <code>CoverStore</code>, <code>ImageProcessor</code></td><td>OpenLibrary → Google Books → placeholder chain; MinIO content-addressed store</td></tr>
+    <tr><td><strong>reading_history</strong></td><td><code>Bookshelf</code>, <code>ImportJob</code></td><td><code>ShelfRepository</code>, <code>Importer</code>, job queue</td><td>Goodreads CSV parser, Dramatiq worker, Postgres</td></tr>
+    <tr><td><strong>recommendations</strong></td><td><code>Recommendation</code></td><td><code>RecommendationRepository</code>, <code>RecommenderEngine</code>, <code>LlmClient</code></td><td>pgvector KNN retriever, OpenRouter rationales</td></tr>
+    <tr><td><strong>identity</strong></td><td><code>User</code></td><td><code>UserRepository</code>, <code>PasswordHasher</code>, <code>SessionStore</code>, <code>TokenService</code>, <code>Mailer</code>, <code>CaptchaVerifier</code></td><td>Argon2id, Redis sessions, Mailgun EU SMTP, Turnstile</td></tr>
+    <tr><td><strong>shared</strong></td><td>—</td><td>base Entity/VO/Result, settings, logging</td><td>rate limiter, DB engine factory, composition</td></tr>
+  </table>
+
+  <h2>Stack decisions that stuck (and the two that didn't)</h2>
+  <ul class="tight">
+    <li><strong>Postgres as the single store</strong> — relational + vectors (pgvector) + time-series (Timescale) + FTS. Qdrant remains a swap-in behind the <code>Embedder</code> port if p95 &gt; 250 ms.</li>
+    <li><strong>Scrapling / Patchright Chromium</strong> for the JS-rendered OPAC; the "lightweight httpx path" did not survive contact — the OPAC is a JS SPA with session-token redirects.</li>
+    <li><strong>Astro + React islands</strong>, TanStack Query, Tailwind + shadcn/ui. Vitest + fast-check on domain/application TS.</li>
+    <li><strong>Deviation 1 — embeddings are not local.</strong> BGE-M3 via the HuggingFace Inference API; the torch model didn't fit the NAS RAM next to the monitoring stack. Same vectors, same schema; a local adapter stays possible behind the port.</li>
+    <li><strong>Deviation 2 — no event bus (yet).</strong> The planned in-process bus (recommendation invalidation on <code>BookRead</code>/<code>BookRated</code>) was replaced by a <strong>shelf-fingerprint cache key</strong> (SHA-256), which is cross-process-safe — imports happen in the worker process, so an in-process bus would never have reached the api anyway.</li>
+  </ul>
+
+  <h2>Data model headlines</h2>
+  <table>
+    <tr><th>Table</th><th>Role</th></tr>
+    <tr><td><code>bibliographic_records</code></td><td>The mirror. <code>titn</code> (stable OPAC id), FTS <code>tsvector</code> (spanish_unaccent), <code>embedding vector(1024)</code>, <code>audience</code> + <code>literary_form</code> (classify-don't-discard, §5.5), <code>source_hash</code> for drift detection</td></tr>
+    <tr><td><code>copies</code> / <code>availability_snapshots</code></td><td>Per-branch holdings; append-only availability time-series (hypertable)</td></tr>
+    <tr><td><code>scrape_tasks</code></td><td>Crawler state machine: discovered → fetched → parsed | not_found | failed | tombstoned; idempotent reruns via <code>SELECT … FOR UPDATE SKIP LOCKED</code>; crawl health metric</td></tr>
+    <tr><td><code>users</code> + token tables</td><td>CITEXT unique email, Argon2id hash; verification/reset tokens stored <em>hashed</em>, single-use, purpose-bound</td></tr>
+    <tr><td><code>shelf_entries</code></td><td>Per-user shelf: unique <code>(user_id, source, source_book_id)</code>, FK ON DELETE CASCADE; ISBN-13 then trigram matching to the catalogue</td></tr>
+    <tr><td><code>import_jobs</code></td><td>Background Goodreads imports: CSV stored in-row (size/row caps), claim = conditional UPDATE, owner-scoped polling</td></tr>
+    <tr><td><code>recommendations</code></td><td>Per-user cached suggestions keyed by shelf fingerprint; cascade on account deletion</td></tr>
+    <tr><td><code>covers</code></td><td>Cover metadata; images live in MinIO, content-addressed by sha256, served immutable</td></tr>
+  </table>
+
+  <h2>The polite crawler</h2>
+  <div class="panel">
+    <p><strong>Compliance is a feature.</strong> The Junta's terms allow reuse (CC-BY, attribution required) but forbid overloading the service — so the politeness budget is a hard requirement: <strong>1 request/s jittered, single-threaded, nightly window, 30k/day cap, exponential backoff, identified User-Agent</strong>. Discovery enumerates the TITN space (high-water mark 2,662,739 probed in 42 fetches); ingest parses rendered HTML (no MARC export exists); refresh is tiered by hotness with <code>source_hash</code> short-circuiting unchanged records. The crawler ships as an on-NAS container deliberately <em>outside</em> the prod compose so its ~3.5 GB image build can never block api/frontend CD.</p>
+  </div>
+
+  <h2>Deployment &amp; operations</h2>
+  <ul class="tight">
+    <li><strong>Topology:</strong> Synology NAS (x86-64), Docker Compose, published through the pre-existing Cloudflare Tunnel. No inbound ports; TLS at the edge. Postgres binds LAN-only.</li>
+    <li><strong>Routing rule that bites:</strong> one origin; the tunnel sends <code>/api/*</code>, <code>/catalog/*</code>, <code>/healthz</code> to the api and everything else to the static frontend — any new frontend-called endpoint <em>must</em> live under <code>/api/*</code> or it returns page HTML.</li>
+    <li><strong>Services:</strong> postgres, api, frontend, minio, redis (since identity), plus the crawler and the Dramatiq import worker as separate compose projects.</li>
+    <li><strong>CI/CD:</strong> green push to <code>main</code> → backend gate (ruff, mypy, pytest w/ testcontainers) + frontend gate (prettier, eslint, astro check, vitest) + image builds → auto-deploy to the NAS. Red pipeline never deploys.</li>
+    <li><strong>Observability:</strong> api auto-instrumented with OpenTelemetry (FastAPI + asyncpg) → OTLP → shared collector → Grafana Tempo + SigNoz. No-op without <code>OTEL_*</code> env vars, so dev/test are unaffected. Crawl/worker plane not yet traced — health comes from <code>scrape_tasks</code> / <code>import_jobs</code> status rows.</li>
+    <li><strong>Mail:</strong> Mailgun EU (<code>smtp.eu.mailgun.org:587</code>) behind the <code>Mailer</code> port — a deviation from the planned NAS SMTP relay.</li>
+    <li><strong>Backups:</strong> nightly <code>pg_dump</code> + Hyper Backup of <code>/volume1/docker/bibliohack</code>.</li>
+  </ul>
+
+  <h2>Security posture</h2>
+  <div class="panel">
+    <p>The tunnel exposes the frontend and the <code>/api/*</code> surface; MinIO console, Postgres and worker controls stay on LAN/Tailscale. Sessions are opaque 256-bit ids in Redis behind an httpOnly, Secure, SameSite=Lax cookie — trivially revocable, no JWT rotation pain. Registration and login are Turnstile-gated and rate-limited (fail-open by design: Redis being down must not lock everyone out of login, which wouldn't work without Redis anyway). Account deletion requires the password again — a stolen cookie alone can't destroy data. The public app only ever reads our mirror; it never triggers a live OPAC call per request.</p>
+  </div>
+
+  <footer>Part of the biblioHack project summary · <a href="index.html">Back to overview</a></footer>
+</main>
+</body>
+</html>

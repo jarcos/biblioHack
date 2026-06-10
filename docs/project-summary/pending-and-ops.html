@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>biblioHack — Pending Tasks &amp; Operations</title>
+<style>
+  :root {
+    --bg: #faf7f2; --panel: #ffffff; --ink: #2b2620; --muted: #7a7062;
+    --accent: #8b5e34; --accent-2: #3d6b50; --line: #e8e0d4;
+    --pending: #a8632a; --pending-bg: #f9ecdf; --defer: #6b6b8d; --defer-bg: #ebebf4;
+    --ops: #8d3d3d; --ops-bg: #f6e7e7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.65 Georgia, 'Times New Roman', serif; background: var(--bg); color: var(--ink); }
+  header.site { background: var(--ink); color: #f3ede4; padding: 2rem 1.5rem 1.6rem; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 1rem; }
+  header.site h1 { font-size: 1.8rem; margin: 0; }
+  nav.crumbs { background: #3a332b; padding: .55rem 1.5rem; font-family: Verdana, sans-serif; font-size: .8rem; }
+  nav.crumbs a { color: #e8dcc8; text-decoration: none; margin-right: 1.4rem; }
+  nav.crumbs a:hover { text-decoration: underline; }
+  nav.crumbs span.here { color: #fff; font-weight: bold; margin-right: 1.4rem; }
+  main { padding: 2rem 0 4rem; }
+  h2 { font-size: 1.4rem; border-bottom: 2px solid var(--accent); padding-bottom: .3rem; margin-top: 2.4rem; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.1rem 1.3rem; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; background: var(--panel); }
+  th, td { border: 1px solid var(--line); padding: .5rem .65rem; text-align: left; vertical-align: top; }
+  th { background: #f1ebe1; font-family: Verdana, sans-serif; font-size: .76rem; text-transform: uppercase; letter-spacing: .05em; }
+  .badge { display: inline-block; font-family: Verdana, sans-serif; font-size: .68rem; font-weight: bold; padding: .12rem .55rem; border-radius: 99px; white-space: nowrap; }
+  .b-pending { color: var(--pending); background: var(--pending-bg); }
+  .b-defer { color: var(--defer); background: var(--defer-bg); }
+  .b-ops { color: var(--ops); background: var(--ops-bg); }
+  code { font: .85em/1.4 'SF Mono', Menlo, Consolas, monospace; background: #f1ebe1; padding: .1em .35em; border-radius: 4px; }
+  pre { background: #2f2a23; color: #e8dcc8; border-radius: 8px; padding: 1rem 1.2rem; overflow-x: auto; font: .8rem/1.5 'SF Mono', Menlo, Consolas, monospace; }
+  ul.tight li { margin-bottom: .4rem; }
+  footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; padding: 1.2rem 0 2.5rem; font-family: Verdana, sans-serif; }
+</style>
+</head>
+<body>
+
+<header class="site"><div class="wrap"><h1>Pending Tasks &amp; Operations</h1></div></header>
+<nav class="crumbs">
+  <div class="wrap">
+    <a href="index.html">Overview</a>
+    <a href="architecture.html">Architecture</a>
+    <a href="identity-milestone.html">Identity Milestone</a>
+    <span class="here">Pending &amp; Operations</span>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <p>Everything not done as of 2026-06-10, ordered roughly by how soon it should bite. Items marked <span class="badge b-ops">OPS</span> need a human (José) rather than code.</p>
+
+  <h2>Near-term follow-ups</h2>
+  <table>
+    <tr><th>Task</th><th>Detail</th><th>Type</th></tr>
+    <tr><td>Re-import José's shelf</td><td>Phase 2A truncated <code>shelf_entries</code>; register/verify the account, then re-import <code>goodreads_library_export.csv</code> via the new upload UI (or CLI <code>--user-email</code>)</td><td><span class="badge b-ops">OPS</span></td></tr>
+    <tr><td><code>privacy@josearcos.me</code> must receive mail</td><td>The legal pages cite it; confirm routing/forwarding actually delivers</td><td><span class="badge b-ops">OPS</span></td></tr>
+    <tr><td><code>OPENROUTER_API_KEY</code> in the NAS <code>.env</code></td><td>Without it, recommendation rationales silently stay empty (by design, best-effort)</td><td><span class="badge b-ops">OPS</span></td></tr>
+    <tr><td>Junta attribution string in the footer</td><td>The CC-BY reuse terms require «Información obtenida del Portal de la Junta de Andalucía» visibly. Carried forward from the legal review (ARCHITECTURE §12.1) since before the public deploy — <strong>a compliance item, not polish</strong>. Also belongs in the data-export payload</td><td><span class="badge b-pending">CODE</span></td></tr>
+    <tr><td>schemathesis contract tests</td><td>Named in the Phase 5 plan; the dependency is in <code>pyproject.toml</code> but no test uses it. Target the auth/shelf/account endpoints</td><td><span class="badge b-pending">CODE</span></td></tr>
+    <tr><td><code>opentelemetry-instrumentation-redis</code></td><td>Sessions <em>and</em> rate limiting now ride Redis with no spans; one dependency + zero code makes them visible in Tempo/SigNoz</td><td><span class="badge b-pending">CODE</span></td></tr>
+    <tr><td>Rate-limit <code>verify</code> / <code>reset</code> token-consume endpoints</td><td>Low risk (tokens are hashed, single-use, expiring) but the plan said "<code>/api/auth/*</code>" and these two have no limiter — a brute-force window exists</td><td><span class="badge b-pending">CODE</span></td></tr>
+    <tr><td>README refresh</td><td>"On the roadmap" still lists semantic search, Goodreads import and the recommender — all shipped. The README undersells the project</td><td><span class="badge b-pending">CODE</span></td></tr>
+  </table>
+
+  <h2>Deferred by design (revisit when there's a reason)</h2>
+  <table>
+    <tr><th>Item</th><th>Trigger to revisit</th></tr>
+    <tr><td>Hybrid FTS + vector fusion (RRF) for search</td><td>When pure-semantic or pure-keyword results visibly disappoint; ranker is one adapter behind <code>RecommenderEngine</code></td></tr>
+    <tr><td>LLM query rewriting &amp; cold-start classification</td><td>Phase 4 shipped rationales only — the other two LLM jobs from §8.3 await demand</td></tr>
+    <tr><td>Tier-two importers (StoryGraph, Hardcover, BookWyrm)</td><td>One new <code>Importer</code> adapter each; wait for a real user asking</td></tr>
+    <tr><td>OTel on the crawl/worker plane</td><td>If <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough to debug crawl health; <code>scrape_log</code> request log remains unwired</td></tr>
+    <tr><td>Frontend audience/literary-form badge + scope toggle</td><td>§5.5 backend is done (<code>?scope=</code>); the UI affordance is still minimal</td></tr>
+    <tr><td>Edge rate limiting (Cloudflare WAF rules)</td><td>App-level limits shipped in Phase 5; add edge rules if abuse appears</td></tr>
+    <tr><td>Qdrant migration</td><td>Only if pgvector query p95 &gt; 250 ms in production — acceptance criterion fixed in §12.7</td></tr>
+    <tr><td><strong>M7</strong> Other provinces (Sevilla, Cádiz…)</td><td>Generalise SUBC handling by config; copies are already stored network-wide, so it's mostly scoping + crawl budget</td></tr>
+    <tr><td><strong>M8</strong> Mobile app</td><td>React Native/Expo over the same API; out of scope for now</td></tr>
+    <tr><td>Lobby the Junta for a MARC dump</td><td>A periodic MARC-XML dump (Madrid precedent) would obsolete most of the scraper — worth a formal email someday</td></tr>
+  </table>
+
+  <h2>Ops runbook (the short version)</h2>
+  <div class="panel">
+    <p><strong>Ship workflow.</strong> Commit + push to <code>main</code>; CI gates (backend: <code>ruff format --check . &amp;&amp; ruff check . &amp;&amp; mypy src &amp;&amp; pytest</code>; frontend: prettier, eslint, <code>astro check</code>, vitest) and auto-deploys to the NAS. Never deploy on a red pipeline. Migrations ship in the api image and run on deploy.</p>
+    <p><strong>Local gate quirks (Mac).</strong> Docker is OrbStack — testcontainers needs <code>DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock</code>. A local Redis will poison rate-limit windows for any test app that forgets to override <code>get_rate_limiter</code> (all current suites do override it).</p>
+    <p><strong>Crawler.</strong> On-NAS container, separate compose project: <code>docker compose -p bibliohack-crawler -f docker-compose.crawler.yml …</code>. Supercronic schedule baked in (hourly discover+worker, 6-hourly refresh). Health = <code>scrape_tasks</code> status histogram + <code>last_error</code>.</p>
+    <p><strong>Import worker.</strong> <code>bibliohack-import-worker</code> Dramatiq container, same backend image. Job health = <code>import_jobs</code> rows.</p>
+    <p><strong>Mail.</strong> Mailgun EU, <code>smtp.eu.mailgun.org:587</code>, user <code>alerts@mail.josearcos.me</code> (credential shared with Grafana alerting; lives in the NAS <code>.env</code>). The <code>mail.josearcos.me</code> domain is on a separate Mailgun account/region from the sandbox one. Backup of the pre-Mailgun env: <code>.env.bak-mailgun-sandbox</code>.</p>
+    <p><strong>Routing.</strong> New frontend-called endpoints must live under <code>/api/*</code> (tunnel routes <code>/api/*</code>, <code>/catalog/*</code>, <code>/healthz</code> → api; everything else → static frontend). The symptom of forgetting: <code>Unexpected token '&lt;'</code>.</p>
+    <p><strong>OPAC citizenship.</strong> Politeness budget is a compliance requirement (terms forbid overload): don't raise crawl rates casually.</p>
+  </div>
+
+  <h2>Open questions still worth carrying (from ARCHITECTURE §12)</h2>
+  <ul class="tight">
+    <li><strong>Virtual copies ("ejemplares virtuales")</strong> — zero-copy records confirmed real; double-check we aren't silently dropping digital-loan copies.</li>
+    <li><strong>Subjects parser confidence</strong> — the exact <code>js-</code> class for <em>materias</em> is still unconfirmed against a record that actually exposes them.</li>
+    <li><strong>Google Books cover ToS</strong> — display-time hotlink only, never stored; per-cover <code>license</code>/<code>source</code> tracked so a source can be purged. Re-read terms if cover usage grows.</li>
+    <li><strong>Huelva-only vs network-wide copies</strong> — currently storing all-province copies and filtering at query time; the cheap path to M7, but re-validate the storage cost as the mirror grows.</li>
+  </ul>
+
+  <footer>Part of the biblioHack project summary · <a href="index.html">Back to overview</a></footer>
+</main>
+</body>
+</html>
