@@ -10,6 +10,7 @@ recently-added, so the UI's shelves read naturally.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import select
 
@@ -29,11 +30,15 @@ class PostgresShelfReadRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def list_entries(self) -> list[ShelfEntryView]:
-        stmt = select(ShelfEntryModel).order_by(
-            ShelfEntryModel.date_read.desc().nullslast(),
-            ShelfEntryModel.date_added.desc().nullslast(),
-            ShelfEntryModel.title.asc(),
+    async def list_entries(self, user_id: str) -> list[ShelfEntryView]:
+        stmt = (
+            select(ShelfEntryModel)
+            .where(ShelfEntryModel.user_id == UUID(user_id))
+            .order_by(
+                ShelfEntryModel.date_read.desc().nullslast(),
+                ShelfEntryModel.date_added.desc().nullslast(),
+                ShelfEntryModel.title.asc(),
+            )
         )
         rows = list((await self._session.execute(stmt)).scalars().all())
 

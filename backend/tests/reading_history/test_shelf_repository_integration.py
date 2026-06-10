@@ -32,6 +32,8 @@ from bibliohack.catalog.infrastructure.absysnet.parser import ParsedRecord
 from bibliohack.catalog.infrastructure.postgres.catalog_ingest_repository import (
     PostgresCatalogIngestRepository,
 )
+from bibliohack.identity.domain.user import Email, PasswordHash, User
+from bibliohack.identity.infrastructure.postgres.user_repository import PostgresUserRepository
 from bibliohack.reading_history.application.ports import ShelfEntryData
 from bibliohack.reading_history.domain.shelf import MatchVia, Shelf
 from bibliohack.reading_history.infrastructure.postgres.shelf_repository import (
@@ -80,7 +82,13 @@ async def seeded(applied_db: str) -> AsyncIterator[AsyncSession]:
     async with factory() as setup, setup.begin():
         from sqlalchemy import text
 
-        await setup.execute(text("TRUNCATE bibliographic_records, shelf_entries CASCADE"))
+        await setup.execute(text("TRUNCATE bibliographic_records, shelf_entries, users CASCADE"))
+
+    async with factory() as setup, setup.begin():
+        for email in ("reader-a@example.com", "reader-b@example.com"):
+            await PostgresUserRepository(setup).add(
+                User.register(email=Email(email), password_hash=PasswordHash("$argon2id$fake"))
+            )
 
     async with factory() as setup, setup.begin():
         ingest = PostgresCatalogIngestRepository(setup)
@@ -103,8 +111,15 @@ async def seeded(applied_db: str) -> AsyncIterator[AsyncSession]:
     await engine.dispose()
 
 
+async def _user_id(session: AsyncSession, email: str = "reader-a@example.com") -> str:
+    user = await PostgresUserRepository(session).get_by_email(email)
+    assert user is not None
+    return str(user.id)
+
+
 def _entry(**overrides: object) -> ShelfEntryData:
     base: dict[str, object] = {
+        "user_id": "set-by-test",
         "source": "goodreads",
         "source_book_id": "g1",
         "title": "Cien años de soledad",
@@ -139,17 +154,26 @@ async def test_match_title_author_via_trigram(seeded: AsyncSession) -> None:
     assert await repo.match_title_author("Manual de fontanería industrial", "Anon") is None
 
 
-async def test_upsert_is_idempotent_and_reports_insert_vs_update(seeded: AsyncSession) -> None:
+async def test_upsert_is_idempotent_per_user_and_reports_insert_vs_update(
+    seeded: AsyncSession,
+) -> None:
     repo = PostgresShelfRepository(seeded)
     isbn_match = await repo.match_isbn13("9788497592208")
+    uid = await _user_id(seeded)
 
     first = await repo.upsert_entry(
-        _entry(isbn_13="9788497592208", matched_record_id=isbn_match, matched_via=MatchVia.ISBN)
+        _entry(
+            user_id=uid,
+            isbn_13="9788497592208",
+            matched_record_id=isbn_match,
+            matched_via=MatchVia.ISBN,
+        )
     )
     assert first is True  # inserted
 
     second = await repo.upsert_entry(
         _entry(
+            user_id=uid,
             isbn_13="9788497592208",
             matched_record_id=isbn_match,
             matched_via=MatchVia.ISBN,
@@ -168,3 +192,23 @@ async def test_upsert_is_idempotent_and_reports_insert_vs_update(seeded: AsyncSe
     ).scalar_one()
     assert count == 1
     assert rating == 3  # the update took
+
+
+async def test_same_book_lives_independently_on_each_users_shelf(seeded: AsyncSession) -> None:
+    """The unique key is per-user: two readers can log the same Goodreads book."""
+    repo = PostgresShelfRepository(seeded)
+    uid_a = await _user_id(seeded, "reader-a@example.com")
+    uid_b = await _user_id(seeded, "reader-b@example.com")
+
+    assert await repo.upsert_entry(_entry(user_id=uid_a, rating=5)) is True
+    assert await repo.upsert_entry(_entry(user_id=uid_b, rating=2)) is True  # insert, not update
+
+    from bibliohack.reading_history.infrastructure.postgres.shelf_read_repository import (
+        PostgresShelfReadRepository,
+    )
+
+    read = PostgresShelfReadRepository(seeded)
+    entries_a = await read.list_entries(uid_a)
+    entries_b = await read.list_entries(uid_b)
+    assert [e.rating for e in entries_a] == [5]  # A never sees B's copy
+    assert [e.rating for e in entries_b] == [2]

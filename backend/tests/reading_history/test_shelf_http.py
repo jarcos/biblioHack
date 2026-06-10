@@ -28,6 +28,9 @@ from bibliohack.catalog.infrastructure.absysnet.parser import ParsedRecord
 from bibliohack.catalog.infrastructure.postgres.catalog_ingest_repository import (
     PostgresCatalogIngestRepository,
 )
+from bibliohack.identity.domain.user import Email, PasswordHash, User
+from bibliohack.identity.infrastructure.postgres.user_repository import PostgresUserRepository
+from bibliohack.identity.interfaces.http.dependencies import get_current_user
 from bibliohack.interfaces.http.app import create_app
 from bibliohack.interfaces.http.dependencies import get_session
 from bibliohack.reading_history.application.use_cases.import_shelf import ImportShelf
@@ -83,7 +86,12 @@ async def client(applied_db: str) -> AsyncIterator[AsyncClient]:
     from sqlalchemy import text
 
     async with factory() as setup, setup.begin():
-        await setup.execute(text("TRUNCATE bibliographic_records, shelf_entries CASCADE"))
+        await setup.execute(text("TRUNCATE bibliographic_records, shelf_entries, users CASCADE"))
+    reader = User.register(
+        email=Email("reader@example.com"), password_hash=PasswordHash("$argon2id$fake")
+    )
+    async with factory() as setup, setup.begin():
+        await PostgresUserRepository(setup).add(reader)
     async with factory() as setup, setup.begin():
         await PostgresCatalogIngestRepository(setup).persist_parsed_record(
             parsed=ParsedRecord(
@@ -123,7 +131,8 @@ async def client(applied_db: str) -> AsyncIterator[AsyncClient]:
                     date_read=None,
                     date_added=None,
                 ),
-            ]
+            ],
+            user_id=str(reader.id),
         )
 
     app = create_app()
@@ -133,6 +142,9 @@ async def client(applied_db: str) -> AsyncIterator[AsyncClient]:
             yield session
 
     app.dependency_overrides[get_session] = _override_get_session
+    # Authenticate as the seeded reader without Redis/cookies: the shelf
+    # route depends on get_current_user, which we override wholesale.
+    app.dependency_overrides[get_current_user] = lambda: reader
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
         yield ac
@@ -166,3 +178,12 @@ async def test_shelf_groups_and_enriches(client: AsyncClient) -> None:
     assert len(to_read) == 1
     assert to_read[0]["match"] is None
     assert to_read[0]["matched_via"] == "none"
+
+
+async def test_shelf_requires_authentication(applied_db: str) -> None:
+    """Without a session cookie the shelf is a 401 — never another user's data."""
+    app = create_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        r = await ac.get("/api/shelf")
+    assert r.status_code == 401

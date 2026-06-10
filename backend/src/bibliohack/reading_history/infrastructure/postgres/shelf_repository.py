@@ -3,8 +3,8 @@
 Matching uses the `isbns` table for the authoritative path and pg_trgm
 `similarity()` (already enabled for the contributor name index) for the title/
 author fallback, with conservative thresholds so only confident links are made.
-Upserts are `ON CONFLICT (source, source_book_id) DO UPDATE` and report
-insert-vs-update via the `xmax = 0` trick.
+Upserts are `ON CONFLICT (user_id, source, source_book_id) DO UPDATE` and
+report insert-vs-update via the `xmax = 0` trick.
 """
 
 from __future__ import annotations
@@ -75,6 +75,7 @@ class PostgresShelfRepository:
     async def upsert_entry(self, entry: ShelfEntryData) -> bool:
         values = {
             "id": uuid4(),
+            "user_id": UUID(entry.user_id),
             "source": entry.source,
             "source_book_id": entry.source_book_id,
             "title": entry.title,
@@ -92,7 +93,7 @@ class PostgresShelfRepository:
         }
         insert_stmt = pg_insert(ShelfEntryModel).values(**values)
         upsert_stmt = insert_stmt.on_conflict_do_update(
-            constraint="uq_shelf_entries_source_book",
+            constraint="uq_shelf_entries_user_source_book",
             set_={
                 "title": insert_stmt.excluded.title,
                 "author": insert_stmt.excluded.author,

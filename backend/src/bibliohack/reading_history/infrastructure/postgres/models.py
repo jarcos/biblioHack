@@ -35,13 +35,11 @@ class ShelfEntryModel(Base):
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
 
-    # Owner. Nullable during the identity transition (Phase 0/1 of the
-    # identity milestone): existing writes don't carry a user yet. Phase 2
-    # truncates the table, flips this to NOT NULL, and swaps the uniqueness
-    # constraint to (user_id, source, source_book_id).
-    user_id: Mapped[UUID | None] = mapped_column(
+    # Owner — every shelf entry belongs to exactly one user (identity Phase 2).
+    user_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
     )
 
     # Provenance — where the entry came from and its native id there.
@@ -78,7 +76,9 @@ class ShelfEntryModel(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("source", "source_book_id", name="uq_shelf_entries_source_book"),
+        UniqueConstraint(
+            "user_id", "source", "source_book_id", name="uq_shelf_entries_user_source_book"
+        ),
         Index("ix_shelf_entries_isbn_13", "isbn_13"),
         Index("ix_shelf_entries_matched_record_id", "matched_record_id"),
         Index("ix_shelf_entries_shelf", "shelf"),

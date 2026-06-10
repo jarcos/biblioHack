@@ -19,8 +19,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ShelfEntryData:
-    """A shelf entry ready to persist — raw book fields plus the resolved match."""
+    """A shelf entry ready to persist — raw book fields plus the resolved match.
 
+    `user_id` is the owning user (UUID string): shelves are per-user since
+    the identity milestone.
+    """
+
+    user_id: str
     source: str
     source_book_id: str
     title: str
@@ -57,7 +62,7 @@ class ShelfRepository(Protocol):
         ...
 
     async def upsert_entry(self, entry: ShelfEntryData) -> bool:
-        """Insert or update a shelf entry by (source, source_book_id).
+        """Insert or update a shelf entry by (user_id, source, source_book_id).
 
         Returns True when a new row was inserted, False when an existing row was
         updated — lets the import report new-vs-updated.

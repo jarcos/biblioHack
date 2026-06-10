@@ -3,9 +3,10 @@
 For each row we resolve a catalogue match with a clear precedence: an exact
 ISBN-13 hit is authoritative; otherwise a conservative title(+author) trigram
 match; otherwise the entry is kept unmatched (it can re-match for free as the
-catalogue grows). Every row is upserted by (source, source_book_id) so a
-re-import of an updated export is idempotent. Pure application logic — the
-catalogue lookups and persistence are behind the `ShelfRepository` port.
+catalogue grows). Every row is upserted by (user_id, source, source_book_id)
+so a re-import of an updated export is idempotent per user. Pure application
+logic — the catalogue lookups and persistence are behind the
+`ShelfRepository` port.
 """
 
 from __future__ import annotations
@@ -46,7 +47,8 @@ class ImportShelf:
         self._repo = repository
         self._source = source
 
-    async def execute(self, rows: Iterable[GoodreadsRow]) -> ImportStats:
+    async def execute(self, rows: Iterable[GoodreadsRow], *, user_id: str) -> ImportStats:
+        """Match + upsert every row onto the shelf of `user_id`."""
         total = inserted = updated = 0
         matched_isbn = matched_title = unmatched = 0
 
@@ -62,6 +64,7 @@ class ImportShelf:
 
             was_new = await self._repo.upsert_entry(
                 ShelfEntryData(
+                    user_id=user_id,
                     source=self._source,
                     source_book_id=row.source_book_id,
                     title=row.title,

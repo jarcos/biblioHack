@@ -1,10 +1,10 @@
-"""Reading-history domain — the user's bookshelf and how it maps to the catalogue.
+"""Reading-history domain — a user's bookshelf and how it maps to the catalogue.
 
-Single-user homelab: there is exactly one reader (the owner), so there is no
-`User` aggregate yet — a shelf entry stands on its own. An entry is a book the
-reader logged on Goodreads (or, later, another source), optionally *matched* to
-a record in our Andalusian catalogue so we can show its cover and live
-availability and feed the recommender.
+Each shelf entry belongs to one registered user (the `User` aggregate lives in
+the identity context; this context references owners by id only). An entry is
+a book the reader logged on Goodreads (or, later, another source), optionally
+*matched* to a record in our Andalusian catalogue so we can show its cover and
+live availability and feed the recommender.
 """
 
 from __future__ import annotations

@@ -15,6 +15,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
 from bibliohack.catalog.interfaces.http.schemas import CatalogRecordSummarySchema, CoverSchema
+
+# Runtime import — FastAPI evaluates endpoint signatures at runtime (see the
+# note in identity/interfaces/http/dependencies.py).
+from bibliohack.identity.domain.user import User  # noqa: TC001
+from bibliohack.identity.interfaces.http.dependencies import get_current_user
 from bibliohack.interfaces.http.dependencies import get_session
 from bibliohack.reading_history.domain.shelf import Shelf
 from bibliohack.reading_history.infrastructure.postgres.shelf_read_repository import (
@@ -40,14 +45,15 @@ router = APIRouter(prefix="/api/shelf", tags=["shelf"])
 @router.get("", response_model=ShelfResponseSchema)
 async def get_shelf(
     session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> ShelfResponseSchema:
-    """Return the whole bookshelf grouped by shelf, with per-book catalogue matches.
+    """Return the authenticated user's bookshelf, grouped, with catalogue matches.
 
-    Single-user: there is one reader, so no auth or user scoping. Unmatched
-    books still appear (they carry their raw title/author/ISBN); matched books
-    additionally expose the catalogue cover and live availability.
+    Unmatched books still appear (they carry their raw title/author/ISBN);
+    matched books additionally expose the catalogue cover and live
+    availability.
     """
-    entries = await PostgresShelfReadRepository(session).list_entries()
+    entries = await PostgresShelfReadRepository(session).list_entries(str(user.id))
 
     buckets: dict[str, list[ShelfEntrySchema]] = {
         Shelf.READ.value: [],
