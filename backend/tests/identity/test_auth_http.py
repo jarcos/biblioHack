@@ -1,0 +1,203 @@
+"""HTTP tests for /api/auth/* — the real app with in-memory fakes behind
+the provider dependencies. No database, no Redis: the providers are
+overridden, so `get_tx_session` never resolves.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING
+
+import pytest
+from fastapi.testclient import TestClient
+
+from bibliohack.identity.interfaces.http.dependencies import (
+    get_captcha_verifier,
+    get_mailer,
+    get_password_hasher,
+    get_session_store,
+    get_token_service,
+    get_user_repository,
+)
+from bibliohack.interfaces.http.app import create_app
+from bibliohack.shared.infrastructure.settings import get_settings
+from tests.identity.fakes import (
+    AlwaysFailCaptcha,
+    AlwaysPassCaptcha,
+    FakePasswordHasher,
+    InMemorySessionStore,
+    InMemoryTokenService,
+    InMemoryUserRepository,
+    RecordingMailer,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from fastapi import FastAPI
+
+
+@pytest.fixture
+def mailer() -> RecordingMailer:
+    return RecordingMailer()
+
+
+@pytest.fixture
+def auth_app(mailer: RecordingMailer) -> FastAPI:
+    app = create_app()
+    users = InMemoryUserRepository()
+    sessions = InMemorySessionStore()
+    tokens = InMemoryTokenService()
+    app.dependency_overrides[get_user_repository] = lambda: users
+    app.dependency_overrides[get_session_store] = lambda: sessions
+    app.dependency_overrides[get_token_service] = lambda: tokens
+    app.dependency_overrides[get_mailer] = lambda: mailer
+    app.dependency_overrides[get_password_hasher] = FakePasswordHasher
+    app.dependency_overrides[get_captcha_verifier] = AlwaysPassCaptcha
+    return app
+
+
+@pytest.fixture
+def client(auth_app: FastAPI) -> Iterator[TestClient]:
+    with TestClient(auth_app) as test_client:
+        yield test_client
+
+
+def _register(client: TestClient, email: str = "jose@example.com") -> None:
+    response = client.post(
+        "/api/auth/register",
+        json={"email": email, "password": "long-enough-pass", "display_name": "José"},
+    )
+    assert response.status_code == 201, response.text
+
+
+def _extract_token(mailer: RecordingMailer) -> str:
+    match = re.search(r"token=([\w.~-]+)", mailer.sent[-1][2])
+    assert match is not None
+    return match.group(1)
+
+
+def test_full_flow_register_verify_login_me_logout(
+    client: TestClient, mailer: RecordingMailer
+) -> None:
+    _register(client)
+
+    # Login before verifying: blocked (public registration requires proof).
+    blocked = client.post(
+        "/api/auth/login", json={"email": "jose@example.com", "password": "long-enough-pass"}
+    )
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"] == "email_not_verified"
+
+    # Verify with the mailed token.
+    assert (
+        client.post("/api/auth/verify", json={"token": _extract_token(mailer)}).status_code == 204
+    )
+
+    # Login sets the session cookie.
+    logged_in = client.post(
+        "/api/auth/login", json={"email": "JOSE@example.com", "password": "long-enough-pass"}
+    )
+    assert logged_in.status_code == 200
+    body = logged_in.json()
+    assert body["email"] == "jose@example.com"
+    assert body["email_verified"] is True
+    assert get_settings().session_cookie_name in logged_in.cookies
+
+    # /me works with the cookie (TestClient persists it).
+    me = client.get("/api/auth/me")
+    assert me.status_code == 200
+    assert me.json()["email"] == "jose@example.com"
+
+    # Logout kills the session server-side.
+    assert client.post("/api/auth/logout").status_code == 204
+    client.cookies.clear()
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_register_validation_and_conflicts(client: TestClient) -> None:
+    _register(client)
+    duplicate = client.post(
+        "/api/auth/register",
+        json={"email": "jose@example.com", "password": "long-enough-pass"},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "email_taken"
+
+    bad_email = client.post(
+        "/api/auth/register", json={"email": "nope", "password": "long-enough-pass"}
+    )
+    assert bad_email.status_code == 422
+
+    # Short password is caught by the schema before the use case runs.
+    weak = client.post("/api/auth/register", json={"email": "b@example.com", "password": "short"})
+    assert weak.status_code == 422
+
+
+def test_login_with_bad_credentials_is_401(client: TestClient, mailer: RecordingMailer) -> None:
+    _register(client)
+    client.post("/api/auth/verify", json={"token": _extract_token(mailer)})
+
+    wrong = client.post(
+        "/api/auth/login", json={"email": "jose@example.com", "password": "wrong-password"}
+    )
+    unknown = client.post(
+        "/api/auth/login", json={"email": "ghost@example.com", "password": "wrong-password"}
+    )
+    assert wrong.status_code == unknown.status_code == 401
+    assert wrong.json() == unknown.json()  # indistinguishable
+
+
+def test_me_without_cookie_is_401(client: TestClient) -> None:
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_password_reset_flow_revokes_sessions(client: TestClient, mailer: RecordingMailer) -> None:
+    _register(client)
+    client.post("/api/auth/verify", json={"token": _extract_token(mailer)})
+    client.post(
+        "/api/auth/login", json={"email": "jose@example.com", "password": "long-enough-pass"}
+    )
+    assert client.get("/api/auth/me").status_code == 200
+
+    # Request a reset (always 202, even for ghosts) and redeem the token.
+    assert (
+        client.post(
+            "/api/auth/password/reset-request", json={"email": "ghost@example.com"}
+        ).status_code
+        == 202
+    )
+    assert (
+        client.post(
+            "/api/auth/password/reset-request", json={"email": "jose@example.com"}
+        ).status_code
+        == 202
+    )
+    reset = client.post(
+        "/api/auth/password/reset",
+        json={"token": _extract_token(mailer), "new_password": "a-new-long-password"},
+    )
+    assert reset.status_code == 204
+
+    # The old session died with the reset.
+    assert client.get("/api/auth/me").status_code == 401
+
+    # And the new password works.
+    relogin = client.post(
+        "/api/auth/login", json={"email": "jose@example.com", "password": "a-new-long-password"}
+    )
+    assert relogin.status_code == 200
+
+
+def test_failed_captcha_blocks_register_and_login(auth_app: FastAPI) -> None:
+    auth_app.dependency_overrides[get_captcha_verifier] = AlwaysFailCaptcha
+    with TestClient(auth_app) as client:
+        register = client.post(
+            "/api/auth/register",
+            json={"email": "a@example.com", "password": "long-enough-pass"},
+        )
+        login = client.post(
+            "/api/auth/login", json={"email": "a@example.com", "password": "long-enough-pass"}
+        )
+    assert register.status_code == 400
+    assert login.status_code == 400

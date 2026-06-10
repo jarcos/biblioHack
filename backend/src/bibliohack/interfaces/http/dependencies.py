@@ -63,6 +63,21 @@ async def get_session(
         yield session
 
 
+async def get_tx_session(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> AsyncIterator[AsyncSession]:
+    """An AsyncSession inside a transaction: commits on success, rolls back on error.
+
+    For write endpoints (auth, imports, …). FastAPI caches dependencies per
+    request, so every provider depending on this within one request shares a
+    single session/transaction — a use case touching several repositories
+    commits or rolls back atomically.
+    """
+    _, factory = _engine_factory_pair(settings)
+    async with factory() as session, session.begin():
+        yield session
+
+
 @lru_cache(maxsize=1)
 def _embedder_for_token(token: str, endpoint: str) -> HuggingFaceEmbedder | None:
     """Build (and cache) the query embedder, or None when no token is set.

@@ -29,6 +29,7 @@ from sqlalchemy import engine_from_config, pool
 # Adding a new bounded context with persistence means adding an import here.
 from bibliohack.catalog.infrastructure.postgres import models as _catalog_models  # noqa: F401
 from bibliohack.holdings.infrastructure.postgres import models as _holdings_models  # noqa: F401
+from bibliohack.identity.infrastructure.postgres import models as _identity_models  # noqa: F401
 from bibliohack.reading_history.infrastructure.postgres import (  # noqa: F401
     models as _reading_history_models,
 )

@@ -47,6 +47,23 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    # Server-side session store (identity milestone). LAN-internal only —
+    # never exposed via the tunnel. Sessions are reconstructible (users just
+    # log in again), so no persistence volume: appendonly keeps restarts
+    # cheap on the NAS without risking unbounded AOF growth.
+    image: redis:7-alpine
+    container_name: bibliohack-redis
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    networks:
+      - bibliohack
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
   api:
     build:
       context: .
@@ -60,6 +77,20 @@ services:
       APP_ENV: production
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bibliohack}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bibliohack}
       DATABASE_URL_SYNC: postgresql+psycopg://${POSTGRES_USER:-bibliohack}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bibliohack}
+      REDIS_URL: redis://redis:6379/0
+      # ───── Identity / auth ─────
+      SESSION_COOKIE_SECURE: "true"
+      PUBLIC_BASE_URL: https://biblio.josearcos.me
+      # NAS SMTP mailer (verification + password-reset mails). Set in .env;
+      # empty host means mails are logged, not sent.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-biblioHack <no-reply@biblio.josearcos.me>}
+      # Cloudflare Turnstile (bot protection); empty secret disables the check.
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
       # Same-origin: the frontend calls /api on the same hostname, so no CORS.
       APP_CORS_ORIGINS: '["https://biblio.josearcos.me"]'
       # ───── OpenTelemetry (APM) ───── exports to the shared collector over the
@@ -83,6 +114,8 @@ services:
       - /volume1/docker/bibliohack/covers:/covers:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - bibliohack

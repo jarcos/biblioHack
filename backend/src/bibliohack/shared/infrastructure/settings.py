@@ -65,6 +65,38 @@ class Settings(BaseSettings):
     covers_store_path: str = "~/biblioHack-data/covers"
     covers_user_agent: str = "bibliohack/0.1 (+https://biblio.josearcos.me)"
 
+    # ───── Identity / auth (§4) ─────
+    # Public base URL used in emails (verification / password-reset links).
+    public_base_url: str = "https://biblio.josearcos.me"
+    # Sessions: opaque random ids stored server-side in Redis, delivered via
+    # an httpOnly cookie. `secure` defaults False so plain-http local dev
+    # works; production compose sets SESSION_COOKIE_SECURE=true.
+    session_ttl_seconds: int = 60 * 60 * 24 * 30  # 30 days
+    session_cookie_name: str = "bibliohack_session"
+    session_cookie_domain: str | None = None
+    session_cookie_secure: bool = False
+    # Argon2id parameters (argon2-cffi). Defaults match the library's
+    # RFC-9106 low-memory profile; tune via env if NAS RAM allows more.
+    argon2_time_cost: int = 3
+    argon2_memory_cost_kib: int = 65536
+    argon2_parallelism: int = 4
+    # Public registration kill-switch (abuse response: flip env var, restart).
+    registration_enabled: bool = True
+    # Require a verified email before login succeeds (public-registration
+    # hygiene; relax in dev where no mailer is configured).
+    require_verified_email_login: bool = True
+    # NAS SMTP mailer. Empty host = mails are logged instead of sent (dev).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_starttls: bool = True
+    mail_from: str = "biblioHack <no-reply@biblio.josearcos.me>"
+    # Cloudflare Turnstile (register/login bot protection). Empty secret =
+    # verification disabled (dev default); set both keys in production.
+    turnstile_site_key: str = ""
+    turnstile_secret: str = ""
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -41,6 +41,12 @@ dependencies = [
     # the api. Lightweight; kept in core so both the api and embedder use it.
     "httpx>=0.28",
 
+    # ───── Identity / auth (§4) ─────
+    # Argon2id password hashing (the AuthProvider adapter) and the
+    # Redis-backed server-side session store.
+    "argon2-cffi>=23.1",
+    "redis>=5.0",
+
     # ───── CLI ─────
     "typer>=0.13",
 ]
