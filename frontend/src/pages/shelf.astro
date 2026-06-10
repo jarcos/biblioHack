@@ -1,12 +1,9 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import { AuthGate } from "@/components/auth/AuthGate";
-import { BookShelf } from "@/components/BookShelf";
-import { ShelfImport } from "@/components/ShelfImport";
+import { ShelfPage } from "@/components/ShelfPage";
 
-// Static shell; the islands fetch client-side. AuthGate redirects to /login
-// when there is no session (the shelf is per-user since the identity
-// milestone, and this site has no SSR to guard it server-side).
+// Static shell; one island handles auth-gating + import + shelf (composed
+// inside React — Astro island children are static slots, see ShelfPage).
 const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
 ---
 
@@ -21,9 +18,6 @@ const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800
       </p>
     </header>
 
-    <AuthGate apiBaseUrl={apiBaseUrl} client:only="react">
-      <ShelfImport apiBaseUrl={apiBaseUrl} />
-      <BookShelf apiBaseUrl={apiBaseUrl} />
-    </AuthGate>
+    <ShelfPage apiBaseUrl={apiBaseUrl} client:only="react" />
   </section>
 </Layout>

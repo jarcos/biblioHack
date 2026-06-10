@@ -1,7 +1,6 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import { AuthGate } from "@/components/auth/AuthGate";
-import { Recommendations } from "@/components/Recommendations";
+import { RecommendationsPage } from "@/components/RecommendationsPage";
 
 const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
 ---
@@ -19,8 +18,6 @@ const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800
       </p>
     </header>
 
-    <AuthGate apiBaseUrl={apiBaseUrl} client:only="react">
-      <Recommendations apiBaseUrl={apiBaseUrl} />
-    </AuthGate>
+    <RecommendationsPage apiBaseUrl={apiBaseUrl} client:only="react" />
   </section>
 </Layout>
