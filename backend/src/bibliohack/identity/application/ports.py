@@ -38,6 +38,10 @@ class UserRepository(Protocol):
 
     async def update_password_hash(self, user_id: str, password_hash: str) -> None: ...
 
+    async def delete(self, user_id: str) -> None:
+        """Hard-delete the user; FK cascades take their shelf, jobs and recs."""
+        ...
+
 
 class PasswordHasher(Protocol):
     """The `AuthProvider` of ARCHITECTURE.md §4 — local password auth."""

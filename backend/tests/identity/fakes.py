@@ -31,6 +31,9 @@ class InMemoryUserRepository:
 
         self.users[user_id].change_password(PasswordHash(password_hash))
 
+    async def delete(self, user_id: str) -> None:
+        self.users.pop(user_id, None)
+
 
 class FakePasswordHasher:
     """Reversible 'hash' for tests — NOT a real hasher."""

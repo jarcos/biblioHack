@@ -1,15 +1,21 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
-import { fetchCurrentUser, logout, type User } from "@infrastructure/api/auth";
+import { Input } from "@/components/ui/input";
+import {
+  AuthApiError,
+  deleteAccount,
+  exportAccountData,
+  fetchCurrentUser,
+  logout,
+  type User,
+} from "@infrastructure/api/auth";
 
 /**
- * AccountPanel — the /account island: profile summary + logout. Redirects
- * to /login when there is no session (static site → guard is client-side).
- *
- * Data export and account deletion are Phase 5 (GDPR self-service); until
- * then the privacy policy points users at the contact address for those
- * rights.
+ * AccountPanel — the /account island: profile summary, logout, and the
+ * GDPR self-service actions (data export download + account deletion with
+ * password re-authentication). Redirects to /login when there is no
+ * session (static site → guard is client-side).
  */
 
 interface Props {
@@ -19,6 +25,10 @@ interface Props {
 export function AccountPanel({ apiBaseUrl }: Props): ReactElement {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -39,6 +49,39 @@ export function AccountPanel({ apiBaseUrl }: Props): ReactElement {
   async function onLogout(): Promise<void> {
     await logout(apiBaseUrl);
     window.location.assign("/");
+  }
+
+  async function onExport(): Promise<void> {
+    setBusy(true);
+    try {
+      const blob = await exportAccountData(apiBaseUrl);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "bibliohack-export.json";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setDeleteError("No se pudo generar la exportación. Inténtalo de nuevo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onDelete(): Promise<void> {
+    setDeleteError(null);
+    setBusy(true);
+    try {
+      await deleteAccount(apiBaseUrl, deletePassword);
+      window.location.assign("/");
+    } catch (err) {
+      setBusy(false);
+      setDeleteError(
+        err instanceof AuthApiError && err.detail === "invalid_password"
+          ? "Contraseña incorrecta."
+          : "No se pudo eliminar la cuenta. Inténtalo de nuevo.",
+      );
+    }
   }
 
   if (loading || user === null) {
@@ -85,13 +128,58 @@ export function AccountPanel({ apiBaseUrl }: Props): ReactElement {
       <div className="space-y-3">
         <h2 className="font-serif text-lg font-semibold">Tus datos</h2>
         <p className="text-sm text-muted-foreground">
-          La exportación y el borrado de cuenta desde esta página llegarán pronto. Mientras tanto
-          puedes ejercer esos derechos según se describe en la{" "}
+          Descarga todo lo que guardamos sobre ti (cuenta, estantería, importaciones y
+          recomendaciones) en un archivo JSON. Más detalles en la{" "}
           <a href="/privacy" className="text-foreground underline underline-offset-4">
             política de privacidad
           </a>
           .
         </p>
+        <Button variant="outline" disabled={busy} onClick={() => void onExport()}>
+          Exportar mis datos
+        </Button>
+      </div>
+
+      <div className="space-y-3 rounded-md border border-destructive/40 p-4">
+        <h2 className="font-serif text-lg font-semibold text-destructive">Eliminar la cuenta</h2>
+        <p className="text-sm text-muted-foreground">
+          Borra tu cuenta, tu estantería y tus recomendaciones de forma{" "}
+          <strong>irreversible</strong> (las copias de seguridad rotan en un máximo de 30 días).
+        </p>
+        {!deleteArmed ? (
+          <Button variant="destructive" onClick={() => setDeleteArmed(true)}>
+            Quiero eliminar mi cuenta
+          </Button>
+        ) : (
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void onDelete();
+            }}
+          >
+            <label htmlFor="delete-password" className="block text-sm font-medium">
+              Confirma tu contraseña para continuar
+            </label>
+            <Input
+              id="delete-password"
+              type="password"
+              required
+              autoComplete="current-password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+            />
+            {deleteError && <p className="text-sm text-destructive">✗ {deleteError}</p>}
+            <div className="flex gap-2">
+              <Button type="submit" variant="destructive" disabled={busy}>
+                {busy ? "Eliminando…" : "Eliminar definitivamente"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setDeleteArmed(false)}>
+                Cancelar
+              </Button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

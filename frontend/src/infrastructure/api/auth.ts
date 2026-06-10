@@ -133,6 +133,33 @@ export async function resetPassword(
   });
 }
 
+// ── Account self-service (GDPR) ──────────────────────────────────────
+
+/** `GET /api/account/export` — everything the server holds, as a JSON blob. */
+export async function exportAccountData(apiBaseUrl: string): Promise<Blob> {
+  const response = await fetch(new URL("/api/account/export", apiBaseUrl).toString(), {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new AuthApiError(response.status, await readDetail(response));
+  }
+  return response.blob();
+}
+
+/** `DELETE /api/account` — erases the account; requires the password again. */
+export async function deleteAccount(apiBaseUrl: string, password: string): Promise<void> {
+  const response = await fetch(new URL("/api/account", apiBaseUrl).toString(), {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) {
+    throw new AuthApiError(response.status, await readDetail(response));
+  }
+}
+
 // ── helpers ──────────────────────────────────────────────────────────
 
 async function requestJson(

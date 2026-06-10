@@ -4,8 +4,10 @@ Under /api/* per the tunnel-routing rule — anything else would hit the
 static frontend. Sessions ride an httpOnly cookie (set on login, cleared on
 logout); the SPA islands call these endpoints with `credentials: "include"`.
 
-Rate limiting on login/register is Phase 5 (slowapi or the Cloudflare edge);
-Turnstile already gates both when configured.
+The abuse-prone endpoints are rate-limited per client IP (Redis fixed
+window, fail-open): registration and reset-request because they send mail,
+login because it's the brute-force target. Limits live as module-level
+names so tests can override them.
 """
 
 from __future__ import annotations
@@ -50,10 +52,16 @@ from bibliohack.identity.interfaces.http.schemas import (
     UserSchema,
     VerifyEmailRequestSchema,
 )
+from bibliohack.interfaces.http.dependencies import rate_limit
 from bibliohack.shared.application.result import Err
 from bibliohack.shared.infrastructure.settings import Settings, get_settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Module-level so tests can disable them via dependency_overrides.
+register_rate_limit = rate_limit("auth-register", limit=5, window_seconds=3600)
+login_rate_limit = rate_limit("auth-login", limit=10, window_seconds=300)
+reset_request_rate_limit = rate_limit("auth-reset-request", limit=5, window_seconds=3600)
 
 _REGISTER_STATUS_FOR_ERROR = {
     RegisterError.REGISTRATION_DISABLED: status.HTTP_403_FORBIDDEN,
@@ -87,7 +95,12 @@ async def _check_captcha(captcha: CaptchaVerifier, token: str | None, request: R
         )
 
 
-@router.post("/register", response_model=DetailSchema, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=DetailSchema,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(register_rate_limit)],
+)
 async def register(
     payload: RegisterRequestSchema,
     request: Request,
@@ -135,7 +148,7 @@ async def verify_email(
         )
 
 
-@router.post("/login", response_model=UserSchema)
+@router.post("/login", response_model=UserSchema, dependencies=[Depends(login_rate_limit)])
 async def login(
     payload: LoginRequestSchema,
     request: Request,
@@ -198,7 +211,11 @@ async def me(
     return _user_to_schema(user)
 
 
-@router.post("/password/reset-request", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/password/reset-request",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(reset_request_rate_limit)],
+)
 async def password_reset_request(
     payload: PasswordResetRequestSchema,
     settings: Annotated[Settings, Depends(get_settings)],

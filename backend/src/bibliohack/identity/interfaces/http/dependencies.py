@@ -11,7 +11,7 @@ user-scoped endpoints (Phase 2).
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 
@@ -37,20 +37,8 @@ from bibliohack.identity.infrastructure.postgres.token_service import PostgresTo
 from bibliohack.identity.infrastructure.postgres.user_repository import PostgresUserRepository
 from bibliohack.identity.infrastructure.security.argon2_hasher import Argon2PasswordHasher
 from bibliohack.identity.infrastructure.sessions.redis_session_store import RedisSessionStore
-from bibliohack.interfaces.http.dependencies import get_tx_session
+from bibliohack.interfaces.http.dependencies import get_tx_session, redis_client_for_url
 from bibliohack.shared.infrastructure.settings import Settings, get_settings
-
-if TYPE_CHECKING:
-    from redis.asyncio import Redis
-
-
-@lru_cache(maxsize=1)
-def _redis_client_for_url(redis_url: str) -> Redis:
-    # Imported lazily so unit tests that override get_session_store never
-    # touch redis at all.
-    from redis.asyncio import Redis
-
-    return Redis.from_url(redis_url)
 
 
 def get_user_repository(
@@ -88,7 +76,7 @@ def get_session_store(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SessionStore:
     return RedisSessionStore(
-        _redis_client_for_url(settings.redis_url),
+        redis_client_for_url(settings.redis_url),
         ttl_seconds=settings.session_ttl_seconds,
     )
 

@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from bibliohack.identity.domain.user import Email, PasswordHash, User
 from bibliohack.identity.interfaces.http.dependencies import get_current_user
 from bibliohack.interfaces.http.app import create_app
+from bibliohack.interfaces.http.dependencies import get_rate_limiter
 from bibliohack.reading_history.application.ports import ImportJobView
 from bibliohack.reading_history.domain.import_job import ImportJobStatus
 from bibliohack.reading_history.interfaces.http.dependencies import (
@@ -22,6 +23,7 @@ from bibliohack.reading_history.interfaces.http.dependencies import (
     get_import_job_repository,
 )
 from bibliohack.shared.infrastructure.settings import Settings, get_settings
+from tests.shared.fakes import AllowAllRateLimiter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -100,6 +102,7 @@ def app(reader: User, jobs: FakeImportJobRepository, queue: RecordingQueue) -> F
     application.dependency_overrides[get_current_user] = lambda: reader
     application.dependency_overrides[get_import_job_repository] = lambda: jobs
     application.dependency_overrides[get_import_job_queue] = lambda: queue
+    application.dependency_overrides[get_rate_limiter] = AllowAllRateLimiter
     return application
 
 
@@ -166,6 +169,7 @@ def test_size_and_row_caps(app: FastAPI, queue: RecordingQueue) -> None:
 
 def test_import_requires_authentication() -> None:
     app = create_app()
+    app.dependency_overrides[get_rate_limiter] = AllowAllRateLimiter
     with TestClient(app) as client:
         upload = _upload(client, GOODREADS_CSV.encode())
         poll = client.get("/api/shelf/import/some-id")

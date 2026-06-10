@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from bibliohack.identity.domain.user import Email, PasswordHash, User, UserId
 from bibliohack.identity.infrastructure.postgres.models import UserModel
@@ -67,3 +67,6 @@ class PostgresUserRepository:
             .where(UserModel.id == UUID(user_id))
             .values(password_hash=password_hash, updated_at=datetime.now(UTC))
         )
+
+    async def delete(self, user_id: str) -> None:
+        await self._session.execute(delete(UserModel).where(UserModel.id == UUID(user_id)))

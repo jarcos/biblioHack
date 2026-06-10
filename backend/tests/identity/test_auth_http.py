@@ -20,6 +20,7 @@ from bibliohack.identity.interfaces.http.dependencies import (
     get_user_repository,
 )
 from bibliohack.interfaces.http.app import create_app
+from bibliohack.interfaces.http.dependencies import get_rate_limiter
 from bibliohack.shared.infrastructure.settings import get_settings
 from tests.identity.fakes import (
     AlwaysFailCaptcha,
@@ -30,6 +31,7 @@ from tests.identity.fakes import (
     InMemoryUserRepository,
     RecordingMailer,
 )
+from tests.shared.fakes import AllowAllRateLimiter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -54,6 +56,7 @@ def auth_app(mailer: RecordingMailer) -> FastAPI:
     app.dependency_overrides[get_mailer] = lambda: mailer
     app.dependency_overrides[get_password_hasher] = FakePasswordHasher
     app.dependency_overrides[get_captcha_verifier] = AlwaysPassCaptcha
+    app.dependency_overrides[get_rate_limiter] = AllowAllRateLimiter
     return app
 
 

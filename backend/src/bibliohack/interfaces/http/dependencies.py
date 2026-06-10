@@ -11,18 +11,20 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import TYPE_CHECKING, Annotated
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, Request, status
 
 from bibliohack.catalog.infrastructure.embeddings.huggingface import HuggingFaceEmbedder
 from bibliohack.shared.infrastructure.db import (
     make_engine,
     make_session_factory,
 )
+from bibliohack.shared.infrastructure.ratelimit import RedisRateLimiter
 from bibliohack.shared.infrastructure.settings import Settings, get_settings
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
+    from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import (
         AsyncEngine,
         AsyncSession,
@@ -76,6 +78,61 @@ async def get_tx_session(
     _, factory = _engine_factory_pair(settings)
     async with factory() as session, session.begin():
         yield session
+
+
+@lru_cache(maxsize=1)
+def redis_client_for_url(redis_url: str) -> Redis:
+    """Process-wide redis client (sessions, rate limiting).
+
+    Imported lazily so unit tests that override the redis-backed providers
+    never touch redis at all.
+    """
+    from redis.asyncio import Redis
+
+    return Redis.from_url(redis_url)
+
+
+def get_rate_limiter(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> RedisRateLimiter:
+    return RedisRateLimiter(redis_client_for_url(settings.redis_url))
+
+
+def client_ip(request: Request) -> str:
+    """Best-effort caller identity behind the Cloudflare tunnel.
+
+    `request.client.host` is the tunnel's container address in production,
+    so prefer Cloudflare's header, then the first X-Forwarded-For hop.
+    """
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip.strip()
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def rate_limit(scope: str, *, limit: int, window_seconds: int) -> Callable[..., Awaitable[None]]:
+    """A FastAPI dependency that 429s a caller exceeding `limit` per window.
+
+    Keyed by (scope, client IP). Assign the result to a module-level name so
+    tests can target it via `dependency_overrides`.
+    """
+
+    async def dependency(
+        request: Request,
+        limiter: Annotated[RedisRateLimiter, Depends(get_rate_limiter)],
+    ) -> None:
+        if not await limiter.hit(
+            f"{scope}:{client_ip(request)}", limit=limit, window_seconds=window_seconds
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="too many requests — slow down",
+            )
+
+    return dependency
 
 
 @lru_cache(maxsize=1)

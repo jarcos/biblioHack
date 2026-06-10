@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   AuthApiError,
   UserSchema,
+  deleteAccount,
+  exportAccountData,
   fetchCurrentUser,
   login,
   register,
@@ -125,5 +127,34 @@ describe("auth client", () => {
     const error = new AuthApiError(403, "email_not_verified");
     expect(error.message).toContain("403");
     expect(error.message).toContain("email_not_verified");
+  });
+
+  it("exportAccountData returns the blob from /api/account/export", async () => {
+    const payload = new Blob(['{"format":"bibliohack-account-export/1"}']);
+    mockFetch().mockResolvedValueOnce({ ok: true, status: 200, blob: async () => payload });
+
+    const blob = await exportAccountData("http://api.test");
+    expect(blob).toBe(payload);
+    expect(mockFetch()).toHaveBeenCalledWith(
+      "http://api.test/api/account/export",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("deleteAccount sends DELETE with the password and maps 403", async () => {
+    mockFetch().mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: "invalid_password" }),
+    });
+
+    await expect(deleteAccount("http://api.test", "nope")).rejects.toMatchObject({
+      status: 403,
+      detail: "invalid_password",
+    });
+    expect(mockFetch()).toHaveBeenCalledWith(
+      "http://api.test/api/account",
+      expect.objectContaining({ method: "DELETE", body: JSON.stringify({ password: "nope" }) }),
+    );
   });
 });

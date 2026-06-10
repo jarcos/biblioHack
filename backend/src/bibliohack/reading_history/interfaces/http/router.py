@@ -25,7 +25,7 @@ from bibliohack.catalog.interfaces.http.schemas import CatalogRecordSummarySchem
 # note in identity/interfaces/http/dependencies.py).
 from bibliohack.identity.domain.user import User  # noqa: TC001
 from bibliohack.identity.interfaces.http.dependencies import get_current_user
-from bibliohack.interfaces.http.dependencies import get_session
+from bibliohack.interfaces.http.dependencies import get_session, rate_limit
 from bibliohack.reading_history.application.ports import (  # noqa: TC001
     ImportJobQueue,
     ImportJobRepository,
@@ -57,6 +57,10 @@ if TYPE_CHECKING:
 # the static frontend instead). The catalog routes predate this and use their
 # own /catalog/* tunnel rule.
 router = APIRouter(prefix="/api/shelf", tags=["shelf"])
+
+# Imports are heavy (per-row trigram matching on the worker); cap how often
+# one caller can queue them. Module-level so tests can override it.
+import_rate_limit = rate_limit("shelf-import", limit=10, window_seconds=3600)
 
 
 @router.get("", response_model=ShelfResponseSchema)
@@ -101,7 +105,12 @@ async def get_shelf(
     )
 
 
-@router.post("/import", response_model=ImportJobSchema, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/import",
+    response_model=ImportJobSchema,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(import_rate_limit)],
+)
 async def import_shelf_csv(
     file: UploadFile,
     user: Annotated[User, Depends(get_current_user)],
