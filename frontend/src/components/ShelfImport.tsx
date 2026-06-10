@@ -109,6 +109,18 @@ export function ShelfImport({ apiBaseUrl }: Props): ReactElement {
           </span>
         )}
       </div>
+      <p className="text-xs text-muted-foreground">
+        ¿No tienes el archivo? Descárgalo desde{" "}
+        <a
+          href="https://www.goodreads.com/review/import"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-foreground underline underline-offset-4"
+        >
+          Goodreads → Import/Export
+        </a>{" "}
+        («Export Library» genera el CSV; tarda unos minutos en estar listo).
+      </p>
       {error && <p className="text-sm text-destructive">✗ {error}</p>}
     </div>
   );
