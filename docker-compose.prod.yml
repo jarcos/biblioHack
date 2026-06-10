@@ -102,6 +102,7 @@ services:
       OTEL_TRACES_EXPORTER: otlp
       OTEL_METRICS_EXPORTER: otlp
       OTEL_LOGS_EXPORTER: otlp
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment=prod,service.namespace=biblio
       # Read-only access to the content-addressed cover store, shared with the
       # crawler (which writes it). Served via GET /catalog/covers/{sha}.webp.
