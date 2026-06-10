@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime  # noqa: TC003 — pydantic resolves at model-build time
+
 from pydantic import BaseModel, Field
 
 # Runtime import (not TYPE_CHECKING): Pydantic resolves this annotation at
@@ -41,3 +43,20 @@ class ShelfResponseSchema(BaseModel):
     read: list[ShelfEntrySchema] = Field(default_factory=list)
     currently_reading: list[ShelfEntrySchema] = Field(default_factory=list)
     to_read: list[ShelfEntrySchema] = Field(default_factory=list)
+
+
+class ImportJobSchema(BaseModel):
+    """A background CSV import, as polled by the frontend."""
+
+    id: str
+    status: str = Field(..., description="queued | running | done | failed.")
+    filename: str | None = None
+    total: int | None = None
+    inserted: int | None = None
+    updated: int | None = None
+    matched_isbn: int | None = None
+    matched_title_author: int | None = None
+    unmatched: int | None = None
+    error: str | None = None
+    created_at: datetime
+    finished_at: datetime | None = None

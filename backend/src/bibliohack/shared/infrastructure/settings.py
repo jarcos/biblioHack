@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     turnstile_site_key: str = ""
     turnstile_secret: str = ""
 
+    # ───── Shelf imports (background jobs) ─────
+    # Guardrails on the public CSV upload: a Goodreads export of a few
+    # thousand books is ~1-2 MB, so these caps are generous for real
+    # libraries while keeping malicious uploads off the worker.
+    import_max_upload_bytes: int = 5 * 1024 * 1024
+    import_max_rows: int = 10_000
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

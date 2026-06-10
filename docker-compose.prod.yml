@@ -128,6 +128,42 @@ services:
       retries: 5
       start_period: 15s
 
+  import-worker:
+    # Dramatiq worker for background shelf imports (identity Phase 2B).
+    # Same image as the api; only the command differs. Single process/thread:
+    # imports are rare and the per-row trigram matching should never compete
+    # with interactive catalogue search for Postgres resources.
+    # NOT OTel-instrumented (like the crawler plane) — job health lives in
+    # the import_jobs status rows.
+    build:
+      context: .
+      dockerfile: infra/backend.Dockerfile
+      network: host # build RUN steps need host DNS (see api note)
+    container_name: bibliohack-import-worker
+    restart: unless-stopped
+    command:
+      [
+        "dramatiq",
+        "bibliohack.reading_history.infrastructure.dramatiq.actors",
+        "--processes",
+        "1",
+        "--threads",
+        "1",
+      ]
+    healthcheck:
+      disable: true # no HTTP surface; the image's healthcheck targets uvicorn
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bibliohack}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bibliohack}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bibliohack
+
   frontend:
     build:
       context: .

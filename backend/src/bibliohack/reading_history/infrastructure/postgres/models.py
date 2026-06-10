@@ -84,3 +84,40 @@ class ShelfEntryModel(Base):
         Index("ix_shelf_entries_shelf", "shelf"),
         Index("ix_shelf_entries_user_id", "user_id"),
     )
+
+
+class ImportJobModel(Base):
+    """A background shelf import (uploaded CSV → Dramatiq worker → stats).
+
+    The raw CSV rides in the row: uploads are size-capped, so this stays
+    small and saves a shared filesystem / object store between api and
+    worker. Stats columns mirror `ImportStats` and stay NULL until done.
+    """
+
+    __tablename__ = "import_jobs"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="queued")
+    filename: Mapped[str | None] = mapped_column(Text)
+    csv_content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    total: Mapped[int | None] = mapped_column(Integer)
+    inserted: Mapped[int | None] = mapped_column(Integer)
+    updated: Mapped[int | None] = mapped_column(Integer)
+    matched_isbn: Mapped[int | None] = mapped_column(Integer)
+    matched_title_author: Mapped[int | None] = mapped_column(Integer)
+    unmatched: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (Index("ix_import_jobs_user_id", "user_id"),)
