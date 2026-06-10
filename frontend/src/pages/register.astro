@@ -1,0 +1,20 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { RegisterForm } from "@/components/auth/RegisterForm";
+
+const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
+---
+
+<Layout title="biblioHack — crear cuenta">
+  <section class="mx-auto max-w-md space-y-8">
+    <header class="space-y-3">
+      <h1 class="font-serif text-3xl font-semibold leading-tight tracking-tight">Crear cuenta</h1>
+      <p class="text-base text-muted-foreground">
+        Con una cuenta puedes guardar tu estantería, importar tu biblioteca de Goodreads y recibir
+        recomendaciones del catálogo andaluz.
+      </p>
+    </header>
+    <RegisterForm apiBaseUrl={apiBaseUrl} turnstileSiteKey={turnstileSiteKey} client:only="react" />
+  </section>
+</Layout>

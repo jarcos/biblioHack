@@ -1,0 +1,15 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { AccountPanel } from "@/components/auth/AccountPanel";
+
+const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+---
+
+<Layout title="biblioHack — mi cuenta">
+  <section class="mx-auto max-w-xl space-y-8">
+    <header class="space-y-3">
+      <h1 class="font-serif text-3xl font-semibold leading-tight tracking-tight">Mi cuenta</h1>
+    </header>
+    <AccountPanel apiBaseUrl={apiBaseUrl} client:only="react" />
+  </section>
+</Layout>

@@ -3,6 +3,7 @@ import "../styles/global.css";
 
 import Container from "@/components/ui/container.astro";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { UserMenu } from "@/components/UserMenu";
 
 interface Props {
   title: string;
@@ -10,6 +11,7 @@ interface Props {
 }
 
 const { title, description = "Reverse catalog of the Andalusian public libraries." } = Astro.props;
+const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
 ---
 
 <!doctype html>
@@ -53,6 +55,7 @@ const { title, description = "Reverse catalog of the Andalusian public libraries
           <nav class="flex items-center gap-4">
             <a href="/" class="transition-colors hover:text-foreground">Inicio</a>
             <a href="/shelf" class="transition-colors hover:text-foreground">Mi estantería</a>
+            <UserMenu apiBaseUrl={apiBaseUrl} client:only="react" />
           </nav>
           <ThemeToggle client:load />
         </div>
@@ -66,7 +69,7 @@ const { title, description = "Reverse catalog of the Andalusian public libraries
     </main>
 
     <footer class="border-t border-border py-6">
-      <Container class="text-center text-xs text-muted-foreground">
+      <Container class="space-y-2 text-center text-xs text-muted-foreground">
         <p>
           Datos públicos de la Red de Bibliotecas Públicas de Andalucía. Proyecto personal sin ánimo
           de lucro.
@@ -76,6 +79,11 @@ const { title, description = "Reverse catalog of the Andalusian public libraries
           >
             Código
           </a>
+        </p>
+        <p>
+          <a href="/privacy" class="underline-offset-4 hover:underline">Privacidad</a>
+          {" · "}
+          <a href="/terms" class="underline-offset-4 hover:underline">Condiciones de uso</a>
         </p>
       </Container>
     </footer>

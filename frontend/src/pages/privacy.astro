@@ -1,0 +1,77 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout
+  title="biblioHack — política de privacidad"
+  description="Qué datos guarda biblioHack, para qué y cuáles son tus derechos."
+>
+  <article class="prose-custom mx-auto max-w-2xl space-y-6 text-sm leading-relaxed">
+    <header class="space-y-3">
+      <h1 class="font-serif text-3xl font-semibold leading-tight tracking-tight">
+        Política de privacidad
+      </h1>
+      <p class="text-muted-foreground">Última actualización: 10 de junio de 2026</p>
+    </header>
+
+    <section class="space-y-2">
+      <h2 class="font-serif text-xl font-semibold">Responsable del tratamiento</h2>
+      <p>
+        biblioHack es un proyecto personal sin ánimo de lucro operado por José Arcos («el
+        responsable»). Para cualquier asunto relacionado con tus datos puedes escribir a{" "}
+        <a href="mailto:privacy@josearcos.me" class="underline underline-offset-4"
+          >privacy@josearcos.me</a
+        >.
+      </p>
+    </section>
+
+    <section class="space-y-2">
+      <h2 class="font-serif text-xl font-semibold">Qué datos tratamos y para qué</h2>
+      <ul class="list-disc space-y-1 pl-5">
+        <li>
+          <strong>Datos de cuenta</strong> — correo electrónico, nombre opcional y un hash seguro de tu
+          contraseña (Argon2id; nunca guardamos la contraseña en claro). Base jurídica: la relación contractual
+          de prestarte el servicio.
+        </li>
+        <li>
+          <strong>Tu estantería</strong> — los libros que importas o registras (título, autor, ISBN, estantería,
+          valoración, reseña y fechas). Es el corazón del servicio: cruzar tu biblioteca con el catálogo
+          público andaluz y, en el futuro, recomendarte lecturas.
+        </li>
+        <li>
+          <strong>Cookies</strong> — una única cookie técnica de sesión (httpOnly). No hay cookies de
+          seguimiento ni analítica de terceros.
+        </li>
+      </ul>
+    </section>
+
+    <section class="space-y-2">
+      <h2 class="font-serif text-xl font-semibold">Dónde se guardan y quién los ve</h2>
+      <p>
+        Los datos se almacenan en un servidor privado en España. Intervienen dos encargados de
+        tratamiento: Cloudflare (red de entrega y protección del sitio) y Mailgun, región UE (envío
+        de correos de verificación y recuperación). No vendemos ni cedemos tus datos a nadie.
+      </p>
+    </section>
+
+    <section class="space-y-2">
+      <h2 class="font-serif text-xl font-semibold">Cuánto tiempo</h2>
+      <p>
+        Mientras tu cuenta exista. Si la eliminas, tu estantería y tus datos de cuenta se borran de
+        forma irreversible (las copias de seguridad rotan en un máximo de 30 días).
+      </p>
+    </section>
+
+    <section class="space-y-2">
+      <h2 class="font-serif text-xl font-semibold">Tus derechos</h2>
+      <p>
+        Puedes ejercer en cualquier momento tus derechos de acceso, rectificación, supresión,
+        portabilidad, limitación y oposición escribiendo a{" "}
+        <a href="mailto:privacy@josearcos.me" class="underline underline-offset-4"
+          >privacy@josearcos.me</a
+        >. La exportación y el borrado de cuenta desde la propia web están en camino. También puedes
+        reclamar ante la Agencia Española de Protección de Datos (aepd.es).
+      </p>
+    </section>
+  </article>
+</Layout>

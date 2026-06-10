@@ -273,10 +273,13 @@ export async function fetchRecord(
  */
 export async function fetchShelf(apiBaseUrl: string, signal?: AbortSignal): Promise<ShelfResponse> {
   // Served at /api/shelf (the tunnel routes /api/* to the backend); a bare
-  // /shelf is the frontend page route, not the API.
+  // /shelf is the frontend page route, not the API. Auth-gated since the
+  // identity milestone: the session cookie must travel (`include` matters
+  // in dev, where the dev server and API are different origins).
   const url = new URL("/api/shelf", apiBaseUrl);
   const response = await fetch(url.toString(), {
     headers: { Accept: "application/json" },
+    credentials: "include",
     ...(signal ? { signal } : {}),
   });
   if (!response.ok) {
@@ -284,6 +287,57 @@ export async function fetchShelf(apiBaseUrl: string, signal?: AbortSignal): Prom
   }
   const json: unknown = await response.json();
   return ShelfResponseSchema.parse(json);
+}
+
+// ── Shelf imports (background jobs) ──────────────────────────────────
+
+/** Mirrors backend `ImportJobSchema` — polled while the worker matches. */
+export const ImportJobSchema = z.object({
+  id: z.string(),
+  status: z.enum(["queued", "running", "done", "failed"]).catch("queued"),
+  filename: z.string().nullable().optional(),
+  total: z.number().int().nullable().optional(),
+  inserted: z.number().int().nullable().optional(),
+  updated: z.number().int().nullable().optional(),
+  matched_isbn: z.number().int().nullable().optional(),
+  matched_title_author: z.number().int().nullable().optional(),
+  unmatched: z.number().int().nullable().optional(),
+  error: z.string().nullable().optional(),
+});
+export type ImportJob = z.infer<typeof ImportJobSchema>;
+
+/** `POST /api/shelf/import` — upload a Goodreads CSV; returns the queued job. */
+export async function uploadShelfCsv(apiBaseUrl: string, file: File): Promise<ImportJob> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(new URL("/api/shelf/import", apiBaseUrl).toString(), {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new CatalogApiError(response.status, await readDetail(response));
+  }
+  const json: unknown = await response.json();
+  return ImportJobSchema.parse(json);
+}
+
+/** `GET /api/shelf/import/{id}` — job status (404 for other users' jobs). */
+export async function fetchImportJob(
+  apiBaseUrl: string,
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<ImportJob> {
+  const response = await fetch(new URL(`/api/shelf/import/${jobId}`, apiBaseUrl).toString(), {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+    ...(signal ? { signal } : {}),
+  });
+  if (!response.ok) {
+    throw new CatalogApiError(response.status, await readDetail(response));
+  }
+  const json: unknown = await response.json();
+  return ImportJobSchema.parse(json);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────

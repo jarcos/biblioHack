@@ -20,6 +20,10 @@ COPY frontend/ ./
 # during `pnpm build`, not just at runtime.
 ARG PUBLIC_API_BASE_URL=http://localhost:8800
 ENV PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL}
+# Turnstile site key (register/login bot protection). Empty = widget hidden,
+# matching the backend's disabled check when its secret is unset.
+ARG PUBLIC_TURNSTILE_SITE_KEY=
+ENV PUBLIC_TURNSTILE_SITE_KEY=${PUBLIC_TURNSTILE_SITE_KEY}
 
 RUN pnpm build
 

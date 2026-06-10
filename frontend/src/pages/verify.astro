@@ -1,0 +1,17 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { VerifyEmail } from "@/components/auth/VerifyEmail";
+
+const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+---
+
+<Layout title="biblioHack — verificar correo">
+  <section class="mx-auto max-w-md space-y-8">
+    <header class="space-y-3">
+      <h1 class="font-serif text-3xl font-semibold leading-tight tracking-tight">
+        Verificación de correo
+      </h1>
+    </header>
+    <VerifyEmail apiBaseUrl={apiBaseUrl} client:only="react" />
+  </section>
+</Layout>

@@ -173,6 +173,9 @@ services:
         # Astro inlines PUBLIC_* at build time, so the public API base URL must
         # be baked here. Same-origin path routing (/api/*) means no CORS.
         PUBLIC_API_BASE_URL: https://biblio.josearcos.me
+        # Turnstile widget appears once this is set (set TURNSTILE_SECRET on
+        # the api in lockstep).
+        PUBLIC_TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
     container_name: bibliohack-frontend
     restart: unless-stopped
     environment:

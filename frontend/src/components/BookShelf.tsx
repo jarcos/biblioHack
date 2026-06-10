@@ -58,8 +58,8 @@ function BookShelfInner({ apiBaseUrl }: Props): ReactElement {
   if (data.counts.total === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Tu estantería está vacía. Importa tu biblioteca de Goodreads con{" "}
-        <code>bibliohack shelf import</code>.
+        Tu estantería está vacía. Exporta tu biblioteca de Goodreads (Export Library, CSV) y usa el
+        botón «Importar CSV de Goodreads» de arriba.
       </p>
     );
   }

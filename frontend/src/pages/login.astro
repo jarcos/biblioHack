@@ -1,0 +1,16 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { LoginForm } from "@/components/auth/LoginForm";
+
+const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
+---
+
+<Layout title="biblioHack — iniciar sesión">
+  <section class="mx-auto max-w-md space-y-8">
+    <header class="space-y-3">
+      <h1 class="font-serif text-3xl font-semibold leading-tight tracking-tight">Iniciar sesión</h1>
+    </header>
+    <LoginForm apiBaseUrl={apiBaseUrl} turnstileSiteKey={turnstileSiteKey} client:only="react" />
+  </section>
+</Layout>

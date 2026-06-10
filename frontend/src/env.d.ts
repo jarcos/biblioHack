@@ -4,6 +4,8 @@ import type {} from "../.astro/types.d.ts";
 
 interface ImportMetaEnv {
   readonly PUBLIC_API_BASE_URL: string;
+  /** Cloudflare Turnstile site key; empty/unset disables the widget. */
+  readonly PUBLIC_TURNSTILE_SITE_KEY?: string;
 }
 
 interface ImportMeta {
