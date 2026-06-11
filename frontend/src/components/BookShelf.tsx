@@ -1,32 +1,19 @@
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { type ReactElement } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { CatalogApiError, fetchShelf, type ShelfEntry } from "@infrastructure/api/catalog";
 
 /**
- * BookShelf — the imported Goodreads library, grouped by shelf. Mounted as a
- * `client:only` island. Matched books link to their catalogue record and show
- * cover + live availability; unmatched books still appear (they re-match for
- * free as the catalogue grows).
+ * BookShelf — the imported Goodreads library, grouped by shelf. Matched books
+ * link to their catalogue record and show cover + live availability;
+ * unmatched books still appear (they re-match for free as the catalogue
+ * grows). Expects an ambient QueryClientProvider — ShelfPage owns the client
+ * so the ["shelf"] query is shared with ShelfImport.
  */
 
 interface Props {
   apiBaseUrl: string;
-}
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: { staleTime: 30_000, retry: false, refetchOnWindowFocus: false },
-  },
-});
-
-export function BookShelf({ apiBaseUrl }: Props): ReactElement {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <BookShelfInner apiBaseUrl={apiBaseUrl} />
-    </QueryClientProvider>
-  );
 }
 
 const SHELVES: { key: "read" | "currently_reading" | "to_read"; label: string }[] = [
@@ -35,7 +22,7 @@ const SHELVES: { key: "read" | "currently_reading" | "to_read"; label: string }[
   { key: "to_read", label: "Pendientes" },
 ];
 
-function BookShelfInner({ apiBaseUrl }: Props): ReactElement {
+export function BookShelf({ apiBaseUrl }: Props): ReactElement {
   const { data, error, isFetching, isSuccess } = useQuery({
     queryKey: ["shelf"],
     queryFn: ({ signal }) => fetchShelf(apiBaseUrl, signal),

@@ -1,9 +1,11 @@
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
   CatalogApiError,
   fetchImportJob,
+  fetchShelf,
   uploadShelfCsv,
   type ImportJob,
 } from "@infrastructure/api/catalog";
@@ -14,6 +16,14 @@ import {
  * this polls `GET /api/shelf/import/{id}` every few seconds and reloads
  * the page when the import lands (simplest way to refresh the shelf
  * island's query cache on a static site).
+ *
+ * Once a shelf exists, the uploader collapses to a discreet "re-import"
+ * link — the prominent button is for first-time setup, not everyday UI.
+ * Re-importing is safe by design: the backend upserts on
+ * (user, source, source_book_id), so existing books are updated in place
+ * (to-read → reading → read, new ratings, reviews…), never duplicated.
+ * Expects an ambient QueryClientProvider (ShelfPage owns the client, so
+ * the ["shelf"] query here is the same request BookShelf renders from).
  */
 
 interface Props {
@@ -31,7 +41,15 @@ export function ShelfImport({ apiBaseUrl }: Props): ReactElement {
   const [job, setJob] = useState<ImportJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Once a shelf exists the uploader starts collapsed; the link expands it.
+  const [expanded, setExpanded] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const shelfQuery = useQuery({
+    queryKey: ["shelf"],
+    queryFn: ({ signal }) => fetchShelf(apiBaseUrl, signal),
+  });
+  const hasShelf = (shelfQuery.data?.counts.total ?? 0) > 0;
 
   // Poll while a job is queued/running.
   useEffect(() => {
@@ -85,6 +103,27 @@ export function ShelfImport({ apiBaseUrl }: Props): ReactElement {
     );
   }
 
+  // Don't flash the first-time uploader at returning users: wait for the
+  // shelf query before choosing a layout (BookShelf shows the loading state).
+  if (shelfQuery.isPending) {
+    return <></>;
+  }
+
+  if (hasShelf && !expanded && job?.status !== "failed") {
+    return (
+      <p className="text-xs text-muted-foreground">
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="underline underline-offset-4 transition-colors hover:text-foreground"
+        >
+          Re-importar CSV de Goodreads
+        </button>{" "}
+        — actualiza tus libros (pendiente → leyendo → leído, valoraciones, reseñas) sin duplicarlos.
+      </p>
+    );
+  }
+
   return (
     <div className="space-y-2">
       <input
@@ -101,7 +140,11 @@ export function ShelfImport({ apiBaseUrl }: Props): ReactElement {
           disabled={busy}
           onClick={() => inputRef.current?.click()}
         >
-          {busy ? "Subiendo…" : "Importar CSV de Goodreads"}
+          {busy
+            ? "Subiendo…"
+            : hasShelf
+              ? "Re-importar CSV de Goodreads"
+              : "Importar CSV de Goodreads"}
         </Button>
         {job?.status === "failed" && (
           <span className="text-sm text-destructive">

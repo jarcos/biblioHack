@@ -167,17 +167,21 @@ async def test_upsert_is_idempotent_per_user_and_reports_insert_vs_update(
             isbn_13="9788497592208",
             matched_record_id=isbn_match,
             matched_via=MatchVia.ISBN,
+            shelf=Shelf.TO_READ,
         )
     )
     assert first is True  # inserted
 
+    # A later Goodreads re-import: the same book has moved to-read → read
+    # and gained a rating. The re-import must update in place, not duplicate.
     second = await repo.upsert_entry(
         _entry(
             user_id=uid,
             isbn_13="9788497592208",
             matched_record_id=isbn_match,
             matched_via=MatchVia.ISBN,
-            rating=3,  # changed field
+            shelf=Shelf.READ,
+            rating=3,
         )
     )
     assert second is False  # updated in place, not duplicated
@@ -187,11 +191,14 @@ async def test_upsert_is_idempotent_per_user_and_reports_insert_vs_update(
     count = (
         await seeded.execute(text("SELECT count(*) FROM shelf_entries WHERE source_book_id = 'g1'"))
     ).scalar_one()
-    rating = (
-        await seeded.execute(text("SELECT rating FROM shelf_entries WHERE source_book_id = 'g1'"))
-    ).scalar_one()
+    shelf, rating = (
+        await seeded.execute(
+            text("SELECT shelf, rating FROM shelf_entries WHERE source_book_id = 'g1'")
+        )
+    ).one()
     assert count == 1
-    assert rating == 3  # the update took
+    assert shelf == "read"  # the shelf transition took
+    assert rating == 3  # the rating update took
 
 
 async def test_same_book_lives_independently_on_each_users_shelf(seeded: AsyncSession) -> None:
