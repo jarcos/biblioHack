@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 # TYPE_CHECKING block.
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
+from bibliohack.catalog.application.use_cases.hybrid_search import HybridSearch
 from bibliohack.catalog.application.use_cases.semantic_search import SemanticSearch
 from bibliohack.catalog.domain.literary_profile import SearchScope
 from bibliohack.catalog.domain.titn import Titn
@@ -54,6 +55,7 @@ class SearchMode(StrEnum):
 
     KEYWORD = "keyword"
     SEMANTIC = "semantic"
+    HYBRID = "hybrid"
 
 
 @router.get(
@@ -100,21 +102,34 @@ async def search_catalog(
     ] = SearchScope.LITERARY,
     mode: Annotated[
         SearchMode,
-        Query(description="'keyword' (FTS, default) or 'semantic' (BGE-M3 vector KNN)."),
+        Query(
+            description=(
+                "'keyword' (FTS, default), 'semantic' (BGE-M3 vector KNN) or "
+                "'hybrid' (Reciprocal Rank Fusion of both)."
+            ),
+        ),
     ] = SearchMode.KEYWORD,
 ) -> SearchResponseSchema:
-    """Search the catalogue by keyword (FTS) or meaning (semantic vectors).
+    """Search the catalogue by keyword (FTS), meaning (vectors), or both fused.
 
     `keyword` (default) ranks by `ts_rank_cd` against the `spanish_unaccent`
     tsquery. `semantic` embeds the query with BGE-M3 and ranks by cosine
     distance to record embeddings (pgvector KNN) — finding records by meaning
-    even without a literal term match. If `semantic` is requested but the
-    embedder isn't configured, the response falls back to `keyword` and the
-    `mode` field reports what actually ran. `scope` defaults to `literary`
-    (hides confidently children's/youth or non-fiction); pass `scope=all` for
-    the whole mirror.
+    even without a literal term match. `hybrid` fuses both rankings with
+    Reciprocal Rank Fusion: exact-title precision *and* by-meaning recall;
+    note its pagination is bounded by the fused candidate pool. If `semantic`
+    or `hybrid` is requested but the embedder isn't configured, the response
+    falls back to `keyword` and the `mode` field reports what actually ran.
+    `scope` defaults to `literary` (hides confidently children's/youth or
+    non-fiction); pass `scope=all` for the whole mirror.
     """
     repo = PostgresCatalogReadRepository(session)
+
+    if mode is SearchMode.HYBRID and embedder is not None:
+        page = await HybridSearch(read_repo=repo, embedder=embedder).execute(
+            query=q, limit=limit, offset=offset, scope=scope
+        )
+        return _page_to_schema(page, mode=SearchMode.HYBRID)
 
     if mode is SearchMode.SEMANTIC and embedder is not None:
         page = await SemanticSearch(read_repo=repo, embedder=embedder).execute(
@@ -122,7 +137,7 @@ async def search_catalog(
         )
         return _page_to_schema(page, mode=SearchMode.SEMANTIC)
 
-    # keyword, or semantic requested without an embedder configured → fall back.
+    # keyword, or semantic/hybrid requested without an embedder → fall back.
     page = await repo.search(query=q, limit=limit, offset=offset, scope=scope)
     return _page_to_schema(page, mode=SearchMode.KEYWORD)
 

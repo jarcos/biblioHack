@@ -31,8 +31,9 @@ export const LiteraryFormSchema = z.enum(LITERARY_FORMS).catch("unknown");
 export type SearchScope = "literary" | "all";
 
 /** Search ranking mode — mirrors the backend `SearchMode` query param.
- * `keyword` is FTS; `semantic` ranks by BGE-M3 vector similarity. */
-export type SearchMode = "keyword" | "semantic";
+ * `keyword` is FTS; `semantic` ranks by BGE-M3 vector similarity; `hybrid`
+ * fuses both rankings with Reciprocal Rank Fusion. */
+export type SearchMode = "keyword" | "semantic" | "hybrid";
 
 /** Latest availability of a copy (mirrors backend `AvailabilityStatus`). */
 export const AVAILABILITY_STATUSES = [
@@ -107,7 +108,7 @@ export const SearchResponseSchema = z.object({
    * search is unavailable (no embedder configured) → backend falls back to
    * keyword and reports it here. `.catch("keyword")` tolerates an older backend
    * that doesn't yet send the field. */
-  mode: z.enum(["keyword", "semantic"]).catch("keyword"),
+  mode: z.enum(["keyword", "semantic", "hybrid"]).catch("keyword"),
   total: z.number().int().nonnegative(),
   limit: z.number().int().positive(),
   offset: z.number().int().nonnegative(),
@@ -186,8 +187,9 @@ export interface SearchParams {
    */
   scope?: SearchScope;
   /**
-   * `keyword` (backend default: FTS) or `semantic` (BGE-M3 vector KNN).
-   * Omitted when undefined so the server-side default holds.
+   * `keyword` (backend default: FTS), `semantic` (BGE-M3 vector KNN) or
+   * `hybrid` (RRF fusion of both). Omitted when undefined so the
+   * server-side default holds.
    */
   mode?: SearchMode;
 }
