@@ -62,3 +62,16 @@ def test_exceeded_limit_is_a_429() -> None:
         )
     assert response.status_code == 429
     assert "slow down" in response.json()["detail"]
+
+
+def test_token_consume_endpoints_are_limited() -> None:
+    """verify + password/reset are throttled too — they brute-force the token space."""
+    app = create_app()
+    app.dependency_overrides[get_rate_limiter] = DenyAllLimiter
+    with TestClient(app) as client:
+        verify = client.post("/api/auth/verify", json={"token": "tok"})
+        reset = client.post(
+            "/api/auth/password/reset", json={"token": "tok", "password": "long-enough-pass"}
+        )
+    assert verify.status_code == 429
+    assert reset.status_code == 429

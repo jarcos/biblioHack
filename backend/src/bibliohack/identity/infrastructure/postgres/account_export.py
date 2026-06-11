@@ -73,6 +73,9 @@ class PostgresAccountExporter:
 
         return {
             "format": "bibliohack-account-export/1",
+            # Catalogue-derived fields (matched titles, recommendations) carry
+            # the Junta's CC-BY attribution obligation (ARCHITECTURE §12.1).
+            "attribution": "Información obtenida del Portal de la Junta de Andalucía",
             "account": {
                 "email": user.email,
                 "display_name": user.display_name,

@@ -21,7 +21,7 @@
 
 ## What is this?
 
-The official public-library OPAC (AbsysNET) is great if you already know the title you want. biblioHack flips it around: it keeps a **local, searchable mirror** of the catalogue so you can explore it the way you'd browse a bookshop — search in natural Spanish (accents optional), filter to the literary catalogue, see **which branch has a copy on the shelf right now**, and (on the roadmap) get **recommendations based on what you've already read**.
+The official public-library OPAC (AbsysNET) is great if you already know the title you want. biblioHack flips it around: it keeps a **local, searchable mirror** of the catalogue so you can explore it the way you'd browse a bookshop — search in natural Spanish (accents optional), filter to the literary catalogue, see **which branch has a copy on the shelf right now**, import your Goodreads shelf, and get **recommendations based on what you've already read**.
 
 It's also a study in doing this **politely and sustainably**: a rate-limited crawler that's a good citizen of a public system, a history-preserving availability time-series, and a clean hexagonal codebase.
 
@@ -32,13 +32,17 @@ It's also a study in doing this **politely and sustainably**: a rate-limited cra
 - 🟢 **Live availability by branch** — a history-preserving time-series of copies per branch, surfaced as "*N disponibles ahora*" badges.
 - 🖼️ **Book covers** — resolved asynchronously (Open Library → Google Books → placeholder) and served from a content-addressed store, off the crawl path.
 - 🤖 **Autonomous, resumable crawler** — a containerised, scheduled crawler walks the catalogue with a persisted cursor, growing the mirror hour by hour without ever re-scanning from the top.
-- 📊 **Production APM** — OpenTelemetry tracing (FastAPI + asyncpg) exported to Grafana Tempo / SigNoz.
+- 🧠 **Semantic search** — BGE-M3 embeddings in pgvector: `?mode=semantic` queries and "more like this" on every record.
+- 👤 **User accounts** — public registration with email verification, Turnstile bot protection, Redis sessions, rate limiting, and GDPR self-service (data export + account deletion).
+- 📥 **Reading-history import** — upload a Goodreads CSV; a background worker matches it against the catalogue (ISBN-13 first, fuzzy title+author fallback) and your shelf re-matches for free as the mirror grows.
+- ✨ **Per-user recommendations** — a taste profile from your rated shelf drives pgvector retrieval over the catalogue, with optional LLM-written rationales.
+- 📊 **Production APM** — OpenTelemetry tracing (FastAPI + asyncpg + Redis) exported to Grafana Tempo / SigNoz.
 
 ### On the roadmap
 
-- 🧠 **Semantic search & recommender** — BGE-M3 embeddings in pgvector, "more like this" and history-based suggestions.
-- 📥 **Reading-history import** (Goodreads) to seed the recommender.
+- 🔀 **Hybrid retrieval** — fusing keyword and semantic rankings for better search.
 - 🗺️ **Expansion** beyond Huelva to other Andalusian provinces.
+- 📱 **Mobile app** reusing the same API.
 
 ---
 
@@ -156,11 +160,13 @@ Copy `.env.example` to `.env` and adjust as needed. Sensible defaults are provid
 | **M0** | Foundations (scaffold, compose, CI) | ✅ Done |
 | **M1** | Catalogue ingest + accent-insensitive search + literary scoping | ✅ Done |
 | **M2** | Availability history + autonomous resumable crawler | ✅ Done |
-| **M2.5** | Book covers (resolution + content-addressed store) | 🚧 In progress |
-| **M3** | Semantic search (BGE-M3 + pgvector) | ⏳ Planned |
-| **M4** | Reading-history import (Goodreads) | ⏳ Planned |
-| **M5** | Recommender v1 | ⏳ Planned |
-| **M6+** | More provinces · mobile app | ⏳ Planned |
+| **M2.5** | Book covers (resolution + content-addressed store) | ✅ Done |
+| **M3** | Semantic search (BGE-M3 + pgvector) | ✅ Done |
+| **M4** | Reading-history import (Goodreads) | ✅ Done |
+| **M5** | Recommender v1 (user-scoped) | ✅ Done |
+| **Identity** | Public registration, per-user shelves, GDPR self-service, hardening | ✅ Done |
+| **M6.5** | CI/CD auto-deploy (green `main` → NAS) | ✅ Done |
+| **M7+** | Hybrid retrieval · more provinces · mobile app | ⏳ Planned |
 
 Public deploy is **live** at [biblio.josearcos.me](https://biblio.josearcos.me); see [`ARCHITECTURE.md` §11](./ARCHITECTURE.md#11-roadmap-proposed-milestones) for milestone detail.
 
@@ -193,7 +199,7 @@ This is primarily a personal project, but issues, ideas and PRs are welcome. If 
 
 ## Responsible use & data
 
-biblioHack mirrors **public-sector bibliographic data** that belongs to the Junta de Andalucía and the Spanish public-library system, reused under the [Spanish public-sector information rules (Ley 37/2007)](https://www.boe.es/buscar/act.php?id=BOE-A-2007-19814). The crawler identifies itself, throttles every request, and caps its volume so it never burdens the source system. This project is independent and unaffiliated.
+biblioHack mirrors **public-sector bibliographic data** that belongs to the Junta de Andalucía and the Spanish public-library system, reused under the [Spanish public-sector information rules (Ley 37/2007)](https://www.boe.es/buscar/act.php?id=BOE-A-2007-19814). **Información obtenida del Portal de la Junta de Andalucía** (CC-BY 3.0 ES); derivatives of this data must carry the same attribution. The crawler identifies itself, throttles every request, and caps its volume so it never burdens the source system. This project is independent and unaffiliated.
 
 ---
 

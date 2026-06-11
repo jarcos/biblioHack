@@ -29,6 +29,8 @@ dependencies = [
     "opentelemetry-distro[otlp]>=0.50b0",
     "opentelemetry-instrumentation-fastapi>=0.50b0",
     "opentelemetry-instrumentation-asyncpg>=0.50b0",
+    # Sessions + rate limiting ride Redis; this makes them visible in Tempo.
+    "opentelemetry-instrumentation-redis>=0.50b0",
 
     # ───── HTML parsing ─────
     # Used by the catalog parser. Small C-extension; we keep it in core deps

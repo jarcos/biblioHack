@@ -62,6 +62,10 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 register_rate_limit = rate_limit("auth-register", limit=5, window_seconds=3600)
 login_rate_limit = rate_limit("auth-login", limit=10, window_seconds=300)
 reset_request_rate_limit = rate_limit("auth-reset-request", limit=5, window_seconds=3600)
+# Token-consume endpoints: tokens are hashed, single-use and expiring, but an
+# unthrottled endpoint is still a brute-force window over the token space.
+verify_rate_limit = rate_limit("auth-verify", limit=10, window_seconds=300)
+reset_rate_limit = rate_limit("auth-reset", limit=10, window_seconds=300)
 
 _REGISTER_STATUS_FOR_ERROR = {
     RegisterError.REGISTRATION_DISABLED: status.HTTP_403_FORBIDDEN,
@@ -133,7 +137,11 @@ async def register(
     return DetailSchema(detail="account created — check your email to verify it")
 
 
-@router.post("/verify", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/verify",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(verify_rate_limit)],
+)
 async def verify_email(
     payload: VerifyEmailRequestSchema,
     users: Annotated[UserRepository, Depends(get_user_repository)],
@@ -233,7 +241,11 @@ async def password_reset_request(
     return DetailSchema(detail="if that account exists, a reset mail is on its way")
 
 
-@router.post("/password/reset", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/password/reset",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(reset_rate_limit)],
+)
 async def password_reset(
     payload: PasswordResetSchema,
     users: Annotated[UserRepository, Depends(get_user_repository)],
