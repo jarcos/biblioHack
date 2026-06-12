@@ -61,7 +61,7 @@
 </nav>
 
 <main class="wrap">
-  <p class="intro">Status as of <strong>2026-06-12</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps.</p>
+  <p class="intro">Status as of <strong>2026-06-12</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
 
   <div class="board">
 
@@ -130,13 +130,13 @@
 
       <div class="card">
         <h3>Catalogue crawl (autonomous)</h3>
-        <p>18,905 of ~2.66M TITN records mirrored at last check — the supercronic crawler advances hourly within the politeness budget (1 req/s, capped runs). The browse facet counts are the live dashboard.</p>
+        <p>19,480 of ~2.66M TITN records mirrored (2026-06-12, ~4–5k/day) — the supercronic crawler advances hourly within the politeness budget. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
         <div class="meta"><span class="tag t-wip">CONTINUOUS</span></div>
       </div>
 
       <div class="card">
         <h3>Genre coverage (self-healing)</h3>
-        <p>~4.9k records carry a real genre from the CDU backfill; ~14k sit at <code>unknown</code> until their tiered re-scrape re-derives with tejuelo signals. No action needed — improves with every refresh pass.</p>
+        <p>~5k records carry a real genre; the rest re-derive on re-scrape. <strong>Gotcha found 2026-06-12:</strong> the crawler container doesn't ride CD — it needed a manual <code>--build</code> to pick up genre derivation (done). Watch «% known by ingest day» on the dashboard to confirm new records arrive classified.</p>
         <div class="meta"><span class="tag t-wip">CONTINUOUS</span></div>
       </div>
 

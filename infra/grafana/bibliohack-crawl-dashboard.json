@@ -1,0 +1,224 @@
+{
+  "__comment": "biblioHack — crawl & enrichment progress. Provisioned into the NAS grafana-stack (datasource uid bibliohack-pg, a read-only PostgreSQL datasource using the postgres_exporter 'metrics' user). Source of truth lives in the biblioHack repo at infra/grafana/.",
+  "title": "biblioHack — crawl & enrichment",
+  "uid": "bibliohack-crawl",
+  "tags": ["bibliohack"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5m",
+  "time": { "from": "now-14d", "to": "now" },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Records in mirror",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) AS records FROM bibliographic_records"
+        }
+      ],
+      "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "TITN space covered",
+      "description": "scrape_tasks seen vs the probed TITN high-water mark (2,662,739)",
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(100.0 * count(*) / 2662739, 2) AS pct FROM scrape_tasks"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 2 }, "overrides": [] },
+      "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "gauge",
+      "title": "Genre known",
+      "description": "Records with a CDU/tejuelo-derived genre (≠ unknown). Self-heals as re-scrapes run.",
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE genre <> 'unknown') / greatest(count(*), 1), 1) AS pct FROM bibliographic_records"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 25 },
+              { "color": "green", "value": 60 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "gauge",
+      "title": "Embeddings backfilled",
+      "description": "BGE-M3 vectors present (semantic/hybrid search quality). Backfill runs every 3h on the crawler plane.",
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(100.0 * count(embedding) / greatest(count(*), 1), 1) AS pct FROM bibliographic_records"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "green", "value": 80 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Crawl state (scrape_tasks)",
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT status, count(*) AS n FROM scrape_tasks GROUP BY status ORDER BY n DESC"
+        }
+      ],
+      "options": { "displayMode": "gradient", "orientation": "horizontal" }
+    },
+    {
+      "type": "timeseries",
+      "title": "Records added per day",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('day', first_seen_at) AS \"time\", count(*) AS \"records\" FROM bibliographic_records WHERE $__timeFilter(first_seen_at) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Mirror size (cumulative)",
+      "description": "Whole history — ignores the dashboard time range.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT bucket AS \"time\", sum(n) OVER (ORDER BY bucket) AS \"total records\" FROM (SELECT date_trunc('day', first_seen_at) AS bucket, count(*) AS n FROM bibliographic_records GROUP BY 1) s ORDER BY bucket"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 15 } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "piechart",
+      "title": "Genre distribution",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 13 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT genre, count(*) AS n FROM bibliographic_records GROUP BY genre ORDER BY n DESC"
+        }
+      ],
+      "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value"] } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Availability snapshots per hour",
+      "description": "The 6-hourly refresh job's heartbeat.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 13 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', observed_at) AS \"time\", count(*) AS \"snapshots\" FROM availability_snapshots WHERE $__timeFilter(observed_at) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "table",
+      "title": "Recent crawl failures",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 13 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT titn, attempt_count, left(coalesce(last_error, ''), 80) AS last_error, last_attempted_at FROM scrape_tasks WHERE status = 'failed' ORDER BY last_attempted_at DESC NULLS LAST LIMIT 12"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Shelf imports (background jobs)",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 21 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT status, filename, total, inserted, updated, unmatched, created_at, finished_at FROM import_jobs ORDER BY created_at DESC LIMIT 10"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Genre coverage over time (records with genre, by first_seen day)",
+      "description": "Approximation: groups current genre by ingest day — shows whether NEW records arrive classified (post-2026-06-12 crawler).",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 21 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('day', first_seen_at) AS \"time\", round(100.0 * count(*) FILTER (WHERE genre <> 'unknown') / greatest(count(*), 1), 1) AS \"% known\" FROM bibliographic_records WHERE $__timeFilter(first_seen_at) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100 }, "overrides": [] }
+    }
+  ]
+}
