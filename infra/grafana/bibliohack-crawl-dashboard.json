@@ -110,7 +110,11 @@
           "rawSql": "SELECT status, count(*) AS n FROM scrape_tasks GROUP BY status ORDER BY n DESC"
         }
       ],
-      "options": { "displayMode": "gradient", "orientation": "horizontal" }
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "values": true, "calcs": [], "fields": "" }
+      }
     },
     {
       "type": "timeseries",
@@ -159,7 +163,11 @@
           "rawSql": "SELECT genre, count(*) AS n FROM bibliographic_records GROUP BY genre ORDER BY n DESC"
         }
       ],
-      "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value"] } }
+      "options": {
+        "pieType": "donut",
+        "reduceOptions": { "values": true, "calcs": [], "fields": "" },
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value"] }
+      }
     },
     {
       "type": "timeseries",
