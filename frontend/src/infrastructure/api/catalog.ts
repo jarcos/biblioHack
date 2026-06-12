@@ -35,6 +35,11 @@ export type SearchScope = "literary" | "all";
  * fuses both rankings with Reciprocal Rank Fusion. */
 export type SearchMode = "keyword" | "semantic" | "hybrid";
 
+/** Coarse genre (mirrors backend `Genre`, derived from CDU + tejuelos). */
+export const GENRES = ["narrative", "poetry", "drama", "essay", "comic", "unknown"] as const;
+export type Genre = (typeof GENRES)[number];
+export const GenreSchema = z.enum(GENRES).catch("unknown");
+
 /** Latest availability of a copy (mirrors backend `AvailabilityStatus`). */
 export const AVAILABILITY_STATUSES = [
   "available",
@@ -79,6 +84,7 @@ export const CatalogRecordSchema = z.object({
   classification: z.string().nullable().optional(),
   audience: AudienceSchema,
   literary_form: LiteraryFormSchema,
+  genre: GenreSchema,
   authors: z.array(z.string()),
   subjects: z.array(z.string()),
   isbns: z.array(z.string()),
@@ -97,6 +103,7 @@ export const CatalogRecordSummarySchema = z.object({
   copies_count: z.number().int().nonnegative(),
   audience: AudienceSchema,
   literary_form: LiteraryFormSchema,
+  genre: GenreSchema,
   available_count: z.number().int().nonnegative().catch(0),
   cover: CoverSchema.nullable().optional().catch(null),
 });
@@ -116,6 +123,31 @@ export const SearchResponseSchema = z.object({
   items: z.array(CatalogRecordSummarySchema),
 });
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
+
+// ── Catalogue navigator (browse + authors) ───────────────────────────
+
+export const FacetCountSchema = z.object({
+  value: z.string(),
+  count: z.number().int().nonnegative(),
+});
+export type FacetCount = z.infer<typeof FacetCountSchema>;
+
+/** Mirrors backend `BrowseResponseSchema`. `facets` maps a dimension
+ * (genre / language / audience / literary_form) to its value counts. */
+export const BrowseResponseSchema = z.object({
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+  has_more: z.boolean(),
+  items: z.array(CatalogRecordSummarySchema),
+  facets: z.record(z.string(), z.array(FacetCountSchema)).catch({}),
+});
+export type BrowseResponse = z.infer<typeof BrowseResponseSchema>;
+
+export const AuthorsResponseSchema = z.object({
+  items: z.array(z.object({ name: z.string(), records: z.number().int().nonnegative() })),
+});
+export type AuthorsResponse = z.infer<typeof AuthorsResponseSchema>;
 
 /** Mirrors backend `SimilarResponseSchema` ("más como este"). */
 export const SimilarResponseSchema = z.object({
@@ -220,6 +252,74 @@ export async function searchCatalog(
   }
   const json: unknown = await response.json();
   return SearchResponseSchema.parse(json);
+}
+
+export interface BrowseParams {
+  author?: string;
+  language?: string;
+  genre?: Genre;
+  audience?: Audience;
+  literaryForm?: LiteraryForm;
+  yearFrom?: number;
+  yearTo?: number;
+  /** Only records with at least one copy on a shelf right now. */
+  available?: boolean;
+  sort?: "newest" | "title";
+  limit?: number;
+  offset?: number;
+}
+
+/** `GET /catalog/browse` — the faceted catalogue navigator. */
+export async function browseCatalog(
+  apiBaseUrl: string,
+  params: BrowseParams,
+  signal?: AbortSignal,
+): Promise<BrowseResponse> {
+  const url = new URL("/catalog/browse", apiBaseUrl);
+  const qp: Record<string, string | undefined> = {
+    author: params.author,
+    language: params.language,
+    genre: params.genre,
+    audience: params.audience,
+    literary_form: params.literaryForm,
+    year_from: params.yearFrom !== undefined ? String(params.yearFrom) : undefined,
+    year_to: params.yearTo !== undefined ? String(params.yearTo) : undefined,
+    available: params.available ? "true" : undefined,
+    sort: params.sort,
+    limit: params.limit !== undefined ? String(params.limit) : undefined,
+    offset: params.offset !== undefined ? String(params.offset) : undefined,
+  };
+  for (const [key, value] of Object.entries(qp)) {
+    if (value !== undefined) url.searchParams.set(key, value);
+  }
+  const response = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+    ...(signal ? { signal } : {}),
+  });
+  if (!response.ok) {
+    throw new CatalogApiError(response.status, await readDetail(response));
+  }
+  const json: unknown = await response.json();
+  return BrowseResponseSchema.parse(json);
+}
+
+/** `GET /catalog/authors` — author directory, optionally filtered by substring. */
+export async function fetchAuthors(
+  apiBaseUrl: string,
+  q?: string,
+  signal?: AbortSignal,
+): Promise<AuthorsResponse> {
+  const url = new URL("/catalog/authors", apiBaseUrl);
+  if (q !== undefined && q.length >= 2) url.searchParams.set("q", q);
+  const response = await fetch(url.toString(), {
+    headers: { Accept: "application/json" },
+    ...(signal ? { signal } : {}),
+  });
+  if (!response.ok) {
+    throw new CatalogApiError(response.status, await readDetail(response));
+  }
+  const json: unknown = await response.json();
+  return AuthorsResponseSchema.parse(json);
 }
 
 /**

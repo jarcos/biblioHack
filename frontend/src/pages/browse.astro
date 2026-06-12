@@ -1,0 +1,23 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { BrowsePage } from "@/components/BrowsePage";
+
+const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+---
+
+<Layout title="biblioHack — explorar el catálogo">
+  <section class="space-y-8">
+    <header class="max-w-3xl space-y-3">
+      <h1 class="font-serif text-3xl font-semibold leading-tight tracking-tight">
+        Explorar el catálogo
+      </h1>
+      <p class="text-base text-muted-foreground">
+        Navega el espejo completo por género, autor, idioma, año y disponibilidad. Los contadores
+        reflejan lo que ya hemos recolectado del catálogo de la Red de Bibliotecas de Andalucía —
+        crece cada hora.
+      </p>
+    </header>
+
+    <BrowsePage apiBaseUrl={apiBaseUrl} client:only="react" />
+  </section>
+</Layout>

@@ -1,4 +1,4 @@
-import type { Audience, LiteraryForm } from "@infrastructure/api/catalog";
+import type { Audience, Genre, LiteraryForm } from "@infrastructure/api/catalog";
 
 /**
  * Presentation helpers for the literary profile (audience + form). The
@@ -19,6 +19,19 @@ const FORM_LABELS: Record<LiteraryForm, string> = {
   nonfiction: "No ficción",
   unknown: "Sin clasificar",
 };
+
+const GENRE_LABELS: Record<Genre, string> = {
+  narrative: "Narrativa",
+  poetry: "Poesía",
+  drama: "Teatro",
+  essay: "Ensayo",
+  comic: "Cómic",
+  unknown: "Sin clasificar",
+};
+
+export function genreLabel(genre: string): string {
+  return GENRE_LABELS[genre as Genre] ?? GENRE_LABELS.unknown;
+}
 
 export function audienceLabel(audience: string): string {
   return AUDIENCE_LABELS[audience as Audience] ?? AUDIENCE_LABELS.unknown;

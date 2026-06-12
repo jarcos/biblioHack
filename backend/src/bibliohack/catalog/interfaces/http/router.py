@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
 from bibliohack.catalog.application.use_cases.hybrid_search import HybridSearch
 from bibliohack.catalog.application.use_cases.semantic_search import SemanticSearch
-from bibliohack.catalog.domain.literary_profile import SearchScope
+from bibliohack.catalog.domain.literary_profile import Audience, Genre, LiteraryForm, SearchScope
 from bibliohack.catalog.domain.titn import Titn
 
 # HuggingFaceEmbedder is imported at runtime for the same FastAPI type-hint
@@ -31,10 +31,14 @@ from bibliohack.catalog.infrastructure.postgres.catalog_read_repository import (
     PostgresCatalogReadRepository,
 )
 from bibliohack.catalog.interfaces.http.schemas import (
+    AuthorCountSchema,
+    AuthorsResponseSchema,
+    BrowseResponseSchema,
     CatalogRecordSchema,
     CatalogRecordSummarySchema,
     CopySchema,
     CoverSchema,
+    FacetCountSchema,
     SearchResponseSchema,
     SimilarResponseSchema,
 )
@@ -56,6 +60,13 @@ class SearchMode(StrEnum):
     KEYWORD = "keyword"
     SEMANTIC = "semantic"
     HYBRID = "hybrid"
+
+
+class BrowseSort(StrEnum):
+    """Ordering for /catalog/browse."""
+
+    NEWEST = "newest"
+    TITLE = "title"
 
 
 @router.get(
@@ -140,6 +151,81 @@ async def search_catalog(
     # keyword, or semantic/hybrid requested without an embedder → fall back.
     page = await repo.search(query=q, limit=limit, offset=offset, scope=scope)
     return _page_to_schema(page, mode=SearchMode.KEYWORD)
+
+
+@router.get(
+    "/browse",
+    response_model=BrowseResponseSchema,
+)
+async def browse_catalog(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    author: Annotated[
+        str | None, Query(description="Exact contributor name, as returned by /catalog/authors.")
+    ] = None,
+    language: Annotated[str | None, Query(max_length=16)] = None,
+    genre: Annotated[Genre | None, Query()] = None,
+    audience: Annotated[Audience | None, Query()] = None,
+    literary_form: Annotated[LiteraryForm | None, Query()] = None,
+    year_from: Annotated[int | None, Query(ge=0, le=2100)] = None,
+    year_to: Annotated[int | None, Query(ge=0, le=2100)] = None,
+    available: Annotated[
+        bool, Query(description="Only records with at least one copy on a shelf right now.")
+    ] = False,
+    sort: Annotated[BrowseSort, Query()] = BrowseSort.NEWEST,
+    limit: Annotated[int, Query(ge=1, le=100)] = 24,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> BrowseResponseSchema:
+    """The catalogue navigator: filter + facet the whole mirror, no query needed.
+
+    Covers the full mirror (no implicit literary scope — the audience and
+    literary-form facets are the explicit levers here). Facet counts are
+    computed per dimension over the other active filters, so picking a value
+    never zeroes out its siblings.
+    """
+    repo = PostgresCatalogReadRepository(session)
+    page = await repo.browse(
+        author=author,
+        language=language,
+        genre=genre.value if genre is not None else None,
+        audience=audience.value if audience is not None else None,
+        literary_form=literary_form.value if literary_form is not None else None,
+        year_from=year_from,
+        year_to=year_to,
+        available_only=available,
+        sort=sort.value,
+        limit=limit,
+        offset=offset,
+    )
+    return BrowseResponseSchema(
+        total=page.total,
+        limit=page.limit,
+        offset=page.offset,
+        has_more=page.has_more,
+        items=[_summary_to_schema(item) for item in page.items],
+        facets={
+            dim: [FacetCountSchema(value=f.value, count=f.count) for f in counts]
+            for dim, counts in page.facets.items()
+        },
+    )
+
+
+@router.get(
+    "/authors",
+    response_model=AuthorsResponseSchema,
+)
+async def list_authors(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    q: Annotated[
+        str | None, Query(min_length=2, max_length=120, description="Substring of the name.")
+    ] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 30,
+) -> AuthorsResponseSchema:
+    """Author directory — distinct names with record counts, most-represented first."""
+    repo = PostgresCatalogReadRepository(session)
+    authors = await repo.authors(query=q, limit=limit)
+    return AuthorsResponseSchema(
+        items=[AuthorCountSchema(name=a.name, records=a.records) for a in authors]
+    )
 
 
 @router.get(

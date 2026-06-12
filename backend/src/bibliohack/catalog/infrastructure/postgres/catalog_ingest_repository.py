@@ -33,7 +33,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from bibliohack.availability.domain.snapshot import AvailabilitySnapshot
 from bibliohack.availability.domain.status import map_opac_status
 from bibliohack.catalog.application.ports import IngestResult
-from bibliohack.catalog.domain.literary_profile import classify_literary_profile
+from bibliohack.catalog.domain.literary_profile import classify_literary_profile, derive_genre
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -98,6 +98,10 @@ class PostgresCatalogIngestRepository:
             classification=parsed_record.classification,
             signatures=[copy.signature for copy in parsed_copies],
         )
+        genre = derive_genre(
+            classification=parsed_record.classification,
+            signatures=[copy.signature for copy in parsed_copies],
+        )
 
         # ── 1. Upsert the bibliographic record ────────────────
         existing = await self._find_record_by_titn(parsed_record.titn)
@@ -117,6 +121,7 @@ class PostgresCatalogIngestRepository:
                     classification=parsed_record.classification,
                     audience=profile.audience.value,
                     literary_form=profile.form.value,
+                    genre=genre.value,
                     source_url=source_url,
                     source_hash=source_hash,
                     authors_text=authors_text,
@@ -133,6 +138,7 @@ class PostgresCatalogIngestRepository:
             existing.classification = parsed_record.classification
             existing.audience = profile.audience.value
             existing.literary_form = profile.form.value
+            existing.genre = genre.value
             existing.source_url = source_url
             existing.source_hash = source_hash
             existing.authors_text = authors_text

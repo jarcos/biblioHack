@@ -78,6 +78,26 @@ class LiteraryForm(StrEnum):
     UNKNOWN = "unknown"
 
 
+class Genre(StrEnum):
+    """Coarse literary genre, derived from CDU form divisions + tejuelos.
+
+    MARC subject headings (T650/655) are too sparse in this catalogue to
+    carry a genre facet, so we derive one from the signals we *do* have:
+    the CDU form division after a literature class (``821.134.2-1`` → ``-1``
+    poetry) and the copy signature section letters (``N``/``P``/``T``).
+    Same philosophy as the rest of this module: classify, don't discard;
+    ``UNKNOWN`` is an honest first-class value, re-derivable without a
+    re-crawl.
+    """
+
+    NARRATIVE = "narrative"  # novela y toda la ficción narrativa
+    POETRY = "poetry"
+    DRAMA = "drama"  # teatro
+    ESSAY = "essay"  # ensayo literario (CDU -4)
+    COMIC = "comic"  # CDU 741.5
+    UNKNOWN = "unknown"
+
+
 class SearchScope(StrEnum):
     """Which slice of the catalogue a read should cover.
 
@@ -153,6 +173,75 @@ def classify_literary_profile(
         forms.add(form)
 
     return LiteraryProfile(audience=_resolve_audience(audiences), form=_resolve_form(forms))
+
+
+def derive_genre(
+    *,
+    classification: str | None,
+    signatures: Iterable[str | None] = (),
+) -> Genre:
+    """Coarse genre from the CDU form division, falling back to tejuelos.
+
+    The CDU wins when it speaks — it's the cataloguer's explicit intent
+    (``821.134.2-3…`` is narrative whatever room a copy sits in). Signatures
+    only break the tie when the CDU is silent, with NARRATIVE preferred on
+    conflict (the overwhelmingly common case). Comics are recognised by the
+    CDU ``741.5`` class, which sits outside the 82… literature range.
+    """
+    from_cdu = _genre_from_cdu(classification)
+    if from_cdu is not Genre.UNKNOWN:
+        return from_cdu
+
+    signals: set[Genre] = set()
+    for signature in signatures:
+        genre = _genre_from_signature(signature)
+        if genre is not Genre.UNKNOWN:
+            signals.add(genre)
+    for candidate in (Genre.NARRATIVE, Genre.POETRY, Genre.DRAMA, Genre.COMIC):
+        if candidate in signals:
+            return candidate
+    return Genre.UNKNOWN
+
+
+# CDU form division right after a literature class: '821.134.2-31"19"' → '3'.
+# Accepts both modern 82… and legacy 86… (860 Spanish-literature) classes.
+_CDU_GENRE_RE = re.compile(r"^8[26][\d.]*-(\d)")
+
+
+def _genre_from_cdu(classification: str | None) -> Genre:
+    if not classification:
+        return Genre.UNKNOWN
+    code = classification.strip()
+    if code.startswith("741.5"):
+        return Genre.COMIC
+    match = _CDU_GENRE_RE.match(code)
+    if match is None:
+        return Genre.UNKNOWN
+    return {
+        "1": Genre.POETRY,
+        "2": Genre.DRAMA,
+        "3": Genre.NARRATIVE,
+        "4": Genre.ESSAY,
+    }.get(match.group(1), Genre.UNKNOWN)
+
+
+def _genre_from_signature(signature: str | None) -> Genre:
+    if not signature:
+        return Genre.UNKNOWN
+    match = _SIG_TOKEN_RE.match(signature.strip())
+    if match is None:
+        return Genre.UNKNOWN
+    parts = match.group(1).upper().split("-")
+    head = parts[0]
+    if head == "N" or "N" in parts[1:]:  # adult narrativa, or an I-N / J-N arm
+        return Genre.NARRATIVE
+    if head == "P":
+        return Genre.POETRY
+    if head == "T":
+        return Genre.DRAMA
+    if head == "C":  # cómic section (RBPA); single letter only — "CO…" stays out
+        return Genre.COMIC if len(parts) == 1 and len(head) == 1 else Genre.UNKNOWN
+    return Genre.UNKNOWN
 
 
 # ───────────────────────────────────────────────────────────────

@@ -11,10 +11,12 @@ from bibliohack.catalog.domain.contributor import Contributor, ContributorRole
 from bibliohack.catalog.domain.isbn import Isbn
 from bibliohack.catalog.domain.literary_profile import (
     Audience,
+    Genre,
     LiteraryForm,
     LiteraryProfile,
     SearchScope,
     classify_literary_profile,
+    derive_genre,
 )
 from bibliohack.catalog.domain.record import (
     BibliographicRecord,
@@ -28,10 +30,12 @@ __all__ = [
     "BibliographicRecordId",
     "Contributor",
     "ContributorRole",
+    "Genre",
     "Isbn",
     "LiteraryForm",
     "LiteraryProfile",
     "SearchScope",
     "Titn",
     "classify_literary_profile",
+    "derive_genre",
 ]

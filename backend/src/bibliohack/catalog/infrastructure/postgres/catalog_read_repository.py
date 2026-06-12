@@ -10,7 +10,7 @@ layer maps DTOs to Pydantic schemas without ever importing SQLAlchemy.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import selectinload
@@ -18,10 +18,13 @@ from sqlalchemy.orm import selectinload
 from bibliohack.availability.domain.status import AvailabilityStatus
 from bibliohack.availability.infrastructure.postgres.models import AvailabilitySnapshotModel
 from bibliohack.catalog.application.dto import (
+    AuthorCount,
+    BrowsePage,
     CatalogRecordSummary,
     CatalogRecordView,
     CopyView,
     CoverView,
+    FacetCount,
     SearchPage,
 )
 from bibliohack.catalog.domain.literary_profile import (
@@ -31,6 +34,7 @@ from bibliohack.catalog.domain.literary_profile import (
 )
 from bibliohack.catalog.infrastructure.postgres.models import (
     BibliographicRecordModel,
+    ContributorModel,
     IsbnModel,
 )
 from bibliohack.covers.infrastructure.postgres.models import CoverModel
@@ -40,6 +44,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.sql.elements import ColumnElement
 
     from bibliohack.catalog.domain.titn import Titn
 
@@ -115,6 +120,7 @@ class PostgresCatalogReadRepository:
             classification=record.classification,
             audience=record.audience,
             literary_form=record.literary_form,
+            genre=record.genre,
             authors=tuple(c.name for c in record.contributors if c.role == "author"),
             subjects=tuple(s.subject for s in record.subjects),
             isbns=tuple(i.isbn for i in record.isbns),
@@ -231,6 +237,162 @@ class PostgresCatalogReadRepository:
             total=int(total),
             limit=capped_limit,
             offset=capped_offset,
+        )
+
+    async def browse(
+        self,
+        *,
+        author: str | None = None,
+        language: str | None = None,
+        genre: str | None = None,
+        audience: str | None = None,
+        literary_form: str | None = None,
+        year_from: int | None = None,
+        year_to: int | None = None,
+        available_only: bool = False,
+        sort: str = "newest",
+        limit: int = 20,
+        offset: int = 0,
+    ) -> BrowsePage:
+        """Faceted catalogue navigator (no query string — filters + facets).
+
+        Unlike search, browse covers the WHOLE mirror by default: the facets
+        (genre / language / audience / literary_form) give the user the
+        scoping levers explicitly, and the counts double as a view of how far
+        the crawl has got. Facet counts follow the standard faceted-navigation
+        contract: each dimension's counts are computed with every active
+        filter EXCEPT its own, so selecting a value never zeroes its siblings.
+        """
+        capped_limit = max(1, min(limit, _MAX_SEARCH_LIMIT))
+        capped_offset = max(0, offset)
+
+        filters = {
+            "author": author,
+            "language": language,
+            "genre": genre,
+            "audience": audience,
+            "literary_form": literary_form,
+        }
+
+        def filtered(exclude: str | None = None) -> Select:  # type: ignore[type-arg]
+            stmt = select(BibliographicRecordModel)
+            if filters["author"] is not None and exclude != "author":
+                stmt = stmt.where(
+                    select(ContributorModel.record_id)
+                    .where(
+                        ContributorModel.record_id == BibliographicRecordModel.id,
+                        ContributorModel.role == "author",
+                        ContributorModel.name == filters["author"],
+                    )
+                    .exists()
+                )
+            for column_name in ("language", "genre", "audience", "literary_form"):
+                value = filters[column_name]
+                if value is not None and exclude != column_name:
+                    stmt = stmt.where(getattr(BibliographicRecordModel, column_name) == value)
+            if year_from is not None:
+                stmt = stmt.where(BibliographicRecordModel.pub_year >= year_from)
+            if year_to is not None:
+                stmt = stmt.where(BibliographicRecordModel.pub_year <= year_to)
+            if available_only:
+                latest = (
+                    select(
+                        AvailabilitySnapshotModel.copy_id.label("copy_id"),
+                        AvailabilitySnapshotModel.status.label("status"),
+                    )
+                    .distinct(AvailabilitySnapshotModel.copy_id)
+                    .order_by(
+                        AvailabilitySnapshotModel.copy_id,
+                        AvailabilitySnapshotModel.observed_at.desc(),
+                    )
+                    .subquery()
+                )
+                stmt = stmt.where(
+                    select(CopyModel.id)
+                    .join(latest, latest.c.copy_id == CopyModel.id)
+                    .where(
+                        CopyModel.record_id == BibliographicRecordModel.id,
+                        latest.c.status == AvailabilityStatus.AVAILABLE.value,
+                    )
+                    .exists()
+                )
+            return stmt
+
+        base_q = filtered()
+        total = (
+            await self._session.execute(select(func.count()).select_from(base_q.subquery()))
+        ).scalar_one()
+
+        order: tuple[ColumnElement[Any], ...]
+        if sort == "title":
+            order = (BibliographicRecordModel.title.asc(), BibliographicRecordModel.titn.asc())
+        else:  # "newest" (default)
+            order = (
+                BibliographicRecordModel.pub_year.desc().nulls_last(),
+                BibliographicRecordModel.titn.desc(),
+            )
+        page_stmt = (
+            base_q.options(selectinload(BibliographicRecordModel.contributors))
+            .order_by(*order)
+            .limit(capped_limit)
+            .offset(capped_offset)
+        )
+        rows = (await self._session.execute(page_stmt)).scalars().all()
+        items = await self._summarize(rows)
+
+        facets: dict[str, tuple[FacetCount, ...]] = {}
+        for dim in ("genre", "language", "audience", "literary_form"):
+            column = getattr(BibliographicRecordModel, dim)
+            eligible_ids = (
+                filtered(exclude=dim).with_only_columns(BibliographicRecordModel.id).subquery()
+            )
+            facet_stmt = (
+                select(column, func.count())
+                .where(
+                    BibliographicRecordModel.id.in_(select(eligible_ids.c.id)),
+                    column.is_not(None),
+                )
+                .group_by(column)
+                .order_by(func.count().desc(), column.asc())
+                .limit(30)
+            )
+            facets[dim] = tuple(
+                FacetCount(value=str(value), count=int(n))
+                for value, n in (await self._session.execute(facet_stmt)).all()
+            )
+
+        return BrowsePage(
+            items=items,
+            total=int(total),
+            limit=capped_limit,
+            offset=capped_offset,
+            facets=facets,
+        )
+
+    async def authors(
+        self, *, query: str | None = None, limit: int = 30
+    ) -> tuple[AuthorCount, ...]:
+        """Author directory: distinct contributor names with record counts.
+
+        With `query`, filters by case-insensitive substring (served by the
+        existing trigram index on contributor names); without it, returns the
+        most-represented authors in the mirror.
+        """
+        capped_limit = max(1, min(limit, _MAX_SEARCH_LIMIT))
+        records = func.count(func.distinct(ContributorModel.record_id))
+        stmt = (
+            select(ContributorModel.name, records)
+            .where(ContributorModel.role == "author")
+            .group_by(ContributorModel.name)
+            .order_by(records.desc(), ContributorModel.name.asc())
+            .limit(capped_limit)
+        )
+        if query:
+            escaped = query.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+            stmt = stmt.where(ContributorModel.name.ilike(f"%{escaped}%", escape="\\"))
+        return tuple(
+            AuthorCount(name=name, records=int(n))
+            for name, n in (await self._session.execute(stmt)).all()
         )
 
     async def semantic_search(
@@ -432,6 +594,7 @@ class PostgresCatalogReadRepository:
                 copies_count=copies_count_by_id.get(r.id, 0),
                 audience=r.audience,
                 literary_form=r.literary_form,
+                genre=r.genre,
                 available_count=available_count_by_id.get(r.id, 0),
                 cover=covers_by_id.get(r.id),
             )

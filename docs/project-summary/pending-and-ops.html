@@ -52,23 +52,31 @@
 
   <p>Everything not done as of 2026-06-10, ordered roughly by how soon it should bite. Items marked <span class="badge b-ops">OPS</span> need a human (José) rather than code.</p>
 
+  <h2>Catalog navigator — project requirement (added 2026-06-11, in progress)</h2>
+  <div class="panel">
+    <p>The mirror grows hourly but search-only access hides what's already there. Requirement: a <strong><code>/browse</code> faceted navigator</strong> in the frontend. Scope by tier:</p>
+    <p><strong>Tier A (core):</strong> <code>GET /catalog/browse</code> — filters for author (contributors join), language, publication-year range, audience, literary form and "available now"; sort (newest / title / availability); pagination; per-axis facet counts in the response (they double as a crawl-progress dashboard). Frontend <code>/browse</code> page: facet sidebar + paginated card grid reusing the search result cards.</p>
+    <p><strong>Tier B (genre + authors):</strong> a <strong>CDU-derived genre tag</strong> (narrativa / poesía / teatro / cómic / otros) persisted on records — same classify-don't-discard pattern as <code>LiteraryProfile</code>, re-derivable without re-crawl (MARC subject headings are too sparse in this catalogue to carry the facet); <code>GET /catalog/authors</code> author search with record counts feeding an author facet/typeahead.</p>
+    <p><strong>Tier C (deferred):</strong> author country/nationality — requires BNE/Wikidata authority enrichment (a separate project; revisit when the mirror justifies it).</p>
+  </div>
+
   <h2>Near-term follow-ups</h2>
   <table>
     <tr><th>Task</th><th>Detail</th><th>Type</th></tr>
-    <tr><td>Re-import José's shelf</td><td>Phase 2A truncated <code>shelf_entries</code>; register/verify the account, then re-import <code>goodreads_library_export.csv</code> via the new upload UI (or CLI <code>--user-email</code>)</td><td><span class="badge b-ops">OPS</span></td></tr>
+    <tr><td>✓ Re-import José's shelf <em>(done 2026-06-11)</em></td><td>Shelf re-imported; the uploader now collapses to a discreet re-import link, and re-imports upsert in place (no duplicates)</td><td><span class="badge b-ops">OPS</span></td></tr>
     <tr><td><code>privacy@josearcos.me</code> must receive mail</td><td>The legal pages cite it; confirm routing/forwarding actually delivers</td><td><span class="badge b-ops">OPS</span></td></tr>
     <tr><td><code>OPENROUTER_API_KEY</code> in the NAS <code>.env</code></td><td>Without it, recommendation rationales silently stay empty (by design, best-effort)</td><td><span class="badge b-ops">OPS</span></td></tr>
-    <tr><td>Junta attribution string in the footer</td><td>The CC-BY reuse terms require «Información obtenida del Portal de la Junta de Andalucía» visibly. Carried forward from the legal review (ARCHITECTURE §12.1) since before the public deploy — <strong>a compliance item, not polish</strong>. Also belongs in the data-export payload</td><td><span class="badge b-pending">CODE</span></td></tr>
-    <tr><td>schemathesis contract tests</td><td>Named in the Phase 5 plan; the dependency is in <code>pyproject.toml</code> but no test uses it. Target the auth/shelf/account endpoints</td><td><span class="badge b-pending">CODE</span></td></tr>
-    <tr><td><code>opentelemetry-instrumentation-redis</code></td><td>Sessions <em>and</em> rate limiting now ride Redis with no spans; one dependency + zero code makes them visible in Tempo/SigNoz</td><td><span class="badge b-pending">CODE</span></td></tr>
-    <tr><td>Rate-limit <code>verify</code> / <code>reset</code> token-consume endpoints</td><td>Low risk (tokens are hashed, single-use, expiring) but the plan said "<code>/api/auth/*</code>" and these two have no limiter — a brute-force window exists</td><td><span class="badge b-pending">CODE</span></td></tr>
-    <tr><td>README refresh</td><td>"On the roadmap" still lists semantic search, Goodreads import and the recommender — all shipped. The README undersells the project</td><td><span class="badge b-pending">CODE</span></td></tr>
+    <tr><td>✓ Junta attribution string <em>(done 2026-06-11)</em></td><td>«Información obtenida del Portal de la Junta de Andalucía» now in the frontend footer, the README and the GDPR export payload</td><td><span class="badge b-pending">CODE</span></td></tr>
+    <tr><td>✓ schemathesis contract tests <em>(done 2026-06-11)</em></td><td><code>tests/contract/</code> fuzzes /api/auth|account|shelf from the OpenAPI schema — no generated input may 5xx</td><td><span class="badge b-pending">CODE</span></td></tr>
+    <tr><td>✓ <code>opentelemetry-instrumentation-redis</code> <em>(done 2026-06-11)</em></td><td>Session-store + rate-limit Redis calls now traced in Tempo/SigNoz</td><td><span class="badge b-pending">CODE</span></td></tr>
+    <tr><td>✓ Rate-limit <code>verify</code> / <code>reset</code> <em>(done 2026-06-11)</em></td><td>Both token-consume endpoints throttled at 10/5 min</td><td><span class="badge b-pending">CODE</span></td></tr>
+    <tr><td>✓ README refresh <em>(done 2026-06-11)</em></td><td>Shipped features moved out of "roadmap"; milestone table current</td><td><span class="badge b-pending">CODE</span></td></tr>
   </table>
 
   <h2>Deferred by design (revisit when there's a reason)</h2>
   <table>
     <tr><th>Item</th><th>Trigger to revisit</th></tr>
-    <tr><td>Hybrid FTS + vector fusion (RRF) for search</td><td>When pure-semantic or pure-keyword results visibly disappoint; ranker is one adapter behind <code>RecommenderEngine</code></td></tr>
+    <tr><td>✓ Hybrid FTS + vector fusion <em>(shipped 2026-06-11)</em></td><td><code>?mode=hybrid</code> — RRF (k=60) over both rankings, degrades to keyword on embedder failure; three-way toggle in the UI</td></tr>
     <tr><td>LLM query rewriting &amp; cold-start classification</td><td>Phase 4 shipped rationales only — the other two LLM jobs from §8.3 await demand</td></tr>
     <tr><td>Tier-two importers (StoryGraph, Hardcover, BookWyrm)</td><td>One new <code>Importer</code> adapter each; wait for a real user asking</td></tr>
     <tr><td>OTel on the crawl/worker plane</td><td>If <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough to debug crawl health; <code>scrape_log</code> request log remains unwired</td></tr>

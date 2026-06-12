@@ -68,6 +68,10 @@ class BibliographicRecordModel(Base):
     # rows (server_default below) remain visible until re-crawled.
     audience: Mapped[str] = mapped_column(String(16), nullable=False, server_default="unknown")
     literary_form: Mapped[str] = mapped_column(String(16), nullable=False, server_default="unknown")
+    # Coarse genre (see Genre in literary_profile.py) — CDU form division +
+    # tejuelos. Backfilled from `classification` in migration 0013; rows whose
+    # only signal is a signature stay 'unknown' until their next re-scrape.
+    genre: Mapped[str] = mapped_column(String(16), nullable=False, server_default="unknown")
 
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     source_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
@@ -127,6 +131,10 @@ class BibliographicRecordModel(Base):
         ),
         # Supports the default "literary" scope filter on search/listing.
         Index("ix_bibliographic_records_scope", "audience", "literary_form"),
+        # Browse facets/filters (the navigator): genre, language, pub_year.
+        Index("ix_bibliographic_records_genre", "genre"),
+        Index("ix_bibliographic_records_language", "language"),
+        Index("ix_bibliographic_records_pub_year", "pub_year"),
     )
 
 

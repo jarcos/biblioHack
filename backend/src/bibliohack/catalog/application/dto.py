@@ -59,6 +59,7 @@ class CatalogRecordView:
     classification: str | None = None
     audience: str = "unknown"
     literary_form: str = "unknown"
+    genre: str = "unknown"
     authors: tuple[str, ...] = ()
     subjects: tuple[str, ...] = ()
     isbns: tuple[str, ...] = ()
@@ -79,9 +80,47 @@ class CatalogRecordSummary:
     copies_count: int
     audience: str = "unknown"
     literary_form: str = "unknown"
+    genre: str = "unknown"
     # How many copies are on the shelf right now (latest snapshot == available).
     available_count: int = 0
     cover: CoverView | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FacetCount:
+    """One value of a browse facet with its record count."""
+
+    value: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class BrowsePage:
+    """One page of the catalogue navigator, with facet counts.
+
+    `facets` maps a facet name (genre / language / audience / literary_form)
+    to its value counts, each computed over the active filters *excluding*
+    that facet's own — the standard faceted-navigation contract, so picking
+    a value never zeroes out its siblings.
+    """
+
+    items: tuple[CatalogRecordSummary, ...]
+    total: int
+    limit: int
+    offset: int
+    facets: dict[str, tuple[FacetCount, ...]]
+
+    @property
+    def has_more(self) -> bool:
+        return self.offset + len(self.items) < self.total
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorCount:
+    """An author name with how many catalogue records they appear on."""
+
+    name: str
+    records: int
 
 
 @dataclass(frozen=True, slots=True)

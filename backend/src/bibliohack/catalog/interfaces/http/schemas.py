@@ -46,6 +46,9 @@ class CatalogRecordSchema(BaseModel):
     classification: str | None = Field(None, description="UDC classification (T080).")
     audience: str = Field("unknown", description="adult | youth | children | unknown.")
     literary_form: str = Field("unknown", description="literary | nonfiction | unknown.")
+    genre: str = Field(
+        "unknown", description="narrative | poetry | drama | essay | comic | unknown."
+    )
     authors: list[str] = Field(default_factory=list)
     subjects: list[str] = Field(default_factory=list)
     isbns: list[str] = Field(default_factory=list)
@@ -65,6 +68,9 @@ class CatalogRecordSummarySchema(BaseModel):
     copies_count: int = 0
     audience: str = Field("unknown", description="adult | youth | children | unknown.")
     literary_form: str = Field("unknown", description="literary | nonfiction | unknown.")
+    genre: str = Field(
+        "unknown", description="narrative | poetry | drama | essay | comic | unknown."
+    )
     available_count: int = Field(0, ge=0, description="Copies on the shelf right now.")
     cover: CoverSchema | None = None
 
@@ -85,6 +91,43 @@ class SearchResponseSchema(BaseModel):
     offset: int = Field(..., ge=0)
     has_more: bool
     items: list[CatalogRecordSummarySchema]
+
+
+class FacetCountSchema(BaseModel):
+    """One facet value with its record count."""
+
+    value: str
+    count: int = Field(..., ge=0)
+
+
+class BrowseResponseSchema(BaseModel):
+    """A page of the catalogue navigator with facet counts."""
+
+    total: int = Field(..., ge=0, description="Records matching the active filters.")
+    limit: int = Field(..., ge=1)
+    offset: int = Field(..., ge=0)
+    has_more: bool
+    items: list[CatalogRecordSummarySchema]
+    facets: dict[str, list[FacetCountSchema]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-dimension value counts (genre / language / audience / literary_form), "
+            "each computed over the active filters excluding that dimension's own."
+        ),
+    )
+
+
+class AuthorCountSchema(BaseModel):
+    """An author with how many catalogue records they appear on."""
+
+    name: str
+    records: int = Field(..., ge=0)
+
+
+class AuthorsResponseSchema(BaseModel):
+    """Author directory page (most-represented first)."""
+
+    items: list[AuthorCountSchema] = Field(default_factory=list)
 
 
 class SimilarResponseSchema(BaseModel):
