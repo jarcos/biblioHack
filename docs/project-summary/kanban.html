@@ -137,7 +137,7 @@
 
       <div class="card">
         <h3>Catalogue crawl (autonomous)</h3>
-        <p>~19,480 of ~2.66M TITN records mirrored (2026-06-12 baseline, ~4–5k/day) — the supercronic crawler advances hourly within the politeness budget. As of 2026-06-13 each run reuses one pooled browser, so expect the records/day curve to lift without raising request rate. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
+        <p>~21,000 records mirrored (2026-06-13). Active discovery scope is the <em>novedades 2024+</em> set (56,083 records, ~40% done); the full ~2.66M TITN space stays the long game (the MARC dump closes it, not crawling). Steady state was discovery-bound at <code>DISCOVER_MAX=100</code>/hr (~2.4k/day); the pooled browser (dbe7486) freed worker headroom, so on 2026-06-13 we raised it to <code>400</code>/hr (~9.6k/day, <code>CRAWL_RATE</code> untouched) — novedades now finishes in ~3.5 days. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
         <div class="meta"><span class="tag t-wip">CONTINUOUS</span></div>
       </div>
 
