@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
 <title>biblioHack — Kanban</title>
 <style>
   :root {
@@ -61,13 +62,19 @@
 </nav>
 
 <main class="wrap">
-  <p class="intro">Status as of <strong>2026-06-12</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
+  <p class="intro">Status as of <strong>2026-06-13</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
 
   <div class="board">
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">14</span></h2>
+      <h2>Done <span class="n">15</span></h2>
+
+      <div class="card">
+        <h3>Crawl throughput — pooled browser session</h3>
+        <p>One <code>AsyncStealthySession</code> (<code>max_pages=1</code>) now spans each discover/worker/refresh run instead of launching a browser per record — the launch, not the request, was the real cap under the 1 req/s budget. Politeness unchanged (single page, serial, throttle still gates every fetch). Crawler container rebuilt on the NAS to pick it up.</p>
+        <div class="meta"><span class="tag t-done">2026-06-13</span><span class="tag t-done">dbe7486</span></div>
+      </div>
 
       <div class="card">
         <h3>Catalog navigator — Tier A+B</h3>
@@ -130,7 +137,7 @@
 
       <div class="card">
         <h3>Catalogue crawl (autonomous)</h3>
-        <p>19,480 of ~2.66M TITN records mirrored (2026-06-12, ~4–5k/day) — the supercronic crawler advances hourly within the politeness budget. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
+        <p>~19,480 of ~2.66M TITN records mirrored (2026-06-12 baseline, ~4–5k/day) — the supercronic crawler advances hourly within the politeness budget. As of 2026-06-13 each run reuses one pooled browser, so expect the records/day curve to lift without raising request rate. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
         <div class="meta"><span class="tag t-wip">CONTINUOUS</span></div>
       </div>
 
@@ -149,7 +156,7 @@
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">10</span></h2>
+      <h2>To do <span class="n">12</span></h2>
 
       <div class="divider">Ops — needs José</div>
 
@@ -166,6 +173,18 @@
       </div>
 
       <div class="divider">Next features (rough order)</div>
+
+      <div class="card">
+        <h3>MARC-dump request to the Junta (RBPA)</h3>
+        <p>Email the RBPA coordinator for a periodic MARC-XML dump (Madrid precedent, CC-BY). One «sí» obsoletes ~90% of the crawl — bibliographic data arrives in bulk; only holdings/availability still need probing. Deploy-free, highest long-term leverage.</p>
+        <div class="meta"><span class="tag t-ops">OPS</span><span class="tag t-todo">QUICK</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Demand-driven fetcher (unmatched shelf books)</h3>
+        <p>Resolve unmatched Goodreads/StoryGraph shelf entries (and failed searches) via an OPAC title query → TITN → immediate ingest. ~5–10 requests per book — makes the catalogue feel complete <em>for real users</em> years before the full sweep finishes. Just another job on the existing gateway.</p>
+        <div class="meta"><span class="tag t-todo">MEDIUM</span></div>
+      </div>
 
       <div class="card">
         <h3>Search ⇄ browse cross-links</h3>
