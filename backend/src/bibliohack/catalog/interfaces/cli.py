@@ -262,7 +262,9 @@ async def _run_discover(
     typer.echo("Resumable pagination — follow with `catalog worker` to ingest.")
     typer.echo()
     try:
-        async with transactional_session() as session:
+        # One pooled browser session spans the whole discovery run (amortises
+        # the Camoufox launch across every paginated search page).
+        async with gateway, transactional_session() as session:
             tasks = PostgresScrapeTaskRepository(session)
             cursors = PostgresDiscoveryCursorRepository(session)
             use_case = DiscoverViaExpertQuery(gateway=gateway, tasks=tasks, cursors=cursors)
@@ -412,7 +414,10 @@ async def _run_worker(
             f"  TITN={result.titn}{suffix}"
         )
 
-    stats = await worker_run.execute(on_step=_on_step)
+    # One pooled browser session spans the whole worker run — the launch cost
+    # is paid once, not once per record (the throttle still gates each fetch).
+    async with gateway:
+        stats = await worker_run.execute(on_step=_on_step)
 
     _print_summary(stats)
 
@@ -502,7 +507,9 @@ async def _run_refresh(max_tasks: int | None, idle_giveup: int, rate_per_second:
             f"[{step_counter[0]:>5d}] {marker} {result.outcome.value:>17s}  TITN={result.titn}"
         )
 
-    stats = await worker_run.execute(on_step=_on_step)
+    # One pooled browser session spans the whole refresh run (see worker).
+    async with gateway:
+        stats = await worker_run.execute(on_step=_on_step)
     _print_summary(stats)
 
 

@@ -25,7 +25,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
 from bibliohack.catalog.application.ports import (
@@ -59,6 +59,15 @@ _NOT_FOUND_MARKERS = (
     "registro no encontrado",
 )
 
+# Shared, actionable error when the [scraper] extra (Scrapling + Camoufox)
+# isn't installed — surfaced instead of a bare ModuleNotFoundError.
+_SCRAPLING_MISSING_MSG = (
+    "Scrapling is not installed in this venv. The OPAC scraper lives in the "
+    "[scraper] optional extra. Run:\n"
+    "  cd backend && uv sync --extra scraper\n"
+    "  uv run scrapling install   # one-off, downloads the browser"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class GatewayConfig:
@@ -90,30 +99,107 @@ class ScraplingOpacGateway:
             burst=config.burst,
             jitter_seconds=config.jitter_seconds,
         )
+        # When non-None, a long-lived pooled browser session is reused by every
+        # fetch in a crawl run (see `open_session`). Default off so a one-shot
+        # fetch (probe / test) still works exactly as before.
+        self._session: Any = None
+
+    # ── Pooled-session lifecycle ──────────────────────────────────
+    # Launching Camoufox is by far the most expensive part of a fetch — far
+    # more than the request itself. The hourly crawler used to pay that cost
+    # once per record (each `StealthyFetcher.async_fetch` spins up and tears
+    # down a browser), pinning effective throughput well under the 1 req/s
+    # politeness ceiling. Opening one session for the whole run amortises the
+    # launch across every record. We keep `max_pages=1` (strictly serial, a
+    # single page) and the `TokenBucket` still gates every request, so
+    # politeness is unchanged — this stops wasting time, it never crawls faster
+    # than the budget allows.
+
+    async def open_session(self) -> None:
+        """Start a pooled browser session reused by every fetch until closed.
+
+        Idempotent: a no-op when a session is already open. Requires the
+        ``[scraper]`` extra; raises ``OpacUnavailableError`` (not a bare
+        ``ModuleNotFoundError``) if Scrapling is missing.
+        """
+        if self._session is not None:
+            return
+        async_session_cls = self._import_async_session()
+        session = async_session_cls(
+            headless=True,
+            network_idle=True,
+            max_pages=1,
+            timeout=int(self._config.fetch_timeout_seconds * 1000),
+            extra_headers={"User-Agent": self._config.user_agent},
+        )
+        await session.start()
+        self._session = session
+
+    async def close_session(self) -> None:
+        """Close the pooled session if one is open. Idempotent."""
+        session = self._session
+        self._session = None
+        if session is not None:
+            await session.close()
+
+    async def __aenter__(self) -> ScraplingOpacGateway:
+        await self.open_session()
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        await self.close_session()
+
+    @staticmethod
+    def _import_async_session() -> Any:
+        try:
+            from scrapling.fetchers import (  # type: ignore[import-not-found,unused-ignore]
+                AsyncStealthySession,
+            )
+        except ModuleNotFoundError as exc:
+            raise OpacUnavailableError(_SCRAPLING_MISSING_MSG) from exc
+        return AsyncStealthySession
+
+    @staticmethod
+    def _import_stealthy_fetcher() -> Any:
+        # `import-not-found` covers dev installs without the [scraper] extra;
+        # `unused-ignore` covers installs with it so mypy doesn't flag the
+        # redundant suppression.
+        try:
+            from scrapling.fetchers import (  # type: ignore[import-not-found,unused-ignore]
+                StealthyFetcher,
+            )
+        except ModuleNotFoundError as exc:
+            raise OpacUnavailableError(_SCRAPLING_MISSING_MSG) from exc
+        return StealthyFetcher
+
+    async def _stealth_fetch(self, url: str) -> Any:
+        """Fetch one rendered page, via the pooled session if one is open.
+
+        Falls back to a one-shot ``StealthyFetcher.async_fetch`` (a fresh
+        browser per call) when no session is open — preserving the original
+        behaviour for single fetches and the test doubles.
+        """
+        session = self._session
+        if session is not None:
+            return await session.fetch(
+                url,
+                network_idle=True,
+                timeout=int(self._config.fetch_timeout_seconds * 1000),
+                extra_headers={"User-Agent": self._config.user_agent},
+            )
+        stealthy_fetcher = self._import_stealthy_fetcher()
+        return await stealthy_fetcher.async_fetch(
+            url,
+            headless=True,
+            network_idle=True,
+            timeout=int(self._config.fetch_timeout_seconds * 1000),
+            extra_headers={"User-Agent": self._config.user_agent},
+        )
 
     async def fetch_record(self, titn: Titn) -> FetchResult:
         url = build_record_url(titn, endpoints=self._config.endpoints)
 
         await self._throttle.acquire()
-
-        # Lazy import — Scrapling is in the [scraper] extra, not in core.
-        # If it's missing, raise a clear actionable error rather than the
-        # bare ModuleNotFoundError that bubbles up by default.
-        try:
-            # `import-not-found` covers dev installs without the [scraper]
-            # extra; `unused-ignore` covers installs with it so mypy doesn't
-            # flag the redundant suppression.
-            from scrapling.fetchers import (  # type: ignore[import-not-found,unused-ignore]
-                StealthyFetcher,
-            )
-        except ModuleNotFoundError as exc:
-            msg = (
-                "Scrapling is not installed in this venv. The OPAC scraper "
-                "lives in the [scraper] optional extra. Run:\n"
-                "  cd backend && uv sync --extra scraper\n"
-                "  uv run camoufox fetch   # one-off, downloads the browser"
-            )
-            raise OpacUnavailableError(msg) from exc
 
         attempt = 0
         last_error: str | None = None
@@ -121,13 +207,9 @@ class ScraplingOpacGateway:
             attempt += 1
             started = time.monotonic()
             try:
-                page = await StealthyFetcher.async_fetch(
-                    url,
-                    headless=True,
-                    network_idle=True,
-                    timeout=int(self._config.fetch_timeout_seconds * 1000),
-                    extra_headers={"User-Agent": self._config.user_agent},
-                )
+                page = await self._stealth_fetch(url)
+            except OpacUnavailableError:
+                raise
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 # Render the error inline — Python's stdlib logging doesn't
@@ -275,31 +357,15 @@ class ScraplingOpacGateway:
         exhausted; a 4xx is returned, not retried.
         """
         await self._throttle.acquire()
-        try:
-            from scrapling.fetchers import (  # type: ignore[import-not-found,unused-ignore]
-                StealthyFetcher,
-            )
-        except ModuleNotFoundError as exc:
-            msg = (
-                "Scrapling is not installed in this venv. The OPAC scraper "
-                "lives in the [scraper] optional extra. Run:\n"
-                "  cd backend && uv sync --extra scraper\n"
-                "  uv run scrapling install   # downloads the browser"
-            )
-            raise OpacUnavailableError(msg) from exc
 
         attempt = 0
         last_error: str | None = None
         while attempt <= self._config.max_retries:
             attempt += 1
             try:
-                page = await StealthyFetcher.async_fetch(
-                    url,
-                    headless=True,
-                    network_idle=True,
-                    timeout=int(self._config.fetch_timeout_seconds * 1000),
-                    extra_headers={"User-Agent": self._config.user_agent},
-                )
+                page = await self._stealth_fetch(url)
+            except OpacUnavailableError:
+                raise
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 log.warning(

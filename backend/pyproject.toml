@@ -68,7 +68,9 @@ bibliohack = "bibliohack.interfaces.cli.app:cli"
 # (or `uv run scrapling install`) to download the Camoufox browser binary.
 scraper = [
     "httpx>=0.28",
-    "scrapling>=0.2.97",
+    # >=0.4.8 ships AsyncStealthySession (pooled browser) — the gateway reuses
+    # one session per crawl run instead of launching Camoufox per record.
+    "scrapling>=0.4.8",
     # Transitive runtime deps Scrapling 0.4.x needs but doesn't pin in its
     # own metadata. Each one bit us in turn during the first manual fetch
     # — patchright, then msgspec, etc. Pinning them directly is the only

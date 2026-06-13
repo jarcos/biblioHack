@@ -341,7 +341,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "python-multipart", specifier = ">=0.0.18" },
     { name = "redis", specifier = ">=5.0" },
-    { name = "scrapling", marker = "extra == 'scraper'", specifier = ">=0.2.97" },
+    { name = "scrapling", marker = "extra == 'scraper'", specifier = ">=0.4.8" },
     { name = "selectolax", specifier = ">=0.3.27" },
     { name = "sentence-transformers", marker = "extra == 'ai'", specifier = ">=3.3" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },

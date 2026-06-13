@@ -12,6 +12,7 @@ and are skipped by default.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 import pytest
 
@@ -57,6 +58,46 @@ class FakeFetcher:
         return nxt
 
 
+class FakeAsyncSession:
+    """Stand-in for Scrapling's `AsyncStealthySession` (pooled browser).
+
+    Records construction kwargs, start/close counts, and routed fetches so a
+    test can assert the gateway opens exactly one session per run, reuses it
+    for every fetch, and closes it afterwards — without launching Camoufox.
+
+    Instances register themselves in the class-level `instances` list (clear
+    it at the top of each test).
+    """
+
+    instances: ClassVar[list[FakeAsyncSession]] = []
+
+    def __init__(self, **kwargs: object) -> None:
+        type(self).instances.append(self)
+        self.init_kwargs = kwargs
+        self.started = 0
+        self.closed = 0
+        self.fetches: list[str] = []
+        self._responses: list[FakePage | Exception] = []
+
+    def script(self, responses: list[FakePage | Exception]) -> None:
+        self._responses = list(responses)
+
+    async def start(self) -> None:
+        self.started += 1
+
+    async def close(self) -> None:
+        self.closed += 1
+
+    async def fetch(self, url: str, **_kwargs: object) -> FakePage:
+        self.fetches.append(url)
+        if not self._responses:
+            return FakePage(status=200, html_content="<html>real record</html>", url=url)
+        nxt = self._responses.pop(0)
+        if isinstance(nxt, Exception):
+            raise nxt
+        return nxt
+
+
 @pytest.fixture
 def fast_config() -> GatewayConfig:
     """Config that makes tests near-instant (no real backoff sleeps)."""
@@ -83,9 +124,16 @@ def install_fake_fetcher(monkeypatch: pytest.MonkeyPatch):
     import sys
     import types
 
-    def _install(fetcher: FakeFetcher) -> None:
+    def _install(
+        fetcher: FakeFetcher | None = None,
+        *,
+        session_cls: type | None = None,
+    ) -> None:
         module = types.ModuleType("scrapling.fetchers")
-        module.StealthyFetcher = fetcher  # type: ignore[attr-defined]
+        if fetcher is not None:
+            module.StealthyFetcher = fetcher  # type: ignore[attr-defined]
+        if session_cls is not None:
+            module.AsyncStealthySession = session_cls  # type: ignore[attr-defined]
         monkeypatch.setitem(sys.modules, "scrapling", types.ModuleType("scrapling"))
         monkeypatch.setitem(sys.modules, "scrapling.fetchers", module)
 
@@ -303,3 +351,73 @@ async def test_fetch_record_returns_repaired_html(
     assert result.outcome is FetchOutcome.OK
     assert original in result.html
     assert "Ã" not in result.html
+
+
+# ───────────────────────────────────────────────────────────────
+# Pooled browser session — one Camoufox launch per run, reused for every
+# fetch (the throughput win), torn down on exit. Politeness is unchanged:
+# the session is single-page (max_pages=1) and the throttle still gates each
+# request; this only stops paying the launch cost per record.
+# ───────────────────────────────────────────────────────────────
+
+
+async def test_pooled_session_opened_once_reused_and_closed(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    FakeAsyncSession.instances.clear()
+    fake = FakeFetcher([])  # must NOT be touched while a session is open
+    install_fake_fetcher(fake, session_cls=FakeAsyncSession)
+
+    gateway = ScraplingOpacGateway(fast_config)
+    async with gateway:
+        await gateway.fetch_record(Titn(1))
+        await gateway.fetch_record(Titn(2))
+
+    # Exactly one browser session for the whole run.
+    assert len(FakeAsyncSession.instances) == 1
+    session = FakeAsyncSession.instances[0]
+    assert session.started == 1
+    assert session.closed == 1
+    # Both fetches were routed through the pooled session, not the one-shot
+    # StealthyFetcher (which would launch a browser per call).
+    assert len(session.fetches) == 2
+    assert fake.calls == []
+    # Single-page session ⇒ strictly serial ⇒ politeness preserved.
+    assert session.init_kwargs.get("max_pages") == 1
+
+
+async def test_open_session_is_idempotent(fast_config: GatewayConfig, install_fake_fetcher) -> None:
+    FakeAsyncSession.instances.clear()
+    install_fake_fetcher(session_cls=FakeAsyncSession)
+
+    gateway = ScraplingOpacGateway(fast_config)
+    await gateway.open_session()
+    await gateway.open_session()  # no-op — must not spawn a second browser
+    try:
+        assert len(FakeAsyncSession.instances) == 1
+        assert FakeAsyncSession.instances[0].started == 1
+    finally:
+        await gateway.close_session()
+    assert FakeAsyncSession.instances[0].closed == 1
+
+
+async def test_without_session_falls_back_to_oneshot_fetcher(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    FakeAsyncSession.instances.clear()
+    fake = FakeFetcher([FakePage(status=200, html_content="<html>real record</html>")])
+    install_fake_fetcher(fake, session_cls=FakeAsyncSession)
+
+    # No `async with` → no pooled session → one-shot StealthyFetcher per call.
+    result = await ScraplingOpacGateway(fast_config).fetch_record(Titn(1))
+
+    assert result.outcome is FetchOutcome.OK
+    assert len(fake.calls) == 1
+    assert FakeAsyncSession.instances == []
+
+
+async def test_close_session_without_open_is_noop(
+    fast_config: GatewayConfig,
+) -> None:
+    # Closing a gateway that never opened a session must not raise.
+    await ScraplingOpacGateway(fast_config).close_session()
