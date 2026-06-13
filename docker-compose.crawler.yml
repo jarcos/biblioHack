@@ -35,13 +35,19 @@ services:
       # Crawl budget + nightly bounds (consumed by run-job.sh). Tune here.
       CRAWL_RATE: "1.0"          # requests/sec to the OPAC (polite; don't raise casually)
       DISCOVER_YEAR_FROM: "2024" # novedades window (publication year >=)
-      # Kept below real worker throughput (~150-250 records/hr, browser-bound
-      # at 1 req/s) so the discovered backlog reliably shrinks instead of
-      # outrunning ingest. Still advances the cursor ~2.4k/day.
-      DISCOVER_MAX: "100"        # TITNs discovered per hourly run (cursor advances by this)
-      # Ingest as much as the hour allows; with DISCOVER_MAX=100 this net-drains
-      # the discovered backlog every run.
-      WORKER_MAX: "500"          # records ingested per hourly run (cap; rarely reached)
+      # Steady-state throughput is DISCOVER-bound: each hourly run seeds this
+      # many TITNs and the worker drains them, so this number IS the daily rate
+      # (×24). Raised 100→400 on 2026-06-13 (~9.6k/day) once the pooled browser
+      # session (commit dbe7486) removed the per-record launch cost — the worker
+      # now has ample headroom above 400/hr, so the discovered backlog still
+      # shrinks instead of outrunning ingest (the invariant to preserve). Kept
+      # deliberately below the (now higher, still unmeasured) worker ceiling;
+      # watch the failure-rate + pending-task panels and push to 600-800 if green.
+      # CRAWL_RATE stays at 1.0 — that is the politeness/compliance gate, not this.
+      DISCOVER_MAX: "400"        # TITNs discovered per hourly run (= the daily rate ×24)
+      # Must stay >= DISCOVER_MAX with margin so a run always clears the hour's
+      # discovery plus any residual backlog; a cap, rarely reached.
+      WORKER_MAX: "1000"         # records ingested per hourly run (cap; rarely reached)
       REFRESH_MAX: "300"         # records re-probed per 6-hourly run
       COVERS_MAX: "100"          # cover ISBNs resolved per 2-hourly run (off-OPAC)
       EMBED_MAX: "200"           # records embedded per 3-hourly run (off-OPAC, via HF)
