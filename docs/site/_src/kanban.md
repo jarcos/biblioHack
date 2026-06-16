@@ -3,13 +3,19 @@ title: "biblioHack — Kanban"
 h1: "Kanban — project status"
 raw_html: true
 ---
-  <p class="intro">Status as of <strong>2026-06-13</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
+  <p class="intro">Status as of <strong>2026-06-16</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
 
   <div class="board">
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">16</span></h2>
+      <h2>Done <span class="n">17</span></h2>
+
+      <div class="card">
+        <h3>Relevance milestone — Phase R (R0–R3)</h3>
+        <p>Stored <code>relevance_score</code> ∈ [0,1] = demand (from the availability time-series) + holdings breadth + recency + display completeness, corpus-normalised (p95) with cold-start neutral demand and thin-history trend shrinkage. Recomputed nightly on the crawl plane (<code>catalog relevance recompute</code>, 04:00); now the default <code>/browse</code> sort and a filter-and-tiebreak in keyword/semantic/hybrid search. Live in prod: 43,412 records scored. External canon boost deferred to the back-catalogue.</p>
+        <div class="meta"><span class="tag t-done">2026-06-16</span><span class="tag t-done">3aff42d…7f6e693</span></div>
+      </div>
 
       <div class="card">
         <h3>Crawl throughput — pooled browser session</h3>
@@ -103,7 +109,7 @@ raw_html: true
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">13</span></h2>
+      <h2>To do <span class="n">12</span></h2>
 
       <div class="divider">Ops — needs José</div>
 
@@ -160,13 +166,7 @@ raw_html: true
       <div class="divider">Next milestones — designed 2026-06-15 (<a href="relevance-and-libraries.html">plan</a>)</div>
 
       <div class="card">
-        <h3>Relevance milestone (ships first)</h3>
-        <p>Stored <code>relevance_score</code> = demand (from the availability time-series) + holdings breadth + recency + completeness, recomputed nightly on the crawl plane. Becomes the default <code>/browse</code> sort + a search tiebreak. External canon boost deferred to the back-catalogue.</p>
-        <div class="meta"><span class="tag t-todo">MILESTONE</span></div>
-      </div>
-
-      <div class="card">
-        <h3>Libraries milestone (ships second)</h3>
+        <h3>Libraries milestone (ships next)</h3>
         <p>Promote <code>Branch</code> to a user-facing entity (geo/address/url); users follow multiple branches by geolocation proximity (location client-side only). Hard-filter browse + search to «my libraries → province → full»; library-aware recommendations.</p>
         <div class="meta"><span class="tag t-todo">MILESTONE</span></div>
       </div>
