@@ -1,57 +1,8 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="icon" href="favicon.svg" type="image/svg+xml" />
-<title>biblioHack — Pending Tasks &amp; Operations</title>
-<style>
-  :root {
-    --bg: #faf7f2; --panel: #ffffff; --ink: #2b2620; --muted: #7a7062;
-    --accent: #8b5e34; --accent-2: #3d6b50; --line: #e8e0d4;
-    --pending: #a8632a; --pending-bg: #f9ecdf; --defer: #6b6b8d; --defer-bg: #ebebf4;
-    --ops: #8d3d3d; --ops-bg: #f6e7e7;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 16px/1.65 Georgia, 'Times New Roman', serif; background: var(--bg); color: var(--ink); }
-  header.site { background: var(--ink); color: #f3ede4; padding: 2rem 1.5rem 1.6rem; }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 0 1rem; }
-  header.site h1 { font-size: 1.8rem; margin: 0; }
-  nav.crumbs { background: #3a332b; padding: .55rem 1.5rem; font-family: Verdana, sans-serif; font-size: .8rem; }
-  nav.crumbs a { color: #e8dcc8; text-decoration: none; margin-right: 1.4rem; }
-  nav.crumbs a:hover { text-decoration: underline; }
-  nav.crumbs span.here { color: #fff; font-weight: bold; margin-right: 1.4rem; }
-  main { padding: 2rem 0 4rem; }
-  h2 { font-size: 1.4rem; border-bottom: 2px solid var(--accent); padding-bottom: .3rem; margin-top: 2.4rem; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.1rem 1.3rem; margin: 1rem 0; }
-  table { border-collapse: collapse; width: 100%; font-size: .9rem; background: var(--panel); }
-  th, td { border: 1px solid var(--line); padding: .5rem .65rem; text-align: left; vertical-align: top; }
-  th { background: #f1ebe1; font-family: Verdana, sans-serif; font-size: .76rem; text-transform: uppercase; letter-spacing: .05em; }
-  .badge { display: inline-block; font-family: Verdana, sans-serif; font-size: .68rem; font-weight: bold; padding: .12rem .55rem; border-radius: 99px; white-space: nowrap; }
-  .b-pending { color: var(--pending); background: var(--pending-bg); }
-  .b-defer { color: var(--defer); background: var(--defer-bg); }
-  .b-ops { color: var(--ops); background: var(--ops-bg); }
-  code { font: .85em/1.4 'SF Mono', Menlo, Consolas, monospace; background: #f1ebe1; padding: .1em .35em; border-radius: 4px; }
-  pre { background: #2f2a23; color: #e8dcc8; border-radius: 8px; padding: 1rem 1.2rem; overflow-x: auto; font: .8rem/1.5 'SF Mono', Menlo, Consolas, monospace; }
-  ul.tight li { margin-bottom: .4rem; }
-  footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; padding: 1.2rem 0 2.5rem; font-family: Verdana, sans-serif; }
-</style>
-</head>
-<body>
-
-<header class="site"><div class="wrap"><h1>Pending Tasks &amp; Operations</h1></div></header>
-<nav class="crumbs">
-  <div class="wrap">
-    <a href="index.html">Overview</a>
-    <a href="architecture.html">Architecture</a>
-    <a href="identity-milestone.html">Identity Milestone</a>
-    <span class="here">Pending &amp; Operations</span>
-    <a href="kanban.html">Kanban</a>
-  </div>
-</nav>
-
-<main class="wrap">
-
+---
+title: "biblioHack — Pending &amp; Operations"
+h1: "Pending Tasks &amp; Operations"
+raw_html: true
+---
   <p>Everything not done as of 2026-06-10, ordered roughly by how soon it should bite. Items marked <span class="badge b-ops">OPS</span> need a human (José) rather than code.</p>
 
   <h2>Catalog navigator — project requirement (added 2026-06-11, in progress)</h2>
@@ -60,6 +11,14 @@
     <p><strong>Tier A (core):</strong> <code>GET /catalog/browse</code> — filters for author (contributors join), language, publication-year range, audience, literary form and "available now"; sort (newest / title / availability); pagination; per-axis facet counts in the response (they double as a crawl-progress dashboard). Frontend <code>/browse</code> page: facet sidebar + paginated card grid reusing the search result cards.</p>
     <p><strong>Tier B (genre + authors):</strong> a <strong>CDU-derived genre tag</strong> (narrativa / poesía / teatro / cómic / otros) persisted on records — same classify-don't-discard pattern as <code>LiteraryProfile</code>, re-derivable without re-crawl (MARC subject headings are too sparse in this catalogue to carry the facet); <code>GET /catalog/authors</code> author search with record counts feeding an author facet/typeahead.</p>
     <p><strong>Tier C (deferred):</strong> author country/nationality — requires BNE/Wikidata authority enrichment (a separate project; revisit when the mirror justifies it).</p>
+  </div>
+
+  <h2>Planned milestones — Relevance &amp; Libraries (designed 2026-06-15)</h2>
+  <div class="panel">
+    <p>A natural extension of the navigator, designed but not yet built. Full plan: <a href="relevance-and-libraries.html">Relevance &amp; Libraries</a>.</p>
+    <p><strong>Relevance (ships first):</strong> a stored <code>relevance_score</code> so <code>/browse</code> + search lead with the best titles. v1 is internal-first — a balanced blend (demand-largest) of <em>demand</em> (derived from the availability time-series), <em>holdings breadth</em>, <em>recency</em>, and <em>display completeness</em>, recomputed nightly on the crawl plane. In search it's filter + tiebreak only. External canon/popularity (Wikidata awards, curated award lists, Open Library, LibraryThing/OCLC) is a positive-only boost added later, with the back-catalogue.</p>
+    <p><strong>Libraries (ships second):</strong> promote <code>holdings.Branch</code> to a user-facing entity (geo/address/url; 509 branches already exist), let users <strong>follow multiple branches by geolocation proximity</strong> (location stays client-side), and hard-filter browse + search to «my libraries → my province → full catalogue». Recommendations become library-aware. Branch geo from an official CC-BY directory with Nominatim geocode fallback.</p>
+    <p><strong>Carries an OPS dependency:</strong> the nightly relevance recompute ships in the crawler image, so it needs the <span class="badge b-ops">OPS</span> manual NAS rebuild (crawler ≠ CD), and every new frontend-called endpoint must live under <code>/api/*</code> (tunnel routing).</p>
   </div>
 
   <h2>Near-term follow-ups</h2>
@@ -109,8 +68,3 @@
     <li><strong>Google Books cover ToS</strong> — display-time hotlink only, never stored; per-cover <code>license</code>/<code>source</code> tracked so a source can be purged. Re-read terms if cover usage grows.</li>
     <li><strong>Huelva-only vs network-wide copies</strong> — currently storing all-province copies and filtering at query time; the cheap path to M7, but re-validate the storage cost as the mirror grows.</li>
   </ul>
-
-  <footer>Part of the biblioHack project summary · <a href="index.html">Back to overview</a></footer>
-</main>
-</body>
-</html>

@@ -116,6 +116,27 @@ jobs:
       - name: Vitest
         run: pnpm test
 
+  # ───── Docs site freshness ─────
+  docs:
+    name: docs — site regenerated from Markdown
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install docs deps
+        run: pip install -r tools/requirements.txt
+
+      - name: Regenerate the docs site
+        run: python tools/build_docs.py
+
+      - name: Fail if docs/site/ is stale (run `make docs` and commit)
+        run: git diff --exit-code docs/site
+
   # ───── Docker build sanity ─────
   docker-build:
     name: docker — build smoke
@@ -154,10 +175,10 @@ jobs:
   #   - `if:`    → only on a direct push to main (never PRs/forks), and only
   #               once enabled via the `AUTODEPLOY_ENABLED` repo variable
   # Reaches the NAS (no public inbound) over Tailscale, then deploys over SSH.
-  # Design + required secrets: ARCHITECTURE.md §10.1.
+  # Design + required secrets: docs/design/architecture.md §10.1.
   deploy:
     name: deploy — NAS (biblio.josearcos.me)
-    needs: [backend, frontend, docker-build]
+    needs: [backend, frontend, docs, docker-build]
     if: >-
       github.event_name == 'push'
       && github.ref == 'refs/heads/main'

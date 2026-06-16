@@ -1,12 +1,15 @@
-# Identity milestone — implementation plan
-
+---
+title: "biblioHack — Identity Milestone"
+h1: "Identity milestone — implementation plan"
+tagline: "Single-reader homelab → public multi-user app."
+---
 Turning biblioHack from a single-reader homelab into a multi-user app with
 **public registration**, where each user owns their bookshelf and gets
 **recommendations scoped to their own `user_id`**.
 
 This plan is faithful to the existing hexagonal/DDD layout (`domain` /
 `application` / `infrastructure` / `interfaces` per bounded context) and to
-`ARCHITECTURE.md §4`, which already specs the **Identity** context: `User`
+`docs/design/architecture.md §4`, which already specs the **Identity** context: `User`
 (root) + `Preference`, ports `UserRepository` / `AuthProvider`, adapter "local
 password auth (**Argon2id**)".
 
@@ -161,7 +164,7 @@ Register `auth_router` in `interfaces/http/app.py`.
   imports" below), returning `202` + an import id. **Guardrails:** max upload
   size and row cap (a malicious/huge CSV otherwise floods the per-row trigram
   matching).
-- **`ImportJob` aggregate + `import_jobs` table** — already in `ARCHITECTURE.md
+- **`ImportJob` aggregate + `import_jobs` table** — already in `docs/design/architecture.md
   §4`. Tracks `id`, `user_id`, `status` (queued/running/done/failed),
   per-shelf stats, `error`, timestamps. The worker updates it; the frontend
   polls it.
@@ -205,7 +208,7 @@ rows.
 
 ## Phase 4 — Recommendations, user-scoped from the start (greenfield)
 
-Build the empty context per `ARCHITECTURE.md §4` (root `Recommendation`,
+Build the empty context per `docs/design/architecture.md §4` (root `Recommendation`,
 `RecommendationRequest`; ports `RecommendationRepository`, `RecommenderEngine`,
 `LlmClient`), with `user_id` threaded through everywhere:
 

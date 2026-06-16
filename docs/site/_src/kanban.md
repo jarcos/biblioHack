@@ -1,67 +1,8 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="icon" href="favicon.svg" type="image/svg+xml" />
-<title>biblioHack — Kanban</title>
-<style>
-  :root {
-    --bg: #faf7f2; --panel: #ffffff; --ink: #2b2620; --muted: #7a7062;
-    --accent: #8b5e34; --line: #e8e0d4;
-    --done: #3d6b50; --done-bg: #e7f0ea;
-    --wip: #8a6d1f; --wip-bg: #f7efd8;
-    --todo: #6b6b8d; --todo-bg: #ebebf4;
-    --ops: #8d3d3d; --ops-bg: #f6e7e7;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.55 Georgia, 'Times New Roman', serif; background: var(--bg); color: var(--ink); }
-  header.site { background: var(--ink); color: #f3ede4; padding: 2rem 1.5rem 1.6rem; }
-  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 1rem; }
-  header.site h1 { font-size: 1.8rem; margin: 0; }
-  nav.crumbs { background: #3a332b; padding: .55rem 1.5rem; font-family: Verdana, sans-serif; font-size: .8rem; }
-  nav.crumbs a { color: #e8dcc8; text-decoration: none; margin-right: 1.4rem; }
-  nav.crumbs a:hover { text-decoration: underline; }
-  nav.crumbs span.here { color: #fff; font-weight: bold; margin-right: 1.4rem; }
-  main { padding: 1.6rem 0 4rem; }
-  p.intro { max-width: 70ch; color: var(--muted); }
-  .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.2rem; align-items: start; margin-top: 1.4rem; }
-  .col { background: #f3eee5; border: 1px solid var(--line); border-radius: 10px; padding: .9rem; }
-  .col h2 { font-family: Verdana, sans-serif; font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; margin: .2rem .2rem .9rem; display: flex; justify-content: space-between; align-items: center; }
-  .col h2 .n { font-size: .72rem; background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: .05rem .55rem; }
-  .col.done h2 { color: var(--done); }
-  .col.wip h2 { color: var(--wip); }
-  .col.todo h2 { color: var(--todo); }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .7rem .85rem; margin-bottom: .7rem; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
-  .card h3 { font-size: .95rem; margin: 0 0 .25rem; line-height: 1.35; }
-  .card p { margin: 0; font-size: .82rem; color: var(--muted); }
-  .meta { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .5rem; }
-  .tag { font-family: Verdana, sans-serif; font-size: .62rem; font-weight: bold; padding: .1rem .5rem; border-radius: 99px; white-space: nowrap; }
-  .t-done { color: var(--done); background: var(--done-bg); }
-  .t-wip { color: var(--wip); background: var(--wip-bg); }
-  .t-todo { color: var(--todo); background: var(--todo-bg); }
-  .t-ops { color: var(--ops); background: var(--ops-bg); }
-  code { font: .82em/1.4 'SF Mono', Menlo, Consolas, monospace; background: #f1ebe1; padding: .08em .3em; border-radius: 4px; }
-  .divider { border-top: 1px dashed var(--line); margin: .9rem .2rem; padding-top: .6rem; font-family: Verdana, sans-serif; font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-  footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; padding: 1.2rem 0 2.5rem; font-family: Verdana, sans-serif; }
-  details.archive { margin-top: .2rem; }
-  details.archive summary { cursor: pointer; font-family: Verdana, sans-serif; font-size: .72rem; color: var(--muted); margin: .2rem; }
-</style>
-</head>
-<body>
-
-<header class="site"><div class="wrap"><h1>Kanban — project status</h1></div></header>
-<nav class="crumbs">
-  <div class="wrap">
-    <a href="index.html">Overview</a>
-    <a href="architecture.html">Architecture</a>
-    <a href="identity-milestone.html">Identity Milestone</a>
-    <a href="pending-and-ops.html">Pending &amp; Operations</a>
-    <span class="here">Kanban</span>
-  </div>
-</nav>
-
-<main class="wrap">
+---
+title: "biblioHack — Kanban"
+h1: "Kanban — project status"
+raw_html: true
+---
   <p class="intro">Status as of <strong>2026-06-13</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
 
   <div class="board">
@@ -162,7 +103,7 @@
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">11</span></h2>
+      <h2>To do <span class="n">13</span></h2>
 
       <div class="divider">Ops — needs José</div>
 
@@ -216,6 +157,20 @@
         <div class="meta"><span class="tag t-todo">IF NEEDED</span></div>
       </div>
 
+      <div class="divider">Next milestones — designed 2026-06-15 (<a href="relevance-and-libraries.html">plan</a>)</div>
+
+      <div class="card">
+        <h3>Relevance milestone (ships first)</h3>
+        <p>Stored <code>relevance_score</code> = demand (from the availability time-series) + holdings breadth + recency + completeness, recomputed nightly on the crawl plane. Becomes the default <code>/browse</code> sort + a search tiebreak. External canon boost deferred to the back-catalogue.</p>
+        <div class="meta"><span class="tag t-todo">MILESTONE</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Libraries milestone (ships second)</h3>
+        <p>Promote <code>Branch</code> to a user-facing entity (geo/address/url); users follow multiple branches by geolocation proximity (location client-side only). Hard-filter browse + search to «my libraries → province → full»; library-aware recommendations.</p>
+        <div class="meta"><span class="tag t-todo">MILESTONE</span></div>
+      </div>
+
       <div class="divider">Roadmap (bigger bets)</div>
 
       <div class="card">
@@ -237,8 +192,3 @@
       </div>
     </section>
   </div>
-
-  <footer>Part of the biblioHack project summary · <a href="index.html">Back to overview</a> · Información obtenida del Portal de la Junta de Andalucía.</footer>
-</main>
-</body>
-</html>

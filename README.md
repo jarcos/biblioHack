@@ -11,7 +11,7 @@
 ![Astro](https://img.shields.io/badge/astro-frontend-ff5d01.svg)
 ![Postgres](https://img.shields.io/badge/postgres-timescale%20%2B%20pgvector-336791.svg)
 
-[Live instance](https://biblio.josearcos.me) · [Architecture](./ARCHITECTURE.md) · [Roadmap](#-status)
+[Live instance](https://biblio.josearcos.me) · [Architecture](./docs/design/architecture.md) · [Roadmap](#-status)
 
 </div>
 
@@ -78,7 +78,7 @@ biblioHack is a **hexagonal (ports & adapters) modular monolith**. The domain lo
 - The **crawler runs separately** from the API so a heavy headless-browser workload can't affect request latency. It paginates the OPAC's expert-query results with a **resumable offset cursor**, so it advances through the whole catalogue across runs and then tracks new arrivals.
 - **Availability is a time-series**: copies are upserted (never delete+insert) so each re-scrape appends a snapshot rather than wiping history.
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full design, the scrape state machine, and the data model.
+See [`docs/design/architecture.md`](./docs/design/architecture.md) for the full design, the scrape state machine, and the data model.
 
 ---
 
@@ -100,8 +100,9 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full design, the scrape state
 
 ```
 biblioHack/
-├── ARCHITECTURE.md          # full design + research doc
-├── CLAUDE.md                # conventions for AI assistants / contributors
+├── README.md                # this file (GitHub front door)
+├── AGENTS.md                # conventions for AI assistants / contributors (CLAUDE.md points here)
+├── docs/                    # canonical Markdown — design/ · ops/ · outreach/ + generated site/
 ├── docker-compose.yml       # dev environment
 ├── docker-compose.prod.yml  # production (read + serve plane)
 ├── docker-compose.crawler.yml  # the autonomous crawl plane
@@ -166,9 +167,11 @@ Copy `.env.example` to `.env` and adjust as needed. Sensible defaults are provid
 | **M5** | Recommender v1 (user-scoped) | ✅ Done |
 | **Identity** | Public registration, per-user shelves, GDPR self-service, hardening | ✅ Done |
 | **M6.5** | CI/CD auto-deploy (green `main` → NAS) | ✅ Done |
-| **M7+** | Hybrid retrieval · more provinces · mobile app | ⏳ Planned |
+| **Relevance** | `relevance_score` (demand + holdings + recency) drives browse/search ordering | ⏳ Planned |
+| **Libraries** | Follow branches by proximity; scope browse/search/recs to your libraries | ⏳ Planned |
+| **M7+** | More provinces · mobile app · external canon boost | ⏳ Planned |
 
-Public deploy is **live** at [biblio.josearcos.me](https://biblio.josearcos.me); see [`ARCHITECTURE.md` §11](./ARCHITECTURE.md#11-roadmap-proposed-milestones) for milestone detail.
+Public deploy is **live** at [biblio.josearcos.me](https://biblio.josearcos.me); see [`docs/design/architecture.md` §11](./docs/design/architecture.md#11-roadmap-proposed-milestones) for milestone detail.
 
 ---
 
@@ -176,13 +179,13 @@ Public deploy is **live** at [biblio.josearcos.me](https://biblio.josearcos.me);
 
 The production `api` is instrumented with **OpenTelemetry** (APM / distributed tracing). The container runtime wraps `uvicorn` with `opentelemetry-instrument`, which auto-instruments **FastAPI** and **asyncpg** — HTTP requests and DB queries become spans with no application-code changes. It is a **no-op locally**: instrumentation only activates when the `OTEL_*` env vars are set (defined only in `docker-compose.prod.yml`), so dev runs and tests are unaffected.
 
-In production, telemetry is exported via **OTLP** to a shared OpenTelemetry collector, which fans traces out to **Grafana Tempo** and **SigNoz** (`service.name=bibliohack-api`). See [`ARCHITECTURE.md` §10](./ARCHITECTURE.md) for the full picture.
+In production, telemetry is exported via **OTLP** to a shared OpenTelemetry collector, which fans traces out to **Grafana Tempo** and **SigNoz** (`service.name=bibliohack-api`). See [`docs/design/architecture.md` §10](./docs/design/architecture.md) for the full picture.
 
 ---
 
 ## Deployment
 
-Green pushes to `main` are gated by CI (lint, typecheck, tests, image build) and then **auto-deploy** to a Synology NAS over Tailscale. The public surface is served through a Cloudflare Tunnel (read-only; no inbound ports). Database migrations ship in the API image and run on deploy. The crawl plane runs as a separate, self-restarting container so it can't affect the public site. Details — including the hard-won Synology specifics — live in [`ARCHITECTURE.md` §10](./ARCHITECTURE.md).
+Green pushes to `main` are gated by CI (lint, typecheck, tests, image build) and then **auto-deploy** to a Synology NAS over Tailscale. The public surface is served through a Cloudflare Tunnel (read-only; no inbound ports). Database migrations ship in the API image and run on deploy. The crawl plane runs as a separate, self-restarting container so it can't affect the public site. Details — including the hard-won Synology specifics — live in [`docs/design/architecture.md` §10](./docs/design/architecture.md).
 
 ---
 
@@ -190,7 +193,7 @@ Green pushes to `main` are gated by CI (lint, typecheck, tests, image build) and
 
 This is primarily a personal project, but issues, ideas and PRs are welcome. If you're contributing code:
 
-1. Read [`CLAUDE.md`](./CLAUDE.md) for the conventions (it's written for AI assistants but applies to humans too).
+1. Read [`AGENTS.md`](./AGENTS.md) for the conventions (it's written for AI assistants but applies to humans too).
 2. Before pushing, the backend must pass `ruff format --check .`, `ruff check .`, `mypy src`, and `pytest`; the frontend must pass its lint/typecheck/test — all enforced in CI.
 3. Add an Alembic migration for any schema change.
 4. **Be a good OPAC citizen.** The crawler is deliberately rate-limited and capped because it talks to a live public-library system. Please don't change it to be more aggressive.

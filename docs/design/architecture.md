@@ -1,5 +1,8 @@
-# biblioHack — Architecture & Research
-
+---
+title: "biblioHack — Architecture"
+h1: "Architecture"
+tagline: "Full design &amp; research doc — the master reference."
+---
 A reverse catalog and AI-driven book recommender for the Andalusian public-library network, bootstrapped from the **Biblioteca Provincial de Huelva**.
 
 > Status: research and design draft, May 2026. No code written yet — this document is the contract we agree on before scaffolding the repo. Items marked **OPEN** require a decision or further verification.
@@ -609,9 +612,9 @@ Plan:
 
 ## 10. Deployment (Synology NAS + Cloudflare Tunnel)
 
-> **Status: LIVE since 2026-05-30** at <https://biblio.josearcos.me>. The read+serve plane runs on the NAS; the catalog mirror is now filled **autonomously by an on-NAS crawler** (`bibliohack-crawler`, supercronic-scheduled — §10, LIVE 2026-06-03). Hard-won Synology deploy specifics (SSH pubkey, BuildKit DNS, rsync-gated, `astro preview` host block) are recorded in `homelab-josearcos-me-infra-reference.md` §12.
+> **Status: LIVE since 2026-05-30** at <https://biblio.josearcos.me>. The read+serve plane runs on the NAS; the catalog mirror is now filled **autonomously by an on-NAS crawler** (`bibliohack-crawler`, supercronic-scheduled — §10, LIVE 2026-06-03). Hard-won Synology deploy specifics (SSH pubkey, BuildKit DNS, rsync-gated, `astro preview` host block) are recorded in `docs/ops/infra-reference.md` §12.
 
-Concrete target: the **Synology "Home-NAS"** (`192.168.1.130`, Container Manager), published at **`biblio.josearcos.me`** through the **existing `synology-nas` Cloudflare Tunnel** — the same tunnel that already serves `josearcos.me → wordpress`. No new tunnel, no open inbound ports, no DDNS; TLS terminates at Cloudflare's edge. (Full home-lab inventory lives in the gitignored `homelab-josearcos-me-infra-reference.md`.)
+Concrete target: the **Synology "Home-NAS"** (`192.168.1.130`, Container Manager), published at **`biblio.josearcos.me`** through the **existing `synology-nas` Cloudflare Tunnel** — the same tunnel that already serves `josearcos.me → wordpress`. No new tunnel, no open inbound ports, no DDNS; TLS terminates at Cloudflare's edge. (Full home-lab inventory lives in the gitignored `docs/ops/infra-reference.md`.)
 
 **Two planes.** The read+serve plane and the heavier compute plane (crawl worker + embedder) are separated so the public surface stays light. The NAS turned out to be **x86-64** (confirmed 2026-06-03, kernel 4.4), so — contrary to the original ARM assumption — the crawler *can* run on the NAS itself:
 
@@ -675,7 +678,7 @@ deploy:
 
 | Milestone | Outcome | Duration estimate |
 | --- | --- | --- |
-| **M0 — Foundations** | Repo scaffold, Docker Compose dev env, CI (GitHub Actions: ruff + mypy + pytest + Playwright), `make` targets, ARCHITECTURE.md kept in sync. Empty FastAPI hello + empty Astro hello. | 1 weekend |
+| **M0 — Foundations** | Repo scaffold, Docker Compose dev env, CI (GitHub Actions: ruff + mypy + pytest + Playwright), `make` targets, docs/design/architecture.md kept in sync. Empty FastAPI hello + empty Astro hello. | 1 weekend |
 | **M1 — Catalog ingest, Huelva** | AbsysNet adapter, parser, persistence. First polite crawl of the Huelva subset. Read-only catalog API + bare-bones search UI (FTS only). | 3–4 weekends |
 | **M2 — Availability history** | Availability snapshot worker, time-series schema, simple "is it on the shelf?" badge in the UI. | 1–2 weekends |
 | **M2.5 — Book covers** | `covers` context + async resolution worker (OpenLibrary → Google Books → placeholder), MinIO content-addressed store, immutable serving, `srcset` + lazy-load in the UI. Enriches search/detail UI dramatically. (Design: §7.5.) | 1–2 weekends |
@@ -684,6 +687,8 @@ deploy:
 | **M5 — Recommender v1** | Cold-start + content-based recommendations, OpenRouter rationales, "recommended right now in your branch" view. | 2 weekends |
 | **M6 — Polish + public deploy** | Caddy/Cloudflare Tunnel, rate limiting, error pages, backups. **(Deploy done 2026-05-30 — see §10.)** | 1 weekend |
 | **M6.5 — CI/CD auto-deploy** | Green push to `main` → auto-deploy to the NAS (Tailscale GitHub Action → SSH; build-and-push to GHCR → `compose pull`), gated on all CI passing, with a post-deploy health gate + rollback. Never deploys on a red pipeline. (Design: §10.1.) | 1 weekend |
+| **Relevance milestone** | Stored `relevance_score` (demand from the availability series + holdings breadth + recency + completeness), nightly recompute on the crawl plane, `RELEVANCE` becomes the default `/browse` sort + search tiebreak. External canon boost deferred to the back-catalogue. (Full plan: `docs/design/relevance-and-libraries.md`.) | 2 weekends |
+| **Libraries milestone** | Promote `Branch` to a user-facing entity (geo/address/url), users follow multiple branches by geolocation proximity, hard-filter browse + search to "my libraries → my province → full", library-aware recommendations. Ships after the Relevance milestone. | 2–3 weekends |
 | **M7 — Expand to other provinces** | Generalise the SUBC handling so each Andalusian province can be enabled by config; first add Sevilla + Cádiz; same crawl, no new code. | 1 weekend |
 | **M8 — Mobile app** | React Native or Expo client reusing the API. Out of scope for the doc. | — |
 
@@ -733,6 +738,8 @@ These are the things I am **not** confident about. Address before committing too
 - LLM: **OpenRouter free tier** for user-facing inference only; **no batch jobs** through it.
 - Covers: a **separate `covers` bounded context**, resolved **asynchronously off the OPAC path**, **never hotlinked at request time**. **Open Library** is the storable primary source; **Google Books** is a display-time fallback only; a deterministic **placeholder** is a first-class state. Stored in **MinIO, content-addressed by sha256**, served immutable through Caddy + Cloudflare. Resolution is **lazy / popular-first**, never a full 2.66M pre-fetch. (Full design: §7.5.)
 - Catalogue scope: **classify, don't discard.** Every accepted book is ingested and tagged with a `LiteraryProfile` (audience + literary form); the default search/recommender scope surfaces **adult literature, all genres**, hiding only records *confidently* children's/youth or non-fiction. Media type stays a hard ingest-time filter; audience and form are reversible tags applied at read time. (Full design: §5.5.)
+- Catalogue relevance: a stored, nightly-recomputed **`relevance_score`** drives `/browse` + search ordering. v1 is **internal-first** — a balanced blend (demand-largest) of *demand* (derived from the availability time-series — scarcity + checkout velocity + trending), *holdings breadth*, *recency*, and *display completeness*. External canon/popularity (Wikidata awards, curated award lists, Open Library ratings, LibraryThing/OCLC held-count) is a **positive-only boost added later**, with the back-catalogue. The recompute runs on the **crawl/worker plane** (supercronic, nightly). In search, global relevance is **filter + tiebreak only** — the query drives ranking. (Full plan: `docs/design/relevance-and-libraries.md`, decided 2026-06-15.)
+- Libraries: the existing `holdings.Branch` is promoted to a user-facing entity (enriched with geo/address/url); users **follow multiple branches** chosen by **geolocation proximity** (location computed **client-side, never stored**; searchable list if geo is denied). Browse **and** search are **hard-filtered** to the user's libraries by default, widening **my libraries → my province → full catalogue**; recommendations become **library-aware** (prioritise borrowable-nearby titles). Branch geo comes from an official CC-BY directory with Nominatim geocoding as fallback. (Full plan: `docs/design/relevance-and-libraries.md`, decided 2026-06-15.)
 
 ---
 

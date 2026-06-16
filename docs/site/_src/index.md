@@ -1,73 +1,9 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="icon" href="favicon.svg" type="image/svg+xml" />
-<title>biblioHack — Project Summary</title>
-<style>
-  :root {
-    --bg: #faf7f2; --panel: #ffffff; --ink: #2b2620; --muted: #7a7062;
-    --accent: #8b5e34; --accent-2: #3d6b50; --line: #e8e0d4;
-    --done: #3d6b50; --done-bg: #e7f0ea; --pending: #a8632a; --pending-bg: #f9ecdf;
-    --defer: #6b6b8d; --defer-bg: #ebebf4;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 16px/1.65 Georgia, 'Times New Roman', serif; background: var(--bg); color: var(--ink); }
-  header.site { background: var(--ink); color: #f3ede4; padding: 2.5rem 1.5rem 2rem; }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 0 1rem; }
-  header.site h1 { font-size: 2.2rem; margin: 0 0 .3rem; letter-spacing: .5px; }
-  header.site p.tag { margin: 0; color: #cdbfa9; font-style: italic; }
-  nav.crumbs { background: #3a332b; padding: .55rem 1.5rem; font-family: Verdana, sans-serif; font-size: .8rem; }
-  nav.crumbs a { color: #e8dcc8; text-decoration: none; margin-right: 1.4rem; }
-  nav.crumbs a:hover { text-decoration: underline; }
-  nav.crumbs span.here { color: #fff; font-weight: bold; margin-right: 1.4rem; }
-  main { padding: 2rem 0 4rem; }
-  h2 { font-size: 1.45rem; border-bottom: 2px solid var(--accent); padding-bottom: .3rem; margin-top: 2.6rem; }
-  h3 { font-size: 1.12rem; color: var(--accent); margin-top: 1.8rem; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.2rem 1.4rem; margin: 1rem 0; }
-  table { border-collapse: collapse; width: 100%; font-size: .92rem; background: var(--panel); }
-  th, td { border: 1px solid var(--line); padding: .5rem .65rem; text-align: left; vertical-align: top; }
-  th { background: #f1ebe1; font-family: Verdana, sans-serif; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; }
-  .badge { display: inline-block; font-family: Verdana, sans-serif; font-size: .68rem; font-weight: bold; padding: .12rem .55rem; border-radius: 99px; white-space: nowrap; }
-  .b-done { color: var(--done); background: var(--done-bg); }
-  .b-pending { color: var(--pending); background: var(--pending-bg); }
-  .b-defer { color: var(--defer); background: var(--defer-bg); }
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; margin: 1.2rem 0; }
-  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .9rem; text-align: center; }
-  .stat .n { font-size: 1.5rem; font-weight: bold; color: var(--accent); display: block; }
-  .stat .l { font-family: Verdana, sans-serif; font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin-top: 1rem; }
-  a.card { display: block; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 1rem 1.2rem; text-decoration: none; color: var(--ink); transition: box-shadow .15s; }
-  a.card:hover { box-shadow: 0 3px 12px rgba(0,0,0,.08); }
-  a.card strong { color: var(--accent); font-size: 1.05rem; }
-  a.card span { display: block; font-size: .85rem; color: var(--muted); margin-top: .3rem; }
-  code { font: .85em/1.4 'SF Mono', Menlo, Consolas, monospace; background: #f1ebe1; padding: .1em .35em; border-radius: 4px; }
-  footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; padding: 1.2rem 0 2.5rem; font-family: Verdana, sans-serif; }
-  ul.tight li { margin-bottom: .45rem; }
-</style>
-</head>
-<body>
-
-<header class="site">
-  <div class="wrap">
-    <h1>📚 biblioHack</h1>
-    <p class="tag">A reverse catalogue, availability tracker &amp; AI recommender for the Andalusian public-library network — live at <a href="https://biblio.josearcos.me" style="color:#e8c891">biblio.josearcos.me</a></p>
-  </div>
-</header>
-
-<nav class="crumbs">
-  <div class="wrap">
-    <span class="here">Overview</span>
-    <a href="architecture.html">Architecture</a>
-    <a href="identity-milestone.html">Identity Milestone</a>
-    <a href="pending-and-ops.html">Pending &amp; Operations</a>
-    <a href="kanban.html">Kanban</a>
-  </div>
-</nav>
-
-<main class="wrap">
-
+---
+title: "biblioHack — Project Summary"
+h1: "📚 biblioHack"
+tagline: 'A reverse catalogue, availability tracker &amp; AI recommender for the Andalusian public-library network — live at <a href="https://biblio.josearcos.me" style="color:#e8c891">biblio.josearcos.me</a>'
+raw_html: true
+---
   <p><strong>Status snapshot — 13 June 2026.</strong> The project has gone from research draft (May 2026) to a <strong>live, public, multi-user application</strong> in roughly six weeks. Every planned milestone through the identity milestone's Phase 5 hardening has shipped. Most recently the crawler got a <strong>throughput overhaul</strong> — a pooled browser session plus a higher discovery cap took it from ~2.4k to ~9.6k records/day within the same 1 req/s politeness budget. What remains is a short tail of engineering follow-ups, a handful of operational loose ends, and the long-horizon roadmap items (other provinces, mobile, and a MARC-dump request that would close the full catalogue gap).</p>
 
   <div class="stats">
@@ -86,7 +22,7 @@
 
   <h2>The plan, executed</h2>
 
-  <h3>Product milestones (ARCHITECTURE.md §11)</h3>
+  <h3>Product milestones (docs/design/architecture.md §11)</h3>
   <table>
     <tr><th>Milestone</th><th>Outcome</th><th>Status</th></tr>
     <tr><td><strong>M0</strong> Foundations</td><td>Repo scaffold, Docker Compose, CI (ruff + mypy + pytest + vitest), hello FastAPI/Astro</td><td><span class="badge b-done">SHIPPED</span></td></tr>
@@ -100,6 +36,8 @@
     <tr><td><strong>M6.5</strong> CI/CD auto-deploy</td><td>Green push to <code>main</code> auto-deploys to the NAS; red pipeline never deploys</td><td><span class="badge b-done">SHIPPED</span></td></tr>
     <tr><td>APM / tracing</td><td>OpenTelemetry on the api (FastAPI + asyncpg auto-instrumented) → OTLP → shared collector → Grafana Tempo + SigNoz</td><td><span class="badge b-done">LIVE 2026-06-04</span></td></tr>
     <tr><td>Autonomous crawler</td><td>On-NAS <code>bibliohack-crawler</code> container, supercronic: hourly cursor-advancing discover+worker, 6-hourly refresh</td><td><span class="badge b-done">LIVE 2026-06-03</span></td></tr>
+    <tr><td><strong>Relevance</strong> milestone</td><td><code>relevance_score</code> (demand + holdings + recency + completeness) → default browse sort + search tiebreak; nightly recompute. (<a href="relevance-and-libraries.html">plan</a>)</td><td><span class="badge b-pending">PLANNED</span></td></tr>
+    <tr><td><strong>Libraries</strong> milestone</td><td>Follow branches by proximity; hard-filter browse/search/recs to "my libraries → province → full". (<a href="relevance-and-libraries.html">plan</a>)</td><td><span class="badge b-pending">PLANNED</span></td></tr>
     <tr><td><strong>M7</strong> Other provinces</td><td>Generalised SUBC handling, Sevilla + Cádiz</td><td><span class="badge b-defer">ROADMAP</span></td></tr>
     <tr><td><strong>M8</strong> Mobile app</td><td>React Native / Expo client over the same API</td><td><span class="badge b-defer">ROADMAP</span></td></tr>
   </table>
@@ -128,13 +66,7 @@
   <div class="cards">
     <a class="card" href="architecture.html"><strong>Architecture →</strong><span>Bounded contexts, stack, data model, the polite crawler, deployment topology, observability.</span></a>
     <a class="card" href="identity-milestone.html"><strong>Identity Milestone →</strong><span>How the app went multi-user: phases 0–5, locked decisions, and the deviations that mattered.</span></a>
+    <a class="card" href="relevance-and-libraries.html"><strong>Relevance &amp; Libraries →</strong><span>Planned: a relevance score driving browse/search, and following branches by proximity to scope the catalogue.</span></a>
     <a class="card" href="pending-and-ops.html"><strong>Pending &amp; Operations →</strong><span>Everything not done yet, the ops runbook, and the open questions worth re-visiting.</span></a>
     <a class="card" href="kanban.html"><strong>Kanban →</strong><span>The board: done, in progress (including the autonomous crawl), and what's to do, at a glance.</span></a>
   </div>
-
-  <footer>
-    Generated 2026-06-10 from <code>ARCHITECTURE.md</code>, <code>docs/identity-milestone-plan.md</code>, <code>README.md</code> and the repository state at commit <code>5ce696c</code>. Información obtenida del Portal de la Junta de Andalucía.
-  </footer>
-</main>
-</body>
-</html>

@@ -142,6 +142,19 @@ frontend-run: ## Run the Astro dev server.
 	cd frontend && pnpm dev
 
 # ────────────────────────────────────────────────────────────
+# Docs (Markdown is canonical; docs/site/*.html is generated)
+# ────────────────────────────────────────────────────────────
+
+.PHONY: docs
+docs: ## Regenerate docs/site/ HTML from the canonical Markdown (pip install -r tools/requirements.txt first).
+	python3 tools/build_docs.py
+
+.PHONY: docs-check
+docs-check: ## Fail if docs/site/ is out of date with its Markdown sources.
+	python3 tools/build_docs.py
+	git diff --exit-code docs/site
+
+# ────────────────────────────────────────────────────────────
 # Aggregate
 # ────────────────────────────────────────────────────────────
 

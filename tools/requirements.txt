@@ -1,0 +1,5 @@
+# Dependencies for tools/build_docs.py (the docs site generator).
+# Pinned so the CI freshness gate reproduces byte-identical HTML.
+markdown==3.10.2
+jinja2==3.0.3
+pyyaml==6.0.3
