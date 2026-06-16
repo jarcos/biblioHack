@@ -227,6 +227,66 @@
         }
       ],
       "fieldConfig": { "defaults": { "unit": "percent", "max": 100 }, "overrides": [] }
+    },
+    {
+      "type": "gauge",
+      "title": "Relevance coverage",
+      "description": "Records with a relevance_score written by the nightly recompute (relevance_updated_at set). Sits near 100% once the 04:00 job has run.",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 28 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE relevance_updated_at IS NOT NULL) / greatest(count(*), 1), 1) AS pct FROM bibliographic_records"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 80 }, { "color": "green", "value": 99 } ] } }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Relevance freshness",
+      "description": "Hours since the most recent relevance recompute (now() − max(relevance_updated_at)). Nightly job runs 04:00 UTC, so this should stay under ~28h; >48h means a night was missed (crawler image not rebuilt, or the job failed).",
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 28 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(extract(epoch FROM now() - max(relevance_updated_at)) / 3600.0, 1) AS hours FROM bibliographic_records"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "h", "decimals": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 30 }, { "color": "red", "value": 48 } ] } }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Cold-start records",
+      "description": "Records with no availability history yet — demand set neutral (0.5) so new acquisitions aren't buried. Falls as the availability series grows.",
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 28 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) AS cold_start FROM bibliographic_records WHERE (relevance_components->>'cold_start')::numeric = 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "type": "bargauge",
+      "title": "Mean relevance components",
+      "description": "Corpus-average of each [0,1] sub-score (demand · holdings · recency · completeness) from relevance_components — the shape of the blend across the mirror.",
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(avg((relevance_components->>'demand')::numeric), 3) AS demand, round(avg((relevance_components->>'holdings')::numeric), 3) AS holdings, round(avg((relevance_components->>'recency')::numeric), 3) AS recency, round(avg((relevance_components->>'completeness')::numeric), 3) AS completeness FROM bibliographic_records WHERE relevance_components IS NOT NULL"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0, "max": 1, "decimals": 3 }, "overrides": [] }
     }
   ]
 }
