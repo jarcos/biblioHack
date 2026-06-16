@@ -105,7 +105,9 @@ def _rrf_fuse(
 ) -> list[CatalogRecordSummary]:
     """Reciprocal Rank Fusion over ranked summary lists, deduped by TITN.
 
-    Ties break on (best single-list rank, titn) so the order is deterministic.
+    The fused RRF score drives the order; ties break on best single-list rank,
+    then on catalogue `relevance_score` (D16 — relevance only breaks near-ties,
+    never out-ranks a stronger fused match), then titn for determinism.
     """
     scores: dict[int, float] = {}
     best_rank: dict[int, int] = {}
@@ -117,6 +119,11 @@ def _rrf_fuse(
             first_seen.setdefault(item.titn, item)
     ordered = sorted(
         scores,
-        key=lambda titn: (-scores[titn], best_rank[titn], titn),
+        key=lambda titn: (
+            -scores[titn],
+            best_rank[titn],
+            -first_seen[titn].relevance_score,
+            titn,
+        ),
     )
     return [first_seen[titn] for titn in ordered]

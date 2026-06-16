@@ -65,6 +65,7 @@ class SearchMode(StrEnum):
 class BrowseSort(StrEnum):
     """Ordering for /catalog/browse."""
 
+    RELEVANCE = "relevance"
     NEWEST = "newest"
     TITLE = "title"
 
@@ -171,7 +172,7 @@ async def browse_catalog(
     available: Annotated[
         bool, Query(description="Only records with at least one copy on a shelf right now.")
     ] = False,
-    sort: Annotated[BrowseSort, Query()] = BrowseSort.NEWEST,
+    sort: Annotated[BrowseSort, Query()] = BrowseSort.RELEVANCE,
     limit: Annotated[int, Query(ge=1, le=100)] = 24,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> BrowseResponseSchema:
@@ -181,6 +182,12 @@ async def browse_catalog(
     literary-form facets are the explicit levers here). Facet counts are
     computed per dimension over the other active filters, so picking a value
     never zeroes out its siblings.
+
+    Default ordering is `relevance` (the precomputed `relevance_score`), so the
+    best titles lead instead of "newest TITN first"; `newest` and `title` remain
+    available. Each row carries `available_count`/`copies_count` for the
+    availability badge, and the `available` flag is the "available now" quick
+    filter (latest snapshot == available on any branch).
     """
     repo = PostgresCatalogReadRepository(session)
     page = await repo.browse(
@@ -314,6 +321,7 @@ def _summary_to_schema(summary: CatalogRecordSummary) -> CatalogRecordSummarySch
         literary_form=summary.literary_form,
         available_count=summary.available_count,
         cover=_cover_to_schema(summary.cover),
+        relevance_score=summary.relevance_score,
     )
 
 

@@ -84,6 +84,9 @@ class CatalogRecordSummary:
     # How many copies are on the shelf right now (latest snapshot == available).
     available_count: int = 0
     cover: CoverView | None = None
+    # Precomputed catalogue relevance ∈ [0,1] (Phase R). Drives the default
+    # /browse ordering and breaks near-ties in search; 0.0 until first scored.
+    relevance_score: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

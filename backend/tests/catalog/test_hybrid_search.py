@@ -10,13 +10,13 @@ from __future__ import annotations
 import pytest
 
 from bibliohack.catalog.application.dto import CatalogRecordSummary, SearchPage
-from bibliohack.catalog.application.use_cases.hybrid_search import HybridSearch
+from bibliohack.catalog.application.use_cases.hybrid_search import HybridSearch, _rrf_fuse
 from bibliohack.catalog.domain.literary_profile import SearchScope
 
 pytestmark = pytest.mark.asyncio
 
 
-def _summary(titn: int) -> CatalogRecordSummary:
+def _summary(titn: int, *, relevance_score: float = 0.0) -> CatalogRecordSummary:
     return CatalogRecordSummary(
         titn=titn,
         title=f"Libro {titn}",
@@ -24,7 +24,19 @@ def _summary(titn: int) -> CatalogRecordSummary:
         publisher=None,
         pub_year=None,
         copies_count=1,
+        relevance_score=relevance_score,
     )
+
+
+async def test_rrf_breaks_equal_fusion_ties_by_relevance() -> None:
+    """D16: when two records earn the same RRF score at the same best rank,
+    the higher catalogue relevance_score wins (it only breaks the tie)."""
+    low = _summary(10, relevance_score=0.2)
+    high = _summary(20, relevance_score=0.8)
+    # Each appears once, at rank 1 of its own list → identical RRF score and
+    # best_rank, so only relevance can order them.
+    fused = _rrf_fuse((low,), (high,))
+    assert [s.titn for s in fused] == [20, 10]
 
 
 class _FakeEmbedder:

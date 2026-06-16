@@ -184,11 +184,12 @@ async def client(seeded: str) -> AsyncIterator[AsyncClient]:
 
 
 async def test_browse_unfiltered_covers_the_whole_mirror(client: AsyncClient) -> None:
-    r = await client.get("/catalog/browse")
+    # sort=newest pins the year-ordering assertion (the default sort is now
+    # `relevance`; see test_browse_default_orders_by_relevance).
+    r = await client.get("/catalog/browse", params={"sort": "newest"})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["total"] == 6
-    # Default sort is newest-first.
     years = [item["pub_year"] for item in body["items"]]
     assert years == sorted(years, reverse=True)
     # Facets present, with the ingest-derived genres counted.
@@ -200,6 +201,39 @@ async def test_browse_unfiltered_covers_the_whole_mirror(client: AsyncClient) ->
     assert genre_counts["unknown"] == 1  # the history book
     language_counts = {f["value"]: f["count"] for f in body["facets"]["language"]}
     assert language_counts == {"spa": 5, "eng": 1}
+
+
+async def test_browse_default_orders_by_relevance(client: AsyncClient, seeded: str) -> None:
+    """Default /browse sort is `relevance`: highest relevance_score leads, and
+    each row carries its score. Scores are set directly (the recompute job is
+    tested separately) and reset afterwards so the shared fixture stays clean."""
+    engine = create_async_engine(seeded, future=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    # titn 3 highest, then 5, then 1; the rest stay 0.
+    score_by_titn = {3: 0.9, 5: 0.6, 1: 0.3}
+    try:
+        async with factory() as s:
+            for titn, score in score_by_titn.items():
+                await s.execute(
+                    text("UPDATE bibliographic_records SET relevance_score = :sc WHERE titn = :t"),
+                    {"sc": score, "t": titn},
+                )
+            await s.commit()
+
+        r = await client.get("/catalog/browse")  # no sort → relevance default
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        # The three scored records lead, in descending score order.
+        assert [it["titn"] for it in items[:3]] == [3, 5, 1]
+        # The score is exposed on the summary.
+        assert items[0]["relevance_score"] == pytest.approx(0.9)
+        # Unscored records (score 0) come last, ordered by titn desc as tiebreak.
+        assert [it["titn"] for it in items[3:]] == [6, 4, 2]
+    finally:
+        async with factory() as s:
+            await s.execute(text("UPDATE bibliographic_records SET relevance_score = 0"))
+            await s.commit()
+        await engine.dispose()
 
 
 async def test_browse_filters_compose(client: AsyncClient) -> None:

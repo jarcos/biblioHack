@@ -221,9 +221,16 @@ class PostgresCatalogReadRepository:
             await self._session.execute(select(func.count()).select_from(base_q.subquery()))
         ).scalar_one()
 
+        # D16: the query rank drives ordering; `relevance_score` only breaks
+        # near-ties (ts_rank_cd produces many equal ranks), so a stronger
+        # textual match is never displaced. titn is the final stable tiebreak.
         page_stmt = (
             base_q.options(selectinload(BibliographicRecordModel.contributors))
-            .order_by(rank.desc(), BibliographicRecordModel.titn.asc())
+            .order_by(
+                rank.desc(),
+                BibliographicRecordModel.relevance_score.desc(),
+                BibliographicRecordModel.titn.asc(),
+            )
             .limit(capped_limit)
             .offset(capped_offset)
         )
@@ -326,9 +333,14 @@ class PostgresCatalogReadRepository:
         order: tuple[ColumnElement[Any], ...]
         if sort == "title":
             order = (BibliographicRecordModel.title.asc(), BibliographicRecordModel.titn.asc())
-        else:  # "newest" (default)
+        elif sort == "newest":
             order = (
                 BibliographicRecordModel.pub_year.desc().nulls_last(),
+                BibliographicRecordModel.titn.desc(),
+            )
+        else:  # "relevance" (default) — precomputed score, titn as stable tiebreak
+            order = (
+                BibliographicRecordModel.relevance_score.desc(),
                 BibliographicRecordModel.titn.desc(),
             )
         page_stmt = (
@@ -434,9 +446,14 @@ class PostgresCatalogReadRepository:
         ).scalar_one()
 
         distance = BibliographicRecordModel.embedding.cosine_distance(vector)
+        # D16: cosine distance drives ordering; relevance only breaks ties.
         page_stmt = (
             base_q.options(selectinload(BibliographicRecordModel.contributors))
-            .order_by(distance.asc(), BibliographicRecordModel.titn.asc())
+            .order_by(
+                distance.asc(),
+                BibliographicRecordModel.relevance_score.desc(),
+                BibliographicRecordModel.titn.asc(),
+            )
             .limit(capped_limit)
             .offset(capped_offset)
         )
@@ -597,6 +614,7 @@ class PostgresCatalogReadRepository:
                 genre=r.genre,
                 available_count=available_count_by_id.get(r.id, 0),
                 cover=covers_by_id.get(r.id),
+                relevance_score=r.relevance_score,
             )
             for r in rows
         )

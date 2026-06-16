@@ -73,6 +73,12 @@ class CatalogRecordSummarySchema(BaseModel):
     )
     available_count: int = Field(0, ge=0, description="Copies on the shelf right now.")
     cover: CoverSchema | None = None
+    relevance_score: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="Precomputed catalogue relevance [0,1]; default /browse ranking key.",
+    )
 
 
 class SearchResponseSchema(BaseModel):
