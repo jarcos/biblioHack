@@ -51,6 +51,7 @@ services:
       REFRESH_MAX: "300"         # records re-probed per 6-hourly run
       COVERS_MAX: "100"          # cover ISBNs resolved per 2-hourly run (off-OPAC)
       EMBED_MAX: "200"           # records embedded per 3-hourly run (off-OPAC, via HF)
+      RELEVANCE_WINDOW_DAYS: "90" # trailing availability window the nightly relevance recompute reads (off-OPAC, pure DB)
       # Resolve covers into the shared store (the api serves them read-only).
       COVERS_STORE_PATH: /covers
       # BGE-M3 embeddings via the HF Inference API (token from .env).

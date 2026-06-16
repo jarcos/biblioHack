@@ -19,3 +19,8 @@
 # Embeddings every 3 hours at :45 — off the OPAC (hits the HF Inference API),
 # own lock, vectorizes records lacking an embedding for semantic search.
 45 */3 * * * /app/run-job.sh embed
+# Catalogue relevance nightly at 04:00 — pure DB compute (no OPAC, no network),
+# own lock, rescores every record from the availability series + holdings so
+# /browse and search lead with the best titles. Offset from the 03:00 growth
+# nightly so it reads a settled snapshot set.
+0 4 * * * /app/run-job.sh relevance

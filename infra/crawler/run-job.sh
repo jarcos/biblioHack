@@ -20,6 +20,7 @@ ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 case "$JOB" in
   covers) LOCK="/tmp/bibliohack-covers.lock" ;;
   embed) LOCK="/tmp/bibliohack-embed.lock" ;;
+  relevance) LOCK="/tmp/bibliohack-relevance.lock" ;;
   *) LOCK="/tmp/bibliohack-crawl.lock" ;;
 esac
 exec 9>"$LOCK"
@@ -51,6 +52,11 @@ case "$JOB" in
   embed)
     # Off-OPAC: embeds records lacking a vector via the HF Inference API.
     bibliohack catalog embed --limit "${EMBED_MAX:-200}"
+    ;;
+  relevance)
+    # Off-OPAC, pure DB: rescores the whole catalogue from the availability
+    # series + holdings so /browse and search lead with the best titles.
+    bibliohack catalog relevance recompute --window-days "${RELEVANCE_WINDOW_DAYS:-90}"
     ;;
   *)
     echo "[$(ts)] unknown job: $JOB" >&2

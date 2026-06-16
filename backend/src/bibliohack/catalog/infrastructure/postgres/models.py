@@ -26,6 +26,7 @@ from sqlalchemy import (
     BigInteger,
     Computed,
     DateTime,
+    Double,
     ForeignKey,
     Index,
     Integer,
@@ -33,8 +34,9 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -93,6 +95,16 @@ class BibliographicRecordModel(Base):
     # NULL until the embedder processes the record (off the OPAC path).
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
 
+    # Catalogue relevance (Phase R). Precomputed nightly off the OPAC path by
+    # the recompute use case; intrinsic to the record (no per-user context).
+    # `relevance_score` ∈ [0,1] is the blended rank key (default sort on
+    # /browse); `relevance_components` holds the per-component sub-scores for
+    # debugging + a future "why this" badge set; `relevance_updated_at` tracks
+    # staleness. server_default 0 keeps un-scored rows last until first compute.
+    relevance_score: Mapped[float] = mapped_column(Double, nullable=False, server_default=text("0"))
+    relevance_components: Mapped[dict[str, float] | None] = mapped_column(JSONB)
+    relevance_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # Generated full-text-search column, populated by Postgres using the
     # Spanish-unaccent configuration seeded in infra/postgres/init/01-extensions.sql.
     fts: Mapped[str] = mapped_column(
@@ -135,6 +147,9 @@ class BibliographicRecordModel(Base):
         Index("ix_bibliographic_records_genre", "genre"),
         Index("ix_bibliographic_records_language", "language"),
         Index("ix_bibliographic_records_pub_year", "pub_year"),
+        # Ranking index for the relevance-default /browse sort (matches the
+        # hand-written DESC index in migration 0014).
+        Index("ix_records_relevance", text("relevance_score DESC")),
     )
 
 

@@ -23,6 +23,9 @@ from bibliohack.catalog.application.use_cases.probe_titn_range import (
     DEFAULT_HARD_MAX,
     ProbeTitnRange,
 )
+from bibliohack.catalog.application.use_cases.recompute_relevance import (
+    RecomputeRelevance,
+)
 from bibliohack.catalog.application.use_cases.run_scrape_worker import (
     RunScrapeWorker,
     WorkerStats,
@@ -56,6 +59,9 @@ from bibliohack.catalog.infrastructure.postgres.discovery_cursor_repository impo
 )
 from bibliohack.catalog.infrastructure.postgres.embedding_repository import (
     PostgresEmbeddingRepository,
+)
+from bibliohack.catalog.infrastructure.postgres.relevance_repository import (
+    PostgresRelevanceRepository,
 )
 from bibliohack.shared.infrastructure import (
     get_settings,
@@ -593,4 +599,46 @@ async def _run_embed(limit: int, batch_size: int) -> None:
     typer.echo(typer.style("Embedding complete.", fg=typer.colors.GREEN, bold=True))
     typer.echo(f"  embedded: {embedded}")
     typer.echo(f"  failed:   {failed}")
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+
+
+# --- relevance (Phase R) -----------------------------------------------------
+
+relevance_app = typer.Typer(
+    no_args_is_help=True,
+    help="Catalogue relevance scoring (precomputed, off the OPAC path).",
+)
+catalog_app.add_typer(relevance_app, name="relevance")
+
+
+@relevance_app.command("recompute")
+def relevance_recompute(
+    window_days: int = typer.Option(
+        90,
+        "--window-days",
+        help="Trailing availability window (days) the demand signal reads.",
+    ),
+) -> None:
+    """Recompute `relevance_score` for every catalogue record.
+
+    Pure DB compute over the availability time-series + holdings: gathers raw
+    per-record signals, derives corpus-wide normalisation bounds, blends the
+    four components (demand / holdings / recency / completeness), and writes the
+    scores + per-component breakdown back. Runs nightly on the crawler plane.
+    """
+    asyncio.run(_run_relevance_recompute(window_days))
+
+
+async def _run_relevance_recompute(window_days: int) -> None:
+    typer.echo(f"Recomputing catalogue relevance (trailing {window_days}d window)…")
+    async with transactional_session() as session:
+        use_case = RecomputeRelevance(repo=PostgresRelevanceRepository(session))
+        summary = await use_case.execute(window_days=window_days)
+
+    typer.echo()
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+    typer.echo(typer.style("Relevance recompute complete.", fg=typer.colors.GREEN, bold=True))
+    typer.echo(f"  scored:     {summary.scored}")
+    typer.echo(f"  written:    {summary.written}")
+    typer.echo(f"  cold-start: {summary.cold_start} (no availability history → neutral demand)")
     typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
