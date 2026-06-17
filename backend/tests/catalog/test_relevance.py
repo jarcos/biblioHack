@@ -152,6 +152,23 @@ def test_recency_prefers_newer_publication_year() -> None:
     assert c_new["recency"] > c_old["recency"]
 
 
+def test_sentinel_pub_year_is_neutral_not_newest() -> None:
+    """A MARC 'unknown date' sentinel (9999) must NOT top the recency scale — it
+    is treated as unknown (neutral), never as the newest year, and is excluded
+    from the corpus max so it can't drag real years' normalisation."""
+    real = _signals(record_id="real", pub_year=2026)
+    older = _signals(record_id="older", pub_year=2020)
+    sentinel = _signals(record_id="sentinel", pub_year=9999)
+    corpus = build_corpus_stats([real, older, sentinel])
+    # 9999 is ignored for the corpus span, so the real newest year defines it.
+    assert corpus.max_pub_year == 2026
+    assert corpus.min_pub_year == 2020
+    c_real = score_record(real, corpus, RelevanceWeights(), now=NOW).components
+    c_sentinel = score_record(sentinel, corpus, RelevanceWeights(), now=NOW).components
+    # The sentinel record sits at neutral recency, below a genuinely recent one.
+    assert c_sentinel["recency"] < c_real["recency"]
+
+
 def test_velocity_normalised_against_corpus_p95() -> None:
     """A record's velocity sub-score depends on the corpus, not absolute counts."""
     target = _signals(record_id="t", weekly_velocity=2.0, baseline_velocity=2.0)

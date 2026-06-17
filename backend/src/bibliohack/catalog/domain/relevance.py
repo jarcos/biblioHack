@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from datetime import datetime
+    from typing import TypeGuard
 
 # --- tunable constants -------------------------------------------------------
 
@@ -71,6 +72,14 @@ TREND_FULL_CONFIDENCE_WEEKS = 8.0
 
 # Recency: gentle exponential decay on "first seen" age, ~6-month half-life.
 FIRST_SEEN_HALF_LIFE_DAYS = 180.0
+
+# Plausible publication-year band. Years outside it (0/negatives, and MARC
+# "unknown date" sentinels like 9999) are treated as *unknown* → neutral
+# recency, and excluded from the corpus min/max so a 9999 can't define the top
+# of the recency scale and drag sentinel-year records to the front of /browse.
+# 2100 matches the upper bound the browse API already enforces on year filters.
+_MIN_PLAUSIBLE_PUB_YEAR = 1
+_MAX_PLAUSIBLE_PUB_YEAR = 2100
 
 # Completeness sub-weights (must sum to 1).
 _COVER_SUBWEIGHT = 0.40
@@ -185,6 +194,13 @@ def _percentile(sorted_values: list[float], pct: float) -> float:
     return sorted_values[lo] * (1.0 - frac) + sorted_values[hi] * frac
 
 
+def _is_plausible_pub_year(pub_year: int | None) -> TypeGuard[int]:
+    """True for a real publication year; False for None or out-of-band values
+    (0/negatives and MARC 'unknown date' sentinels like 9999). A TypeGuard so
+    callers get `int` narrowing in both branches."""
+    return pub_year is not None and _MIN_PLAUSIBLE_PUB_YEAR <= pub_year <= _MAX_PLAUSIBLE_PUB_YEAR
+
+
 def _log_scale(value: float, p95: float) -> float:
     """log1p-compress an unbounded count, scaled to [0,1] against a p95 ceiling.
 
@@ -205,7 +221,7 @@ def build_corpus_stats(signals: list[RecordSignals]) -> CorpusStats:
     velocities = sorted(s.weekly_velocity for s in signals if s.weekly_velocity > 0.0)
     copies = sorted(float(s.copies) for s in signals if s.copies > 0)
     branches = sorted(float(s.branches) for s in signals if s.branches > 0)
-    years = [s.pub_year for s in signals if s.pub_year is not None]
+    years = [s.pub_year for s in signals if _is_plausible_pub_year(s.pub_year)]
 
     min_year = min(years) if years else 0
     max_year = max(years) if years else 0
@@ -256,8 +272,10 @@ def _holdings_component(s: RecordSignals, corpus: CorpusStats) -> float:
 
 
 def _recency_component(s: RecordSignals, corpus: CorpusStats, now: datetime) -> float:
-    # Publication year, linearly placed within the corpus' year span.
-    if s.pub_year is None or corpus.max_pub_year <= corpus.min_pub_year:
+    # Publication year, linearly placed within the corpus' year span. An
+    # unknown/sentinel year (None, 0, 9999, …) is neutral, never the newest —
+    # otherwise a MARC 9999 would top the recency scale (see _is_plausible_pub_year).
+    if not _is_plausible_pub_year(s.pub_year) or corpus.max_pub_year <= corpus.min_pub_year:
         year_norm = NEUTRAL
     else:
         span = corpus.max_pub_year - corpus.min_pub_year
