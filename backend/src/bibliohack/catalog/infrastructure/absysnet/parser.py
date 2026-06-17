@@ -408,11 +408,27 @@ def _extract_document_type(tree: HTMLParser) -> str | None:
     return None
 
 
+# Plausible publication-year band. FEPU often carries MARC "unknown date"
+# sentinels (most commonly 9999, also 0000/uuuu) which must NOT be stored as a
+# real year — they'd print as "9999" in the UI and (before the relevance fix)
+# skewed recency. Anything outside the band is treated as unknown (None).
+# 2100 matches the upper bound the browse API enforces on year filters.
+_MIN_PLAUSIBLE_PUB_YEAR = 1
+_MAX_PLAUSIBLE_PUB_YEAR = 2100
+
+
 def _extract_pub_year(tree: HTMLParser) -> int | None:
-    """Pub year from `js-FEPU` if present; otherwise from a 4-digit run in T260."""
+    """Pub year from `js-FEPU` if present; otherwise from a 4-digit run in T260.
+
+    Out-of-band values (the 9999 MARC 'unknown date' sentinel, 0, future years
+    beyond 2100, …) are normalised to ``None`` — an unknown year is stored as
+    NULL, never as a bogus number.
+    """
     fepu = _first_js_field(tree, "FEPU")
     if fepu and fepu.isdigit() and len(fepu) >= 4:
-        return int(fepu[:4])
+        year = int(fepu[:4])
+        if _MIN_PLAUSIBLE_PUB_YEAR <= year <= _MAX_PLAUSIBLE_PUB_YEAR:
+            return year
     t260 = _first_js_field(tree, "T260")
     if t260:
         m = re.search(r"\b(1[4-9]\d{2}|20\d{2}|21\d{2})\b", t260)

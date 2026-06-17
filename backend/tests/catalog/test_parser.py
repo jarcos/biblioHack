@@ -98,6 +98,33 @@ def test_extracts_subjects_from_marc_6xx_spans() -> None:
     )
 
 
+def test_pub_year_sentinel_9999_normalised_to_none() -> None:
+    """A MARC 'unknown date' sentinel in FEPU (9999) is stored as NULL, not a
+    bogus year — otherwise it prints as '9999' and skews recency."""
+    html = """
+    <html><body>
+      <span class="js-TITN">9</span>
+      <span class="js-T245">Año desconocido</span>
+      <span class="js-FEPU">9999</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.pub_year is None
+
+
+def test_pub_year_real_fepu_year_is_kept() -> None:
+    """A plausible FEPU year is parsed normally (regression guard for the clamp)."""
+    html = """
+    <html><body>
+      <span class="js-TITN">10</span>
+      <span class="js-T245">Novedad</span>
+      <span class="js-FEPU">2026</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.pub_year == 2026
+
+
 def test_subjects_empty_when_no_6xx_present() -> None:
     html = """
     <html><body>
