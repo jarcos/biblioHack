@@ -1,18 +1,22 @@
 # MARC-dump request to the RBPA — draft for José
 
-**Status:** draft, ready to review and send. Not sent.
+**Status:** ready to send — recipient verified June 2026. Not sent.
 
 **Who to send it to.** The Catálogo Colectivo is run by the **Red de Bibliotecas
 Públicas de Andalucía (RBPA)**, coordinated by the **Biblioteca de Andalucía**
 (Granada), under the Consejería de Cultura y Deporte de la Junta de Andalucía.
-I did **not** hard-code an email address (I couldn't verify a current one I'd
-trust). Best routes, in order:
+Routes, in order:
 
-1. The Biblioteca de Andalucía's official contact address (check
-   `bibliotecadeandalucia.es` / the Junta's directory) — it coordinates the network.
-2. The Junta's open-data team at **datosabiertos** (`datosabiertos.ctpd@…` via
-   the Portal de Datos Abiertos de la Junta) — this is a reuse request, so the
-   open-data office is a legitimate parallel channel.
+1. **Primary — Biblioteca de Andalucía** (it coordinates the network):
+   - Email: **informacion.ba.ccul@juntadeandalucia.es**
+   - Tel: 958 026 900 · Responsable: Francisco Javier Álvarez García
+   - C/ Profesor Sainz Cantero 6, 18002 Granada
+   - Verified June 2026 on the official Junta directory:
+     <https://www.juntadeandalucia.es/organismos/culturaydeporte/areas/cultura/bibliotecas-documentacion/directorio-bibliotecas/detalle/274.html>
+2. **Parallel channel — Junta open-data office** (this is a reuse request): the
+   Portal de Datos Abiertos consultas form
+   <https://www.juntadeandalucia.es/datosabiertos/portal/contacto/consultas.html>
+   (portal contents are CC BY 3.0 ES — cite the Junta as source).
 3. Failing a direct reply, the **Registro Electrónico General** of the Junta
    (a formal RISP request has a legal duty to be answered).
 
