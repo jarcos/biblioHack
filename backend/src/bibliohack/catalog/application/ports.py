@@ -13,9 +13,10 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import AsyncIterator, Iterable, Sequence
     from datetime import datetime
 
+    from bibliohack.catalog.domain.canon import CanonMatchVia, CanonSeedWork
     from bibliohack.catalog.domain.titn import Titn
 
 
@@ -448,3 +449,101 @@ class CatalogIngestRepository(Protocol):
         source_url: str,
         source_hash: bytes,
     ) -> IngestResult: ...
+
+
+# ───────────────────────────────────────────────────────────────
+# Canon seed — "works worth having" from external sources (C0/C1)
+# ───────────────────────────────────────────────────────────────
+
+
+class CanonSeedSource(Protocol):
+    """An off-OPAC source of canonical works (Wikidata, award lists, …).
+
+    Implementations paginate + back off internally and yield clean domain
+    :class:`CanonSeedWork` objects; the refresh use case batches and upserts
+    them. No OPAC budget is consumed — these hit external knowledge bases only.
+    """
+
+    def fetch_works(self, *, max_works: int | None = None) -> AsyncIterator[CanonSeedWork]:
+        """Yield seed works, optionally capped at `max_works`."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class CanonUpsertResult:
+    """Outcome of upserting a batch of seed works (idempotent by identity)."""
+
+    inserted: int = 0
+    updated: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.inserted + self.updated
+
+
+@dataclass(frozen=True, slots=True)
+class CanonSeedRow:
+    """A persisted seed row, as the C1 matcher reads it back for matching."""
+
+    id: str
+    title: str
+    author: str | None
+    isbn13: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CanonCoverage:
+    """How much of the seed the mirror already holds — the C1 coverage report."""
+
+    total: int = 0
+    matched_isbn: int = 0
+    matched_title_author: int = 0
+    unmatched: int = 0
+
+    @property
+    def matched(self) -> int:
+        return self.matched_isbn + self.matched_title_author
+
+    @property
+    def matched_pct(self) -> float:
+        return (100.0 * self.matched / self.total) if self.total else 0.0
+
+
+class CanonSeedRepository(Protocol):
+    """Persistence for the canon seed: idempotent upsert + the C1 match path."""
+
+    async def upsert_works(self, works: Sequence[CanonSeedWork]) -> CanonUpsertResult:
+        """Upsert a batch by ``(source, source_ref)``.
+
+        Insert new works; update the mutable fields (title/author/year/isbns/
+        awards/notability + ``updated_at``) of ones already seen. Never touches
+        ``matched_record_id`` / ``acquire_status`` — those belong to the matcher
+        and the acquisition path. Returns insert-vs-update counts.
+        """
+        ...
+
+    async def iter_unmatched(self, *, limit: int, offset: int = 0) -> Sequence[CanonSeedRow]:
+        """Return up to `limit` unmatched seed rows, skipping the first `offset`.
+
+        Ordered stably (most-notable first, then id). `offset` lets the matcher
+        page past rows it already tried but couldn't link, so an un-matchable
+        row isn't re-read on every batch.
+        """
+        ...
+
+    async def match_isbn13(self, isbns: Sequence[str]) -> str | None:
+        """Record id of the first mirror record sharing any of these ISBN-13s."""
+        ...
+
+    async def match_title_author(self, title: str, author: str | None) -> str | None:
+        """Conservative trigram title(+author) match, or None. Mirrors the
+        Goodreads matcher's thresholds to keep false positives low."""
+        ...
+
+    async def link_match(self, seed_id: str, record_id: str, via: CanonMatchVia) -> None:
+        """Link a seed row to a mirror record, recording how it was matched."""
+        ...
+
+    async def coverage(self) -> CanonCoverage:
+        """Aggregate match coverage across the whole seed."""
+        ...

@@ -36,7 +36,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -226,6 +226,62 @@ class ScrapeTaskModel(Base):
         Index("ix_scrape_tasks_status", "status"),
         Index("ix_scrape_tasks_next_retry_at", "next_retry_at"),
         Index("ix_scrape_tasks_refresh_due_at", "refresh_due_at"),
+    )
+
+
+class CanonSeedModel(Base):
+    """The canon seed: "works worth having" from external knowledge bases.
+
+    NOT a catalogue record — see ``docs/design/canon-import.md`` and
+    ``catalog.domain.canon``. Identity is ``(source, source_ref)`` (e.g.
+    ``('wikidata', 'Q12345')``) so a monthly refresh upserts in place. The C1
+    matcher fills ``matched_record_id`` / ``matched_via`` when the work is
+    already in the mirror; ``acquire_status`` tracks the (later) C3 OPAC path.
+    """
+
+    __tablename__ = "canon_seed"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_ref: Mapped[str] = mapped_column(Text, nullable=False)
+
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    author: Mapped[str | None] = mapped_column(Text)
+    pub_year: Mapped[int | None] = mapped_column(Integer)
+    isbn13: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'")
+    )
+    awards: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'")
+    )
+    notability: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+
+    # Set by the C1 matcher. NULL = not (yet) matched to a mirror record.
+    matched_record_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("bibliographic_records.id", ondelete="SET NULL"),
+    )
+    matched_via: Mapped[str | None] = mapped_column(String(16))
+
+    acquire_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="unchecked"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        # Idempotent refresh: upsert by the external identity.
+        Index("uq_canon_seed_source_ref", "source", "source_ref", unique=True),
+        # Matcher sweeps "still unmatched" rows; coverage report counts by status.
+        Index("ix_canon_seed_matched_record_id", "matched_record_id"),
+        Index("ix_canon_seed_acquire_status", "acquire_status"),
+        # GIN over the ISBN array powers the ISBN-13 match lookup (C1).
+        Index("ix_canon_seed_isbn13", "isbn13", postgresql_using="gin"),
     )
 
 

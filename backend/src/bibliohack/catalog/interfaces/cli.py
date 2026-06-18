@@ -19,12 +19,18 @@ from bibliohack.catalog.application.use_cases.discover_via_search import (
     DiscoverViaExpertQuery,
     novedades_expression,
 )
+from bibliohack.catalog.application.use_cases.match_canon_seed import (
+    MatchCanonSeed,
+)
 from bibliohack.catalog.application.use_cases.probe_titn_range import (
     DEFAULT_HARD_MAX,
     ProbeTitnRange,
 )
 from bibliohack.catalog.application.use_cases.recompute_relevance import (
     RecomputeRelevance,
+)
+from bibliohack.catalog.application.use_cases.refresh_canon_seed import (
+    RefreshCanonSeed,
 )
 from bibliohack.catalog.application.use_cases.run_scrape_worker import (
     RunScrapeWorker,
@@ -51,6 +57,9 @@ from bibliohack.catalog.infrastructure.embeddings.huggingface import HuggingFace
 from bibliohack.catalog.infrastructure.postgres import (
     PostgresScrapeTaskRepository,
 )
+from bibliohack.catalog.infrastructure.postgres.canon_seed_repository import (
+    PostgresCanonSeedRepository,
+)
 from bibliohack.catalog.infrastructure.postgres.catalog_ingest_repository import (
     PostgresCatalogIngestRepository,
 )
@@ -63,6 +72,7 @@ from bibliohack.catalog.infrastructure.postgres.embedding_repository import (
 from bibliohack.catalog.infrastructure.postgres.relevance_repository import (
     PostgresRelevanceRepository,
 )
+from bibliohack.catalog.infrastructure.wikidata import WikidataCanonSource
 from bibliohack.shared.infrastructure import (
     get_settings,
     transactional_session,
@@ -641,4 +651,141 @@ async def _run_relevance_recompute(window_days: int) -> None:
     typer.echo(f"  scored:     {summary.scored}")
     typer.echo(f"  written:    {summary.written}")
     typer.echo(f"  cold-start: {summary.cold_start} (no availability history → neutral demand)")
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+
+
+# --- canon import (Phase C) --------------------------------------------------
+
+canon_app = typer.Typer(
+    no_args_is_help=True,
+    help="Canon seed: classics from Wikidata & open sources (off the OPAC path).",
+)
+catalog_app.add_typer(canon_app, name="canon")
+
+
+@canon_app.command("refresh-seed")
+def canon_refresh_seed(
+    min_sitelinks: int = typer.Option(
+        8,
+        "--min-sitelinks",
+        help="Notability floor — Wikipedia sitelink count a work needs to be seeded.",
+    ),
+    spanish_only: bool = typer.Option(
+        False,
+        "--spanish-only",
+        help="Require Spanish-language works (drops the award-bearing branch).",
+    ),
+    max_works: int | None = typer.Option(
+        None,
+        "--max-works",
+        help="Stop after seeding this many works (default: the whole result set).",
+    ),
+    page_size: int = typer.Option(
+        500, "--page-size", help="Works per WDQS page (LIMIT/OFFSET pagination)."
+    ),
+) -> None:
+    """Refresh the canon seed from Wikidata (C0) — off-OPAC, idempotent.
+
+    Queries the Wikidata Query Service for notable literary works (in Spanish or
+    award-bearing) and upserts them into `canon_seed` by QID, so a monthly run
+    updates works in place and adds newly-notable ones. Consumes **zero** OPAC
+    budget. Follow with `bibliohack catalog canon match` to see how many the
+    mirror already holds.
+
+    Usage:
+
+        bibliohack catalog canon refresh-seed --max-works 200    # smoke
+        bibliohack catalog canon refresh-seed                    # full seed
+    """
+    asyncio.run(_run_canon_refresh(min_sitelinks, spanish_only, max_works, page_size))
+
+
+async def _run_canon_refresh(
+    min_sitelinks: int, spanish_only: bool, max_works: int | None, page_size: int
+) -> None:
+    settings = get_settings()
+    source = WikidataCanonSource(
+        user_agent=settings.covers_user_agent,
+        min_sitelinks=min_sitelinks,
+        spanish_only=spanish_only,
+        page_size=page_size,
+    )
+    typer.echo(
+        f"Refreshing canon seed from Wikidata "
+        f"(min_sitelinks={min_sitelinks}, spanish_only={spanish_only}, "
+        f"max_works={max_works or '∞'})…"
+    )
+    typer.echo("Off-OPAC — hits query.wikidata.org only. This can take a few minutes.")
+    typer.echo()
+    try:
+        async with transactional_session() as session:
+            repo = PostgresCanonSeedRepository(session)
+            use_case = RefreshCanonSeed(source=source, repository=repo, batch_size=page_size)
+            stats = await use_case.execute(max_works=max_works)
+    except Exception as exc:
+        typer.echo(typer.style(f"Seed refresh failed: {exc}", fg=typer.colors.RED), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo()
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+    typer.echo(typer.style("Canon seed refresh complete.", fg=typer.colors.GREEN, bold=True))
+    typer.echo(f"  fetched:   {stats.fetched:,}")
+    typer.echo(f"  inserted:  {typer.style(f'{stats.inserted:,}', bold=True)}")
+    typer.echo(f"  updated:   {stats.updated:,}")
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+
+
+@canon_app.command("match")
+def canon_match(
+    max_rows: int | None = typer.Option(
+        None,
+        "--max-rows",
+        help="Process at most this many unmatched seed rows (default: all).",
+    ),
+    batch_size: int = typer.Option(500, "--batch-size", help="Unmatched rows read per batch."),
+) -> None:
+    """Link seed works to records the mirror already holds (C1) — DB-only.
+
+    For each unmatched seed row: ISBN-13 hit (authoritative) → conservative
+    title+author trigram → otherwise left unmatched (re-matches for free as the
+    catalogue grows). Touches the OPAC **zero** times. Prints a coverage report:
+    how many classics we already hold today.
+
+    Usage:
+
+        bibliohack catalog canon match                  # whole seed
+        bibliohack catalog canon match --max-rows 500   # bounded
+    """
+    asyncio.run(_run_canon_match(max_rows, batch_size))
+
+
+async def _run_canon_match(max_rows: int | None, batch_size: int) -> None:
+    typer.echo(f"Matching canon seed against the mirror (max_rows={max_rows or '∞'})…")
+    typer.echo()
+    try:
+        async with transactional_session() as session:
+            repo = PostgresCanonSeedRepository(session)
+            use_case = MatchCanonSeed(repository=repo, batch_size=batch_size)
+            stats = await use_case.execute(max_rows=max_rows)
+            coverage = await repo.coverage()
+    except Exception as exc:
+        typer.echo(typer.style(f"Canon match failed: {exc}", fg=typer.colors.RED), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+    typer.echo(typer.style("Canon match complete.", fg=typer.colors.GREEN, bold=True))
+    typer.echo("  this run:")
+    typer.echo(f"    scanned:            {stats.scanned:,}")
+    typer.echo(f"    matched (ISBN):     {stats.matched_isbn:,}")
+    typer.echo(f"    matched (title+au): {stats.matched_title_author:,}")
+    typer.echo(f"    still unmatched:    {stats.unmatched:,}")
+    typer.echo("  coverage (whole seed):")
+    typer.echo(f"    total seed works:   {typer.style(f'{coverage.total:,}', bold=True)}")
+    typer.echo(
+        f"    matched in mirror:  {typer.style(f'{coverage.matched:,}', bold=True)}"
+        f" ({coverage.matched_pct:.1f}%)"
+    )
+    typer.echo(f"      via ISBN:         {coverage.matched_isbn:,}")
+    typer.echo(f"      via title+author: {coverage.matched_title_author:,}")
+    typer.echo(f"    unmatched:          {coverage.unmatched:,}")
     typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
