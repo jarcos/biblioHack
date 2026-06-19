@@ -77,6 +77,17 @@ holdings AS (
         COUNT(DISTINCT branch_code) FILTER (WHERE is_active) AS branches
     FROM copies
     GROUP BY record_id
+),
+canon AS (
+    -- One row per record the canon seed matched (C2). A record may match more
+    -- than one seed work (a work + an edition); take the strongest signal.
+    SELECT
+        matched_record_id AS record_id,
+        MAX(notability) AS canon_notability,
+        MAX(COALESCE(array_length(awards, 1), 0)) AS canon_award_count
+    FROM canon_seed
+    WHERE matched_record_id IS NOT NULL
+    GROUP BY matched_record_id
 )
 SELECT
     r.id AS record_id,
@@ -97,10 +108,14 @@ SELECT
     d.checkouts_recent,
     d.first_obs,
     d.last_obs,
-    COALESCE(d.n_obs, 0) AS n_obs
+    COALESCE(d.n_obs, 0) AS n_obs,
+    (cn.record_id IS NOT NULL) AS is_canon,
+    COALESCE(cn.canon_notability, 0) AS canon_notability,
+    COALESCE(cn.canon_award_count, 0) AS canon_award_count
 FROM bibliographic_records r
 LEFT JOIN holdings h ON h.record_id = r.id
 LEFT JOIN demand d ON d.record_id = r.id
+LEFT JOIN canon cn ON cn.record_id = r.id
 """
 )
 
@@ -209,4 +224,7 @@ def _row_to_signals(row: object) -> RecordSignals:
         has_summary=bool(m["has_summary"]),  # type: ignore[index]
         has_isbn=bool(m["has_isbn"]),  # type: ignore[index]
         has_subjects=bool(m["has_subjects"]),  # type: ignore[index]
+        is_canon=bool(m["is_canon"]),  # type: ignore[index]
+        canon_notability=int(m["canon_notability"] or 0),  # type: ignore[index]
+        canon_award_count=int(m["canon_award_count"] or 0),  # type: ignore[index]
     )

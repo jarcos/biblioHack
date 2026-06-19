@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from bibliohack.catalog.domain.relevance import (
+    CANON_MAX_BOOST,
     NEUTRAL,
     RecordSignals,
     RelevanceWeights,
@@ -67,8 +68,10 @@ def test_components_breakdown_present() -> None:
     sig = _signals()
     corpus = build_corpus_stats([sig])
     comps = score_record(sig, corpus, RelevanceWeights(), now=NOW).components
-    assert set(comps) == {"demand", "holdings", "recency", "completeness", "cold_start"}
-    assert all(0.0 <= comps[k] <= 1.0 for k in ("demand", "holdings", "recency", "completeness"))
+    assert set(comps) == {"demand", "holdings", "recency", "completeness", "canon", "cold_start"}
+    assert all(
+        0.0 <= comps[k] <= 1.0 for k in ("demand", "holdings", "recency", "completeness", "canon")
+    )
 
 
 def test_cold_start_gets_neutral_demand_not_zero() -> None:
@@ -186,3 +189,60 @@ def test_empty_corpus_stats_are_safe() -> None:
     # Must not raise on degenerate (zero) bounds.
     result = score_record(sig, corpus, RelevanceWeights(), now=NOW)
     assert 0.0 <= result.score <= 1.0
+
+
+# --- canon boost (Phase C2) --------------------------------------------------
+
+
+def test_non_canon_record_has_zero_canon_and_is_not_penalised() -> None:
+    """The canon term is positive-only: a non-match contributes exactly nothing."""
+    plain = _signals(record_id="plain", is_canon=False)
+    canon = _signals(record_id="canon", is_canon=True, canon_notability=20, canon_award_count=1)
+    corpus = build_corpus_stats([plain, canon])
+    r_plain = score_record(plain, corpus, RelevanceWeights(), now=NOW)
+    assert r_plain.components["canon"] == 0.0
+    # Score equals a pure blend — re-scoring an identical record with no canon
+    # context in the corpus gives the same number (no hidden penalty).
+    r_plain_alone = score_record(plain, build_corpus_stats([plain]), RelevanceWeights(), now=NOW)
+    assert r_plain.score == pytest.approx(r_plain_alone.score)
+
+
+def test_canon_match_lifts_score_above_identical_non_canon() -> None:
+    plain = _signals(record_id="plain", is_canon=False)
+    canon = _signals(record_id="canon", is_canon=True, canon_notability=30, canon_award_count=1)
+    corpus = build_corpus_stats([plain, canon])
+    s_plain = score_record(plain, corpus, RelevanceWeights(), now=NOW)
+    s_canon = score_record(canon, corpus, RelevanceWeights(), now=NOW)
+    # Same underlying signals, so the only difference is the canon boost.
+    assert s_canon.score > s_plain.score
+    assert s_canon.components["canon"] > 0.0
+
+
+def test_canon_boost_is_capped_at_max() -> None:
+    """Even a maximally-notable, award-bearing classic can't gain more than the cap."""
+    plain = _signals(record_id="plain", is_canon=False)
+    star = _signals(record_id="star", is_canon=True, canon_notability=500, canon_award_count=3)
+    corpus = build_corpus_stats([plain, star])
+    s_plain = score_record(plain, corpus, RelevanceWeights(), now=NOW)
+    s_star = score_record(star, corpus, RelevanceWeights(), now=NOW)
+    assert s_star.components["canon"] <= 1.0
+    # Boost is additive and capped; the lift can't exceed CANON_MAX_BOOST.
+    assert (s_star.score - s_plain.score) <= CANON_MAX_BOOST + 1e-9
+
+
+def test_more_notable_canon_scores_higher() -> None:
+    obscure = _signals(record_id="obscure", is_canon=True, canon_notability=2, canon_award_count=0)
+    famous = _signals(record_id="famous", is_canon=True, canon_notability=200, canon_award_count=0)
+    corpus = build_corpus_stats([obscure, famous])
+    c_obscure = score_record(obscure, corpus, RelevanceWeights(), now=NOW).components["canon"]
+    c_famous = score_record(famous, corpus, RelevanceWeights(), now=NOW).components["canon"]
+    assert c_famous > c_obscure
+
+
+def test_award_bearing_canon_scores_higher_than_equally_notable_non_award() -> None:
+    no_award = _signals(record_id="na", is_canon=True, canon_notability=10, canon_award_count=0)
+    awarded = _signals(record_id="aw", is_canon=True, canon_notability=10, canon_award_count=1)
+    corpus = build_corpus_stats([no_award, awarded])
+    c_no = score_record(no_award, corpus, RelevanceWeights(), now=NOW).components["canon"]
+    c_aw = score_record(awarded, corpus, RelevanceWeights(), now=NOW).components["canon"]
+    assert c_aw > c_no

@@ -1,7 +1,7 @@
 ---
 title: "biblioHack — Canon Import"
 h1: "Canon Import — classics from Wikidata &amp; open sources"
-tagline: "Designed 2026-06-17 · C0–C1 built 2026-06-18. A back-catalogue path that doesn't depend on the Junta MARC dump or a full OPAC crawl."
+tagline: "Designed 2026-06-17 · C0–C2 built 2026-06-18. A back-catalogue path that doesn't depend on the Junta MARC dump or a full OPAC crawl."
 ---
 
 How to surface the **classics** in biblioHack without (a) waiting on the RBPA
@@ -9,10 +9,12 @@ MARC dump or (b) crawling the whole ~2.66M-TITN historical catalogue. The idea:
 let open knowledge bases tell us *which* works are canonical, and let the live
 OPAC stay the source of truth for *what the libraries actually hold*.
 
-> Status: **C0 and C1 built** (2026-06-18) — the off-OPAC Wikidata seed builder
-> (`canon_seed` table + `bibliohack catalog canon refresh-seed`) and the
-> DB-only matcher + coverage report (`bibliohack catalog canon match`). C2–C4
-> remain planned. Both shipped commands touch the OPAC zero times.
+> Status: **C0, C1 and C2 built** (2026-06-18) — the off-OPAC Wikidata seed
+> builder (`canon_seed` table + `bibliohack catalog canon refresh-seed`), the
+> DB-only matcher + coverage report (`bibliohack catalog canon match`), and the
+> positive-only canon relevance boost (now folded into the nightly
+> `catalog relevance recompute`). C3–C4 remain planned. None of the shipped work
+> touches the OPAC.
 > Sibling plan: `docs/design/relevance-and-libraries.html` (Phase R / R-later).
 
 ---
@@ -164,7 +166,7 @@ Wikidata / award lists / Open Library
 |---|---|---|---|
 | **C0** ✅ | Wikidata seed builder + `canon_seed` table + `refresh-seed` CLI | off-OPAC | A clean, idempotent canon list (CC0). |
 | **C1** ✅ | Matcher: link seed ↔ existing records (ISBN-13 → trigram) + coverage report | DB-only | Tells us how many classics we *already* hold. |
-| **C2** | Canon relevance boost (R-later): positive-only sub-score, recompute | DB-only | Immediate ranking lift for held classics. Ships value without any OPAC load. |
+| **C2** ✅ | Canon relevance boost (R-later): positive-only sub-score, recompute | DB-only | Immediate ranking lift for held classics. Ships value without any OPAC load. |
 | **C3** | OPAC resolve &amp; ingest unmatched seed (demand-driven fetcher) | on-OPAC (polite) | Grows genuine classic coverage in the mirror. |
 | **C4** | Open Library ratings + curated award fallback + (optional) LibraryThing | mixed | Deepens the popularity/notability signal. |
 

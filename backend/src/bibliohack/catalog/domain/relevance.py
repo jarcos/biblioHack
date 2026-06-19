@@ -36,6 +36,15 @@ Normalisation note: unbounded counts (velocity, copies, branches) are
 log-compressed then scaled against a corpus **p95** (not the max) so a single
 runaway title can't flatten everyone else. Components that are already ratios
 (scarcity, completeness) pass through directly.
+
+**Canon boost (Phase C2).** On top of the four-component blend sits a
+*positive-only* canon term: records the canon seed matched (a classic the RBPA
+actually holds — see ``docs/design/canon-import.md``) get a small, capped
+**additive** lift. It is applied *after* the blend, not mixed into it, so a
+non-canon record is never penalised (the term is 0 for it) and a single award
+can't dominate the four real signals. The lift is base (just for being a
+matched classic) + notability (corpus-p95-scaled Wikipedia sitelinks) + an
+award bump, the whole thing capped at ``CANON_MAX_BOOST``.
 """
 
 from __future__ import annotations
@@ -86,6 +95,16 @@ _COVER_SUBWEIGHT = 0.40
 _SUMMARY_SUBWEIGHT = 0.30
 _ISBN_SUBWEIGHT = 0.15
 _SUBJECTS_SUBWEIGHT = 0.15
+
+# Canon boost (C2). The canon *component* ∈ [0,1] is base + notability + award
+# (sub-weights sum to 1); the final additive lift is CANON_MAX_BOOST * that
+# component, so a matched marquee classic gains at most CANON_MAX_BOOST and a
+# non-match gains nothing. Deliberately small: it nudges held classics up the
+# ranking without overruling demand on the titles people are actually borrowing.
+CANON_MAX_BOOST = 0.15
+_CANON_BASE_SUBWEIGHT = 0.40  # just for being a matched, genuinely-held classic
+_CANON_NOTABILITY_SUBWEIGHT = 0.40  # Wikipedia ubiquity (corpus-p95 scaled)
+_CANON_AWARD_SUBWEIGHT = 0.20  # carries at least one literary award
 
 _EPS = 1e-9
 
@@ -144,6 +163,14 @@ class RecordSignals:
     has_isbn: bool
     has_subjects: bool
 
+    # Canon (C2). Whether the canon seed matched this record, and — if so — the
+    # strongest matched work's notability (Wikipedia sitelinks) and award count.
+    # Defaulted so pre-canon call sites and tests keep working unchanged; a
+    # non-canon record carries is_canon=False and contributes no boost.
+    is_canon: bool = False
+    canon_notability: int = 0
+    canon_award_count: int = 0
+
 
 @dataclass(frozen=True, slots=True)
 class CorpusStats:
@@ -158,6 +185,9 @@ class CorpusStats:
     branches_p95: float
     min_pub_year: int
     max_pub_year: int
+    # p95 of canon notability over *matched* records — the ceiling the canon
+    # notability sub-signal is log-scaled against. 0.0 when nothing matched.
+    canon_notability_p95: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +252,11 @@ def build_corpus_stats(signals: list[RecordSignals]) -> CorpusStats:
     copies = sorted(float(s.copies) for s in signals if s.copies > 0)
     branches = sorted(float(s.branches) for s in signals if s.branches > 0)
     years = [s.pub_year for s in signals if _is_plausible_pub_year(s.pub_year)]
+    # Only matched canon records define the notability ceiling — an unmatched
+    # record's (zero) notability would otherwise drag the p95 toward 0.
+    canon_notability = sorted(
+        float(s.canon_notability) for s in signals if s.is_canon and s.canon_notability > 0
+    )
 
     min_year = min(years) if years else 0
     max_year = max(years) if years else 0
@@ -231,6 +266,7 @@ def build_corpus_stats(signals: list[RecordSignals]) -> CorpusStats:
         branches_p95=_percentile(branches, 95.0),
         min_pub_year=min_year,
         max_pub_year=max_year,
+        canon_notability_p95=_percentile(canon_notability, 95.0),
     )
 
 
@@ -301,6 +337,26 @@ def _completeness_component(s: RecordSignals) -> float:
     )
 
 
+def _canon_component(s: RecordSignals, corpus: CorpusStats) -> float:
+    """Canon strength ∈ [0,1] for a record — 0 for anything not canon-matched.
+
+    Positive-only: a non-match returns 0 (it adds nothing in ``score_record``,
+    never subtracts). A match earns a base lift just for being a held classic,
+    plus a notability term (log-scaled against the corpus p95 so one ultra-famous
+    title can't flatten the rest) and an award bump. The three sub-weights sum to
+    1, so the component saturates at 1.0 and the final additive boost is capped.
+    """
+    if not s.is_canon:
+        return 0.0
+    notability = _log_scale(float(s.canon_notability), corpus.canon_notability_p95)
+    award = 1.0 if s.canon_award_count > 0 else 0.0
+    return _clamp01(
+        _CANON_BASE_SUBWEIGHT
+        + _CANON_NOTABILITY_SUBWEIGHT * notability
+        + _CANON_AWARD_SUBWEIGHT * award
+    )
+
+
 # --- public entry point ------------------------------------------------------
 
 
@@ -321,18 +377,23 @@ def score_record(
     holdings = _clamp01(_holdings_component(signals, corpus))
     recency = _clamp01(_recency_component(signals, corpus, now))
     completeness = _clamp01(_completeness_component(signals))
+    canon = _canon_component(signals, corpus)
 
-    score = (
+    blend = (
         w.demand * demand
         + w.holdings * holdings
         + w.recency * recency
         + w.completeness * completeness
     )
+    # Positive-only, capped, additive: a non-canon record (canon=0) is left
+    # exactly at its blend; a matched classic is lifted by at most CANON_MAX_BOOST.
+    score = blend + CANON_MAX_BOOST * canon
     components = {
         "demand": round(demand, 6),
         "holdings": round(holdings, 6),
         "recency": round(recency, 6),
         "completeness": round(completeness, 6),
+        "canon": round(canon, 6),
         "cold_start": float(not signals.has_history),
     }
     return RelevanceResult(score=_clamp01(score), components=components)
