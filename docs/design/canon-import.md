@@ -13,8 +13,11 @@ OPAC stay the source of truth for *what the libraries actually hold*.
 > builder (`canon_seed` table + `bibliohack catalog canon refresh-seed`), the
 > DB-only matcher + coverage report (`bibliohack catalog canon match`), and the
 > positive-only canon relevance boost (now folded into the nightly
-> `catalog relevance recompute`). C3–C4 remain planned. None of the shipped work
-> touches the OPAC.
+> `catalog relevance recompute`), and **C3 ISBN-resolve** (`catalog canon
+> resolve`: query the OPAC by ISBN for unmatched classics, seed held TITNs for
+> the worker, mark `held`/`not_held`). C3 title+author resolve and C4 remain
+> planned. C0–C2 touch the OPAC zero times; C3 resolve is the one polite
+> on-OPAC step.
 > Sibling plan: `docs/design/relevance-and-libraries.html` (Phase R / R-later).
 
 ---
@@ -167,7 +170,7 @@ Wikidata / award lists / Open Library
 | **C0** ✅ | Wikidata seed builder + `canon_seed` table + `refresh-seed` CLI | off-OPAC | A clean, idempotent canon list (CC0). |
 | **C1** ✅ | Matcher: link seed ↔ existing records (ISBN-13 → trigram) + coverage report | DB-only | Tells us how many classics we *already* hold. |
 | **C2** ✅ | Canon relevance boost (R-later): positive-only sub-score, recompute | DB-only | Immediate ranking lift for held classics. Ships value without any OPAC load. |
-| **C3** | OPAC resolve &amp; ingest unmatched seed (demand-driven fetcher) | on-OPAC (polite) | Grows genuine classic coverage in the mirror. |
+| **C3** ◑ | OPAC resolve &amp; ingest unmatched seed (demand-driven fetcher) | on-OPAC (polite) | Grows genuine classic coverage in the mirror. *(ISBN resolve shipped; title+author resolve pending.)* |
 | **C4** | Open Library ratings + curated award fallback + (optional) LibraryThing | mixed | Deepens the popularity/notability signal. |
 
 C0–C2 are the high-value, low-risk core and touch the OPAC **zero** times. C3 is

@@ -16,7 +16,11 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterable, Sequence
     from datetime import datetime
 
-    from bibliohack.catalog.domain.canon import CanonMatchVia, CanonSeedWork
+    from bibliohack.catalog.domain.canon import (
+        AcquireStatus,
+        CanonMatchVia,
+        CanonSeedWork,
+    )
     from bibliohack.catalog.domain.titn import Titn
 
 
@@ -541,9 +545,31 @@ class CanonSeedRepository(Protocol):
         ...
 
     async def link_match(self, seed_id: str, record_id: str, via: CanonMatchVia) -> None:
-        """Link a seed row to a mirror record, recording how it was matched."""
+        """Link a seed row to a mirror record, recording how it was matched.
+
+        Closes the C3 loop: if the row's ``acquire_status`` was ``held`` (we
+        resolved + seeded it for ingest), linking it now means the record has
+        landed in the mirror, so the status advances to ``ingested``.
+        """
         ...
 
     async def coverage(self) -> CanonCoverage:
         """Aggregate match coverage across the whole seed."""
+        ...
+
+    # --- C3 acquisition (on-OPAC resolve) ---
+
+    async def iter_resolvable(self, *, limit: int) -> Sequence[CanonSeedRow]:
+        """Return up to `limit` seed rows eligible for OPAC resolve.
+
+        Eligible = not already in the mirror (``matched_record_id IS NULL``),
+        not yet OPAC-checked (``acquire_status = 'unchecked'``), and carrying at
+        least one ISBN-13 (the precise resolve key). Most-notable first.
+        Resolving a row changes its status, so it leaves this pool — the caller
+        can sweep with a fixed query until it returns empty.
+        """
+        ...
+
+    async def set_acquire_status(self, seed_id: str, status: AcquireStatus) -> None:
+        """Record the outcome of an OPAC resolve for a seed row."""
         ...

@@ -32,6 +32,9 @@ from bibliohack.catalog.application.use_cases.recompute_relevance import (
 from bibliohack.catalog.application.use_cases.refresh_canon_seed import (
     RefreshCanonSeed,
 )
+from bibliohack.catalog.application.use_cases.resolve_canon_seed import (
+    ResolveCanonSeed,
+)
 from bibliohack.catalog.application.use_cases.run_scrape_worker import (
     RunScrapeWorker,
     WorkerStats,
@@ -788,4 +791,76 @@ async def _run_canon_match(max_rows: int | None, batch_size: int) -> None:
     typer.echo(f"      via ISBN:         {coverage.matched_isbn:,}")
     typer.echo(f"      via title+author: {coverage.matched_title_author:,}")
     typer.echo(f"    unmatched:          {coverage.unmatched:,}")
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+
+
+@canon_app.command("resolve")
+def canon_resolve(
+    max_rows: int | None = typer.Option(
+        None,
+        "--max",
+        help="Resolve at most this many unmatched seed works this run (default: all eligible).",
+    ),
+    rate_per_second: float = typer.Option(
+        1.0, "--rate", help="Polite per-second request rate to the OPAC (shared crawl budget)."
+    ),
+    batch_size: int = typer.Option(
+        100, "--batch-size", help="Eligible seed rows read from the DB per batch."
+    ),
+) -> None:
+    """Ask the OPAC whether the RBPA holds unmatched canon classics (C3) — on-OPAC.
+
+    For each seed work the matcher didn't find in the mirror, query the OPAC by
+    ISBN (MARC 020). Held → seed the TITN(s) into `scrape_tasks` for the existing
+    worker to ingest (real copies + availability) and mark the seed `held`; not
+    held → mark `not_held` (never invents a phantom record). Bounded + polite;
+    follow with `bibliohack catalog worker` to ingest, then `canon match` to link
+    + flip held→ingested.
+
+    Usage:
+
+        bibliohack catalog canon resolve --max 50     # bounded, polite
+        bibliohack catalog canon resolve              # all eligible
+
+    Requires the scraper extra (see `worker`).
+    """
+    asyncio.run(_run_canon_resolve(max_rows, rate_per_second, batch_size))
+
+
+async def _run_canon_resolve(max_rows: int | None, rate_per_second: float, batch_size: int) -> None:
+    settings = get_settings()
+    gateway = ScraplingOpacGateway(
+        GatewayConfig(
+            user_agent=settings.scraper_user_agent,
+            rate_per_second=rate_per_second,
+        )
+    )
+    typer.echo(
+        f"Resolving unmatched canon works against the OPAC by ISBN "
+        f"(max={max_rows or '∞'}, rate={rate_per_second}/s)…"
+    )
+    typer.echo(
+        "Held works are seeded for the worker; follow with `catalog worker`. Ctrl+C to stop."
+    )
+    typer.echo()
+    try:
+        # One pooled browser session spans the whole resolve run (see worker).
+        async with gateway, transactional_session() as session:
+            repo = PostgresCanonSeedRepository(session)
+            tasks = PostgresScrapeTaskRepository(session)
+            use_case = ResolveCanonSeed(
+                gateway=gateway, repository=repo, tasks=tasks, batch_size=batch_size
+            )
+            stats = await use_case.execute(max_rows=max_rows)
+    except Exception as exc:
+        typer.echo(typer.style(f"Canon resolve failed: {exc}", fg=typer.colors.RED), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo()
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+    typer.echo(typer.style("Canon resolve complete.", fg=typer.colors.GREEN, bold=True))
+    typer.echo(f"  scanned:       {stats.scanned:,}")
+    typer.echo(f"  held:          {typer.style(f'{stats.held:,}', bold=True)} (seeded for ingest)")
+    typer.echo(f"  not held:      {stats.not_held:,}")
+    typer.echo(f"  TITNs seeded:  {stats.titns_seeded:,}")
     typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))

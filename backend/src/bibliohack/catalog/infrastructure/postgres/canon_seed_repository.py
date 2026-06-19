@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Result, func, literal_column, select, update
+from sqlalchemy import Result, case, func, literal_column, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from bibliohack.catalog.application.ports import (
@@ -26,7 +26,7 @@ from bibliohack.catalog.application.ports import (
     CanonSeedRow,
     CanonUpsertResult,
 )
-from bibliohack.catalog.domain.canon import CanonMatchVia
+from bibliohack.catalog.domain.canon import AcquireStatus, CanonMatchVia
 from bibliohack.catalog.infrastructure.postgres.models import (
     BibliographicRecordModel,
     CanonSeedModel,
@@ -159,12 +159,20 @@ class PostgresCanonSeedRepository:
         return str(record_id) if record_id is not None else None
 
     async def link_match(self, seed_id: str, record_id: str, via: CanonMatchVia) -> None:
+        # A row we'd resolved + seeded (acquire_status='held') has now landed in
+        # the mirror, so advance it to 'ingested'; leave any other status as-is.
+        held = str(AcquireStatus.HELD)
+        ingested = str(AcquireStatus.INGESTED)
         await self._session.execute(
             update(CanonSeedModel)
             .where(CanonSeedModel.id == UUID(seed_id))
             .values(
                 matched_record_id=UUID(record_id),
                 matched_via=str(via),
+                acquire_status=case(
+                    (CanonSeedModel.acquire_status == held, ingested),
+                    else_=CanonSeedModel.acquire_status,
+                ),
                 updated_at=func.now(),
             )
         )
@@ -184,4 +192,40 @@ class PostgresCanonSeedRepository:
             matched_isbn=row.isbn,
             matched_title_author=row.title_author,
             unmatched=row.unmatched,
+        )
+
+    async def iter_resolvable(self, *, limit: int) -> Sequence[CanonSeedRow]:
+        unchecked = str(AcquireStatus.UNCHECKED)
+        stmt = (
+            select(
+                CanonSeedModel.id,
+                CanonSeedModel.title,
+                CanonSeedModel.author,
+                CanonSeedModel.isbn13,
+            )
+            .where(
+                CanonSeedModel.matched_record_id.is_(None),
+                CanonSeedModel.acquire_status == unchecked,
+                # at least one ISBN — the precise resolve key
+                func.cardinality(CanonSeedModel.isbn13) > 0,
+            )
+            .order_by(CanonSeedModel.notability.desc(), CanonSeedModel.id)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return [
+            CanonSeedRow(
+                id=str(row.id),
+                title=row.title,
+                author=row.author,
+                isbn13=tuple(row.isbn13 or ()),
+            )
+            for row in result
+        ]
+
+    async def set_acquire_status(self, seed_id: str, status: AcquireStatus) -> None:
+        await self._session.execute(
+            update(CanonSeedModel)
+            .where(CanonSeedModel.id == UUID(seed_id))
+            .values(acquire_status=str(status), updated_at=func.now())
         )
