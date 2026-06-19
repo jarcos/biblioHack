@@ -177,10 +177,17 @@ where politeness matters; keep it bounded and rate-unchanged.
 
 ## Open questions &amp; risks (resolve before/within C3)
 
-- **OPAC search fields (blocking for C3):** confirm the `xsqf99` expert-query
-  index for **ISBN** (e.g. an `@isbn`-style field) and for title/author. If none
-  exists, fall back to the OPAC's free-text search and parse results. *First
-  implementation task of C3.*
+- **OPAC search fields (was blocking for C3) — RESOLVED 2026-06-18.** Confirmed
+  against the live RBPA OPAC: the `xsqf99` expert query supports a MARC-tag
+  index of the form `(<term>.tNNN.)`, so **ISBN** is `(<isbn>.t020.)` (MARC tag
+  020). A round-trip of a known holding's ISBN (`(8425536001871.t020.)`)
+  returned exactly that one record with its 9 copies — precise, no free-text
+  fallback needed for ISBN. Title/author use the dedicated direct fields
+  `xsqf02` / `xsqf03` (title verified: 181 results for "cien años de soledad").
+  Builder lives in `catalog/.../discover_via_search.py::isbn_expert_expression`.
+  Note: the OPAC stores per-edition ISBNs (often publisher EANs, not always a
+  978/979 ISBN-13), so ISBN resolve catches exact-edition holdings and the
+  title+author pass (the conservative C1 thresholds) catches the rest.
 - **Works vs editions:** Wikidata mixes the abstract work and its editions; an
   ISBN may sit on an edition item. The seed builder must walk `P747`
   (has edition) / editions to collect ISBNs, or accept work-level matching by

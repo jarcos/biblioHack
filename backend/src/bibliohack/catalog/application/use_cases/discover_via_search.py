@@ -56,6 +56,20 @@ def novedades_expression(*, year_from: int, year_to: int | None = None) -> str:
     return f"(@fepu>={year_from}) y (@fepu<={year_to})"
 
 
+def isbn_expert_expression(isbn: str) -> str:
+    """Build the AbsysNET expert query matching a record by ISBN (canon C3).
+
+    The ``.tNNN.`` form targets a MARC tag; ISBN lives in MARC tag **020**, so
+    ``(<isbn>.t020.)`` looks the ISBN up in that index (compare ``.t650.`` =
+    subject, ``.titn.`` = record id). Confirmed against the live RBPA OPAC:
+    ``(8425536001871.t020.)`` returns exactly the one holding that carries it.
+
+    Used by the C3 "resolve" step to ask the OPAC whether the RBPA holds a
+    canon-seed work by its ISBN-13 before falling back to title+author.
+    """
+    return f"({isbn.strip()}.t020.)"
+
+
 class DiscoverViaExpertQuery:
     """Use case: resumably discover TITNs via an expert query and seed them."""
 

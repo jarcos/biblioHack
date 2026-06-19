@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 from bibliohack.catalog.application.ports import DiscoveryCursor, DiscoverySlice
 from bibliohack.catalog.application.use_cases.discover_via_search import (
     DiscoverViaExpertQuery,
+    isbn_expert_expression,
     novedades_expression,
 )
 
@@ -87,6 +88,15 @@ def test_novedades_expression_since_year() -> None:
 
 def test_novedades_expression_bounded_range() -> None:
     assert novedades_expression(year_from=2020, year_to=2022) == "(@fepu>=2020) y (@fepu<=2022)"
+
+
+def test_isbn_expert_expression_targets_marc_020() -> None:
+    # Confirmed live: (<isbn>.t020.) resolves to the exact RBPA holding.
+    assert isbn_expert_expression("9788439732471") == "(9788439732471.t020.)"
+
+
+def test_isbn_expert_expression_strips_whitespace() -> None:
+    assert isbn_expert_expression("  8425536001871 ") == "(8425536001871.t020.)"
 
 
 async def test_first_run_starts_at_top_and_advances_cursor() -> None:
