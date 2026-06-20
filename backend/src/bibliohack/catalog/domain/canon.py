@@ -20,16 +20,22 @@ network or a database.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from bibliohack.catalog.domain.isbn import normalize_to_isbn13
 
 # Publication years outside this band are MARC "unknown date" sentinels (0,
 # negatives, 9999) — treated as *unknown* (None), mirroring the catalogue's own
-# pub_year handling so a seed never carries a bogus year. 2100 matches the
-# browse API's upper bound and ``catalog.domain.relevance``.
+# pub_year handling so a seed never carries a bogus year. The upper bound is the
+# *current* year plus a one-year buffer (forthcoming titles), not a fixed 2100:
+# a seed dated 2029/2033 is a source-data error and must not be stored.
 _MIN_PLAUSIBLE_PUB_YEAR = 1
-_MAX_PLAUSIBLE_PUB_YEAR = 2100
+_PUB_YEAR_FUTURE_BUFFER = 1
+
+
+def _max_plausible_pub_year(now: datetime | None = None) -> int:
+    return (now or datetime.now(UTC)).year + _PUB_YEAR_FUTURE_BUFFER
 
 
 class CanonSource(StrEnum):
@@ -63,8 +69,10 @@ class CanonMatchVia(StrEnum):
     NONE = "none"
 
 
-def _plausible_year(year: int | None) -> int | None:
-    if year is None or not (_MIN_PLAUSIBLE_PUB_YEAR <= year <= _MAX_PLAUSIBLE_PUB_YEAR):
+def _plausible_year(year: int | None, *, max_year: int | None = None) -> int | None:
+    if max_year is None:
+        max_year = _max_plausible_pub_year()
+    if year is None or not (_MIN_PLAUSIBLE_PUB_YEAR <= year <= max_year):
         return None
     return year
 

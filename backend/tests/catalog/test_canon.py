@@ -47,6 +47,12 @@ def test_sentinel_pub_year_becomes_none() -> None:
     assert _work(pub_year=1967).pub_year == 1967
 
 
+def test_future_pub_year_becomes_none() -> None:
+    """A seed year well beyond next year (2033) is a source-data error and is
+    stored as unknown, mirroring the catalogue parser's plausibility band."""
+    assert _work(pub_year=2033).pub_year is None
+
+
 def test_author_blank_becomes_none_and_is_stripped() -> None:
     assert _work(author="   ").author is None
     assert _work(author="  García Márquez ").author == "García Márquez"

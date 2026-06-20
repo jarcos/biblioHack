@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from selectolax.parser import HTMLParser
@@ -412,27 +413,43 @@ def _extract_document_type(tree: HTMLParser) -> str | None:
 # sentinels (most commonly 9999, also 0000/uuuu) which must NOT be stored as a
 # real year — they'd print as "9999" in the UI and (before the relevance fix)
 # skewed recency. Anything outside the band is treated as unknown (None).
-# 2100 matches the upper bound the browse API enforces on year filters.
+#
+# The upper bound is the *current* year plus a small buffer, not a fixed 2100:
+# libraries catalogue forthcoming titles a little ahead of publication, but a
+# record dated 2029 or 2033 is a source-data error (MARC typo, or the T260
+# regex catching a non-year 4-digit run) and must not be stored as a real year
+# — especially since browse sorts by pub_year desc, floating these to the top.
 _MIN_PLAUSIBLE_PUB_YEAR = 1
-_MAX_PLAUSIBLE_PUB_YEAR = 2100
+_PUB_YEAR_FUTURE_BUFFER = 1  # tolerate next-year imprints for forthcoming titles
 
 
-def _extract_pub_year(tree: HTMLParser) -> int | None:
+def _max_plausible_pub_year(now: datetime | None = None) -> int:
+    return (now or datetime.now(UTC)).year + _PUB_YEAR_FUTURE_BUFFER
+
+
+def _extract_pub_year(tree: HTMLParser, *, max_year: int | None = None) -> int | None:
     """Pub year from `js-FEPU` if present; otherwise from a 4-digit run in T260.
 
-    Out-of-band values (the 9999 MARC 'unknown date' sentinel, 0, future years
-    beyond 2100, …) are normalised to ``None`` — an unknown year is stored as
-    NULL, never as a bogus number.
+    Out-of-band values (the 9999 MARC 'unknown date' sentinel, 0, and future
+    years beyond next year) are normalised to ``None`` — an unknown year is
+    stored as NULL, never as a bogus number. ``max_year`` defaults to the
+    current year plus a one-year buffer; tests pass it explicitly.
     """
+    if max_year is None:
+        max_year = _max_plausible_pub_year()
+
+    def _in_band(year: int) -> bool:
+        return _MIN_PLAUSIBLE_PUB_YEAR <= year <= max_year
+
     fepu = _first_js_field(tree, "FEPU")
     if fepu and fepu.isdigit() and len(fepu) >= 4:
         year = int(fepu[:4])
-        if _MIN_PLAUSIBLE_PUB_YEAR <= year <= _MAX_PLAUSIBLE_PUB_YEAR:
+        if _in_band(year):
             return year
     t260 = _first_js_field(tree, "T260")
     if t260:
         m = re.search(r"\b(1[4-9]\d{2}|20\d{2}|21\d{2})\b", t260)
-        if m:
+        if m and _in_band(int(m.group(1))):
             return int(m.group(1))
     return None
 

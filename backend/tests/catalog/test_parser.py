@@ -338,6 +338,35 @@ def test_pub_year_implausible_in_t260_is_ignored() -> None:
     assert result.record.pub_year is None
 
 
+def test_pub_year_future_fepu_normalised_to_none() -> None:
+    """A FEPU year well beyond next year (2033) is a source-data error and must
+    be stored as NULL, not floated to the top of the catalogue by the
+    pub_year-desc browse sort."""
+    html = """
+    <html><body>
+      <span class="js-TITN">1</span>
+      <span class="js-T245">x</span>
+      <span class="js-FEPU">2033</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.pub_year is None
+
+
+def test_pub_year_future_in_t260_normalised_to_none() -> None:
+    """The T260 fallback regex matches any 20xx run; a future year (2029) must
+    still be rejected by the plausibility band, not returned verbatim."""
+    html = """
+    <html><body>
+      <span class="js-TITN">1</span>
+      <span class="js-T245">x</span>
+      <span class="js-T260">Madrid : Editorial, 2029</span>
+    </body></html>
+    """
+    result = parse_record_html(html)
+    assert result.record.pub_year is None
+
+
 # ───────────────────────────────────────────────────────────────
 # Not-found detection
 # ───────────────────────────────────────────────────────────────
