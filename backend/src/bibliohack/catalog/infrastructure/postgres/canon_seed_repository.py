@@ -206,8 +206,6 @@ class PostgresCanonSeedRepository:
             .where(
                 CanonSeedModel.matched_record_id.is_(None),
                 CanonSeedModel.acquire_status == unchecked,
-                # at least one ISBN — the precise resolve key
-                func.cardinality(CanonSeedModel.isbn13) > 0,
             )
             .order_by(CanonSeedModel.notability.desc(), CanonSeedModel.id)
             .limit(limit)
@@ -228,4 +226,38 @@ class PostgresCanonSeedRepository:
             update(CanonSeedModel)
             .where(CanonSeedModel.id == UUID(seed_id))
             .values(acquire_status=str(status), updated_at=func.now())
+        )
+
+    async def iter_unrated(self, *, limit: int, offset: int = 0) -> Sequence[CanonSeedRow]:
+        stmt = (
+            select(
+                CanonSeedModel.id,
+                CanonSeedModel.title,
+                CanonSeedModel.author,
+                CanonSeedModel.isbn13,
+            )
+            .where(
+                CanonSeedModel.ol_rating_count.is_(None),
+                func.cardinality(CanonSeedModel.isbn13) > 0,
+            )
+            .order_by(CanonSeedModel.notability.desc(), CanonSeedModel.id)
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return [
+            CanonSeedRow(
+                id=str(row.id),
+                title=row.title,
+                author=row.author,
+                isbn13=tuple(row.isbn13 or ()),
+            )
+            for row in result
+        ]
+
+    async def set_rating_count(self, seed_id: str, count: int) -> None:
+        await self._session.execute(
+            update(CanonSeedModel)
+            .where(CanonSeedModel.id == UUID(seed_id))
+            .values(ol_rating_count=count, updated_at=func.now())
         )

@@ -267,6 +267,10 @@ class CanonSeedModel(Base):
         String(16), nullable=False, server_default="unchecked"
     )
 
+    # Open Library ratings count (C4 popularity signal). NULL = not yet checked
+    # against OL; 0 = checked, no ratings; >0 = that many. Off-OPAC enrichment.
+    ol_rating_count: Mapped[int | None] = mapped_column(Integer)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

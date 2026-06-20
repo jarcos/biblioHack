@@ -9,12 +9,18 @@ the record with real copies + availability, and mark the seed ``held``; if the
 OPAC returns nothing for any of the work's ISBNs, mark it ``not_held`` — we
 never invent a phantom record for something the libraries don't hold.
 
+If a work has no ISBN, or none of its ISBNs resolve, fall back to a **precise
+title+author** expert query (``(title.t245.) y (author.t100.)`` — confirmed to
+return only genuine editions of the work, not books *about* it). The terms are
+sanitised so punctuation / operator words can't corrupt the query, and the
+fallback only runs when the seed has an author (a bare-title query is too broad
+to seed safely). Either way only real OPAC TITNs are seeded — never a phantom.
+
 This is the one canon step that touches the OPAC, so it is **polite by
 construction**: it runs through the shared throttle (1 req/s) on the crawl
-plane, is bounded per run (``max_rows``), and stops querying a work's ISBNs as
-soon as one resolves (break-on-first-hit) to spend the request budget frugally.
-Title+author resolve is intentionally deferred (free-text OPAC results need
-careful precision handling); ISBN-less seeds are simply left ``unchecked``.
+plane, is bounded per run (``max_rows``), stops querying a work's ISBNs as soon
+as one resolves (break-on-first-hit), and seeds at most ``max_results_per_query``
+TITNs per work (enough to pull the work in without ingesting every edition).
 
 Pure application logic — the OPAC search and persistence sit behind the
 ``OpacSearchGateway`` / ``CanonSeedRepository`` / ``ScrapeTaskRepository`` ports.
@@ -27,6 +33,7 @@ from typing import TYPE_CHECKING
 
 from bibliohack.catalog.application.use_cases.discover_via_search import (
     isbn_expert_expression,
+    title_author_expert_expression,
 )
 from bibliohack.catalog.domain.canon import AcquireStatus
 from bibliohack.catalog.domain.titn import Titn
@@ -97,7 +104,7 @@ class ResolveCanonSeed:
 
             for row in rows:
                 scanned += 1
-                titns = await self._resolve_by_isbn(row)
+                titns = await self._resolve(row)
                 if titns:
                     for value in titns:
                         if await self._tasks.seed_one(Titn(value)):
@@ -115,6 +122,13 @@ class ResolveCanonSeed:
             titns_seeded=titns_seeded,
         )
 
+    async def _resolve(self, row: CanonSeedRow) -> list[int]:
+        """Resolve a work to held TITNs: ISBN first (precise), then title+author."""
+        titns = await self._resolve_by_isbn(row)
+        if titns:
+            return titns
+        return await self._resolve_by_title_author(row)
+
     async def _resolve_by_isbn(self, row: CanonSeedRow) -> list[int]:
         """Return the OPAC TITNs holding any of the work's ISBNs.
 
@@ -131,6 +145,24 @@ class ResolveCanonSeed:
             if slice_.titns:
                 return _unique(slice_.titns)
         return []
+
+    async def _resolve_by_title_author(self, row: CanonSeedRow) -> list[int]:
+        """Fall back to a precise title+author expert query.
+
+        Skipped when the seed has no author (a title-only query is too broad to
+        seed without risking unrelated records). The expression builder raises
+        if the sanitised terms are empty, which we treat as "can't resolve".
+        """
+        if not row.author:
+            return []
+        try:
+            expression = title_author_expert_expression(row.title, row.author)
+        except ValueError:
+            return []
+        slice_ = await self._gateway.discover_slice(
+            expression, start_offset=0, max_results=self._max_results
+        )
+        return _unique(slice_.titns)
 
 
 def _unique(values: Sequence[int]) -> list[int]:

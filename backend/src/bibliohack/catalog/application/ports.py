@@ -562,14 +562,38 @@ class CanonSeedRepository(Protocol):
     async def iter_resolvable(self, *, limit: int) -> Sequence[CanonSeedRow]:
         """Return up to `limit` seed rows eligible for OPAC resolve.
 
-        Eligible = not already in the mirror (``matched_record_id IS NULL``),
-        not yet OPAC-checked (``acquire_status = 'unchecked'``), and carrying at
-        least one ISBN-13 (the precise resolve key). Most-notable first.
-        Resolving a row changes its status, so it leaves this pool — the caller
-        can sweep with a fixed query until it returns empty.
+        Eligible = not already in the mirror (``matched_record_id IS NULL``) and
+        not yet OPAC-checked (``acquire_status = 'unchecked'``). Resolve prefers
+        ISBN (precise) and falls back to title+author, so ISBN-less rows are
+        included too. Most-notable first. Resolving a row changes its status, so
+        it leaves this pool — the caller sweeps with a fixed query until empty.
         """
         ...
 
     async def set_acquire_status(self, seed_id: str, status: AcquireStatus) -> None:
         """Record the outcome of an OPAC resolve for a seed row."""
+        ...
+
+    # --- C4 Open Library ratings enrichment ---
+
+    async def iter_unrated(self, *, limit: int, offset: int = 0) -> Sequence[CanonSeedRow]:
+        """Return up to `limit` seed rows with an ISBN but no OL rating yet.
+
+        Unrated = ``ol_rating_count IS NULL`` and at least one ISBN (the OL
+        lookup key). `offset` lets the caller page past rows whose lookup failed
+        (left NULL to retry later) so a transient error can't loop the sweep.
+        """
+        ...
+
+    async def set_rating_count(self, seed_id: str, count: int) -> None:
+        """Record a seed row's Open Library ratings count (0 = none)."""
+        ...
+
+
+class CanonRatingsSource(Protocol):
+    """An off-OPAC source of popularity ratings (Open Library today)."""
+
+    async def fetch_rating_count(self, isbn: str) -> int | None:
+        """Ratings count for `isbn` (0 if none), or None if it couldn't be
+        determined (transport / non-200) so the caller can retry later."""
         ...

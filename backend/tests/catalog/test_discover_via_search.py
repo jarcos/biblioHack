@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+import pytest
+
 from bibliohack.catalog.application.ports import DiscoveryCursor, DiscoverySlice
 from bibliohack.catalog.application.use_cases.discover_via_search import (
     DiscoverViaExpertQuery,
     isbn_expert_expression,
     novedades_expression,
+    title_author_expert_expression,
 )
 
 if TYPE_CHECKING:
@@ -97,6 +100,24 @@ def test_isbn_expert_expression_targets_marc_020() -> None:
 
 def test_isbn_expert_expression_strips_whitespace() -> None:
     assert isbn_expert_expression("  8425536001871 ") == "(8425536001871.t020.)"
+
+
+def test_title_author_expert_expression_ands_marc_245_and_100() -> None:
+    # Confirmed live: returns only genuine editions of the work.
+    expr = title_author_expert_expression("Cien años de soledad", "Gabriel García Márquez")
+    assert expr == "(cien años de soledad.t245.) y (gabriel garcía márquez.t100.)"
+
+
+def test_title_author_expert_expression_drops_operator_words_and_punctuation() -> None:
+    # "y" is the AND operator — it must not leak out of the title term, and
+    # punctuation is stripped (it's syntactically meaningful in expert queries).
+    expr = title_author_expert_expression("Fortunata y Jacinta.", "Galdós, Benito")
+    assert expr == "(fortunata jacinta.t245.) y (galdós benito.t100.)"
+
+
+def test_title_author_expert_expression_rejects_empty_terms() -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        title_author_expert_expression("y o no", "  ")
 
 
 async def test_first_run_starts_at_top_and_advances_cursor() -> None:

@@ -111,11 +111,13 @@ OPAC stay the source of truth for <em>what the libraries actually hold</em>.</p>
 builder (<code>canon_seed</code> table + <code>bibliohack catalog canon refresh-seed</code>), the
 DB-only matcher + coverage report (<code>bibliohack catalog canon match</code>), and the
 positive-only canon relevance boost (now folded into the nightly
-<code>catalog relevance recompute</code>), and <strong>C3 ISBN-resolve</strong> (<code>catalog canon
-resolve</code>: query the OPAC by ISBN for unmatched classics, seed held TITNs for
-the worker, mark <code>held</code>/<code>not_held</code>). C3 title+author resolve and C4 remain
-planned. C0–C2 touch the OPAC zero times; C3 resolve is the one polite
-on-OPAC step.
+<code>catalog relevance recompute</code>), <strong>C3 resolve</strong> (<code>catalog canon resolve</code>: query
+the OPAC for unmatched classics by ISBN then a precise title+author expert
+query, seed held TITNs for the worker, mark <code>held</code>/<code>not_held</code>), and <strong>C4</strong>
+(<code>catalog canon refresh-awards</code> — a curated Nobel/Cervantes fallback — and
+<code>catalog canon enrich-ratings</code> — Open Library ratings collected into
+<code>ol_rating_count</code>). C0–C2 touch the OPAC zero times; only C3 resolve does.
+Pending: wiring the OL rating signal into the canon boost.
 Sibling plan: <code>docs/design/relevance-and-libraries.html</code> (Phase R / R-later).</p>
 </blockquote>
 <hr>
@@ -302,16 +304,16 @@ Target seed size: a few thousand → low tens of thousands of works.</p>
 <td>Immediate ranking lift for held classics. Ships value without any OPAC load.</td>
 </tr>
 <tr>
-<td><strong>C3</strong> ◑</td>
+<td><strong>C3</strong> ✅</td>
 <td>OPAC resolve &amp; ingest unmatched seed (demand-driven fetcher)</td>
 <td>on-OPAC (polite)</td>
-<td>Grows genuine classic coverage in the mirror. <em>(ISBN resolve shipped; title+author resolve pending.)</em></td>
+<td>Grows genuine classic coverage in the mirror. <em>(ISBN + title+author resolve shipped.)</em></td>
 </tr>
 <tr>
-<td><strong>C4</strong></td>
+<td><strong>C4</strong> ◑</td>
 <td>Open Library ratings + curated award fallback + (optional) LibraryThing</td>
 <td>mixed</td>
-<td>Deepens the popularity/notability signal.</td>
+<td>Deepens the popularity/notability signal. <em>(Award fallback + OL ratings collection shipped; feeding ratings into the boost + LibraryThing pending.)</em></td>
 </tr>
 </tbody>
 </table>

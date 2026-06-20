@@ -19,6 +19,9 @@ from bibliohack.catalog.application.use_cases.discover_via_search import (
     DiscoverViaExpertQuery,
     novedades_expression,
 )
+from bibliohack.catalog.application.use_cases.enrich_canon_ratings import (
+    EnrichCanonRatings,
+)
 from bibliohack.catalog.application.use_cases.match_canon_seed import (
     MatchCanonSeed,
 )
@@ -56,7 +59,9 @@ from bibliohack.catalog.infrastructure.absysnet import (
     GatewayConfig,
     ScraplingOpacGateway,
 )
+from bibliohack.catalog.infrastructure.canon import AwardListCanonSource
 from bibliohack.catalog.infrastructure.embeddings.huggingface import HuggingFaceEmbedder
+from bibliohack.catalog.infrastructure.openlibrary import OpenLibraryRatingsClient
 from bibliohack.catalog.infrastructure.postgres import (
     PostgresScrapeTaskRepository,
 )
@@ -811,11 +816,12 @@ def canon_resolve(
     """Ask the OPAC whether the RBPA holds unmatched canon classics (C3) — on-OPAC.
 
     For each seed work the matcher didn't find in the mirror, query the OPAC by
-    ISBN (MARC 020). Held → seed the TITN(s) into `scrape_tasks` for the existing
-    worker to ingest (real copies + availability) and mark the seed `held`; not
-    held → mark `not_held` (never invents a phantom record). Bounded + polite;
-    follow with `bibliohack catalog worker` to ingest, then `canon match` to link
-    + flip held→ingested.
+    ISBN (MARC 020), then fall back to a precise title+author expert query. Held
+    → seed the TITN(s) into `scrape_tasks` for the existing worker to ingest
+    (real copies + availability) and mark the seed `held`; not held → mark
+    `not_held` (never invents a phantom record). Bounded + polite; follow with
+    `bibliohack catalog worker` to ingest, then `canon match` to link + flip
+    held→ingested.
 
     Usage:
 
@@ -863,4 +869,86 @@ async def _run_canon_resolve(max_rows: int | None, rate_per_second: float, batch
     typer.echo(f"  held:          {typer.style(f'{stats.held:,}', bold=True)} (seeded for ingest)")
     typer.echo(f"  not held:      {stats.not_held:,}")
     typer.echo(f"  TITNs seeded:  {stats.titns_seeded:,}")
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+
+
+@canon_app.command("refresh-awards")
+def canon_refresh_awards() -> None:
+    """Seed the curated award-winner fallback (C4) — off-OPAC, idempotent.
+
+    Upserts a small hand-kept list of marquee Spanish-language classics (Nobel /
+    Cervantes laureates) into `canon_seed` as `source='award_list'`, guaranteeing
+    those names are present even if Wikidata missed them or the notability floor
+    filtered them out. Feeds the same match / boost / resolve steps as the
+    Wikidata seed. Consumes no OPAC budget.
+    """
+    asyncio.run(_run_canon_refresh_awards())
+
+
+async def _run_canon_refresh_awards() -> None:
+    typer.echo("Seeding the curated award-winner fallback…")
+    try:
+        async with transactional_session() as session:
+            repo = PostgresCanonSeedRepository(session)
+            use_case = RefreshCanonSeed(source=AwardListCanonSource(), repository=repo)
+            stats = await use_case.execute()
+    except Exception as exc:
+        typer.echo(typer.style(f"Award refresh failed: {exc}", fg=typer.colors.RED), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo()
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+    typer.echo(typer.style("Award fallback refresh complete.", fg=typer.colors.GREEN, bold=True))
+    typer.echo(f"  fetched:   {stats.fetched:,}")
+    typer.echo(f"  inserted:  {typer.style(f'{stats.inserted:,}', bold=True)}")
+    typer.echo(f"  updated:   {stats.updated:,}")
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+
+
+@canon_app.command("enrich-ratings")
+def canon_enrich_ratings(
+    max_rows: int | None = typer.Option(
+        None, "--max", help="Enrich at most this many unrated seed rows (default: all)."
+    ),
+    batch_size: int = typer.Option(
+        100, "--batch-size", help="Unrated rows read from the DB per batch."
+    ),
+) -> None:
+    """Fill `ol_rating_count` from Open Library (C4) — off-OPAC popularity signal.
+
+    For each seed row with an ISBN but no Open Library ratings count yet, look it
+    up by ISBN and store the count (0 = none). Bounded + polite; hits
+    openlibrary.org only, never the OPAC. The stored signal deepens canon
+    notability (wiring it into the relevance blend is a separate step).
+
+    Usage:
+
+        bibliohack catalog canon enrich-ratings --max 200
+        bibliohack catalog canon enrich-ratings
+    """
+    asyncio.run(_run_canon_enrich_ratings(max_rows, batch_size))
+
+
+async def _run_canon_enrich_ratings(max_rows: int | None, batch_size: int) -> None:
+    settings = get_settings()
+    source = OpenLibraryRatingsClient(user_agent=settings.covers_user_agent)
+    typer.echo(f"Enriching canon ratings from Open Library (max={max_rows or '∞'})…")
+    typer.echo("Off-OPAC — hits openlibrary.org only.")
+    typer.echo()
+    try:
+        async with transactional_session() as session:
+            repo = PostgresCanonSeedRepository(session)
+            use_case = EnrichCanonRatings(source=source, repository=repo, batch_size=batch_size)
+            stats = await use_case.execute(max_rows=max_rows)
+    except Exception as exc:
+        typer.echo(typer.style(f"Ratings enrich failed: {exc}", fg=typer.colors.RED), err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo()
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+    typer.echo(typer.style("Canon ratings enrich complete.", fg=typer.colors.GREEN, bold=True))
+    typer.echo(f"  scanned:       {stats.scanned:,}")
+    typer.echo(f"  rated:         {typer.style(f'{stats.rated:,}', bold=True)}")
+    typer.echo(f"    with ratings:{stats.with_ratings:,}")
+    typer.echo(f"  failed:        {stats.failed:,} (left for retry)")
     typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))

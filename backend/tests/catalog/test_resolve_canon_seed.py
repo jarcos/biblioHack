@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from bibliohack.catalog.application.ports import CanonSeedRow, DiscoverySlice
 from bibliohack.catalog.application.use_cases.discover_via_search import (
     isbn_expert_expression,
+    title_author_expert_expression,
 )
 from bibliohack.catalog.application.use_cases.resolve_canon_seed import ResolveCanonSeed
 from bibliohack.catalog.domain.canon import AcquireStatus
@@ -66,8 +67,14 @@ class _FakeTasks:
         return True
 
 
-def _row(seed_id: str, isbns: tuple[str, ...]) -> CanonSeedRow:
-    return CanonSeedRow(id=seed_id, title=f"T{seed_id}", author=None, isbn13=isbns)
+def _row(
+    seed_id: str,
+    isbns: tuple[str, ...] = (),
+    *,
+    title: str | None = None,
+    author: str | None = None,
+) -> CanonSeedRow:
+    return CanonSeedRow(id=seed_id, title=title or f"T{seed_id}", author=author, isbn13=isbns)
 
 
 def _use_case(gateway: object, repo: object, tasks: object, **kw: object) -> ResolveCanonSeed:
@@ -137,6 +144,44 @@ async def test_tries_next_isbn_when_first_misses() -> None:
     assert gateway.queried == [isbn_expert_expression(first), isbn_expert_expression(hit)]
     assert stats.held == 1
     assert tasks.seeded == [42]
+
+
+async def test_title_author_fallback_when_no_isbn() -> None:
+    title, author = "Cien años de soledad", "Gabriel García Márquez"
+    expr = title_author_expert_expression(title, author)
+    gateway = _FakeGateway({expr: [101, 102]})
+    repo = _FakeRepo([_row("s1", (), title=title, author=author)])
+    tasks = _FakeTasks()
+
+    stats = await _use_case(gateway, repo, tasks).execute()
+
+    assert stats.held == 1
+    assert tasks.seeded == [101, 102]
+    assert repo.status["s1"] is AcquireStatus.HELD
+
+
+async def test_title_author_used_after_isbn_miss() -> None:
+    isbn, title, author = "9780000000001", "Rayuela", "Julio Cortázar"
+    expr = title_author_expert_expression(title, author)
+    gateway = _FakeGateway({expr: [7]})  # ISBN holds nothing; title+author hits
+    repo = _FakeRepo([_row("s1", (isbn,), title=title, author=author)])
+    tasks = _FakeTasks()
+
+    stats = await _use_case(gateway, repo, tasks).execute()
+
+    assert gateway.queried == [isbn_expert_expression(isbn), expr]
+    assert stats.held == 1
+    assert tasks.seeded == [7]
+
+
+async def test_no_isbn_no_author_is_not_held() -> None:
+    gateway = _FakeGateway({})
+    repo = _FakeRepo([_row("s1", (), author=None)])
+
+    stats = await _use_case(gateway, repo, _FakeTasks()).execute()
+
+    assert stats.not_held == 1
+    assert repo.status["s1"] is AcquireStatus.NOT_HELD
 
 
 async def test_max_rows_bounds_the_run() -> None:

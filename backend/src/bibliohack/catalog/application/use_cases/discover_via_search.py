@@ -19,6 +19,7 @@ The OPAC-specific search + pagination lives in the gateway adapter
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -68,6 +69,44 @@ def isbn_expert_expression(isbn: str) -> str:
     canon-seed work by its ISBN-13 before falling back to title+author.
     """
     return f"({isbn.strip()}.t020.)"
+
+
+# AbsysNET expert-query operator words — they must not leak out of a term, or a
+# title like "Fortunata y Jacinta" would parse the "y" as an AND operator.
+_EXPERT_OPERATORS = frozenset({"y", "o", "no", "adj", "mismo"})
+
+
+def _expert_terms(text: str) -> str:
+    """Reduce free text to safe, space-joined expert-query terms.
+
+    Strips punctuation (parentheses, periods, quotes — all syntactically
+    meaningful in the expert language) and drops bare operator words, so the
+    result can be dropped inside a ``(... .tNNN.)`` predicate verbatim. Accented
+    letters and digits are preserved.
+    """
+    cleaned = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE).lower()
+    return " ".join(tok for tok in cleaned.split() if tok not in _EXPERT_OPERATORS)
+
+
+def title_author_expert_expression(title: str, author: str) -> str:
+    """Build the AbsysNET expert query matching a work by title AND author (C3).
+
+    ``.t245.`` is the MARC title field and ``.t100.`` the main author entry, so
+    ``(<title>.t245.) y (<author>.t100.)`` ANDs the two. Confirmed against the
+    live RBPA OPAC: it returns only genuine editions of the work (e.g. 37 for
+    "Cien años de soledad" + "García Márquez", vs 181 for the bare title search
+    that also pulls in books *about* it). Terms are sanitised so punctuation and
+    operator words in the title/author can't corrupt the query.
+
+    Raises ``ValueError`` if either side sanitises to empty (the caller should
+    only use this when both title and author are present and meaningful).
+    """
+    t = _expert_terms(title)
+    a = _expert_terms(author)
+    if not t or not a:
+        msg = "title_author_expert_expression needs non-empty title and author"
+        raise ValueError(msg)
+    return f"({t}.t245.) y ({a}.t100.)"
 
 
 class DiscoverViaExpertQuery:
