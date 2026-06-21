@@ -11,7 +11,7 @@ set -euo pipefail
 # `bibliohack` resolves regardless of how the scheduler sets PATH.
 export PATH="/app/.venv/bin:${PATH:-/usr/local/bin:/usr/bin:/bin}"
 
-JOB="${1:?usage: run-job.sh discover_worker|refresh|covers|embed}"
+JOB="${1:?usage: run-job.sh discover_worker|refresh|covers|embed|relevance|canon_seed|canon_resolve}"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # OPAC jobs share one lock (one polite OPAC budget). Cover resolution hits
@@ -21,6 +21,10 @@ case "$JOB" in
   covers) LOCK="/tmp/bibliohack-covers.lock" ;;
   embed) LOCK="/tmp/bibliohack-embed.lock" ;;
   relevance) LOCK="/tmp/bibliohack-relevance.lock" ;;
+  # canon_seed is off-OPAC (WDQS / curated list / DB-only match), so it gets its
+  # own lock and can run alongside an OPAC crawl. canon_resolve DOES hit the
+  # OPAC, so it deliberately falls through to the shared crawl lock below.
+  canon_seed) LOCK="/tmp/bibliohack-canon-seed.lock" ;;
   *) LOCK="/tmp/bibliohack-crawl.lock" ;;
 esac
 exec 9>"$LOCK"
@@ -57,6 +61,28 @@ case "$JOB" in
     # Off-OPAC, pure DB: rescores the whole catalogue from the availability
     # series + holdings so /browse and search lead with the best titles.
     bibliohack catalog relevance recompute --window-days "${RELEVANCE_WINDOW_DAYS:-90}"
+    ;;
+  canon_seed)
+    # Off-OPAC (own lock): rebuild the canon seed from Wikidata + the curated
+    # award fallback, then link seed works to records the mirror already holds.
+    # Idempotent (upsert by source identity) — safe to re-run. Touches the OPAC
+    # zero times, so it can run alongside the hourly growth crawl.
+    bibliohack catalog canon refresh-seed \
+      --min-sitelinks "${CANON_MIN_SITELINKS:-8}"
+    bibliohack catalog canon refresh-awards
+    bibliohack catalog canon match
+    ;;
+  canon_resolve)
+    # On-OPAC (shared crawl lock — same polite budget as discover/refresh):
+    # first link anything the worker has ingested since last run (DB-only),
+    # then ask the OPAC whether the RBPA holds the still-unmatched classics and
+    # seed the held TITNs into scrape_tasks for the worker to ingest. Bounded by
+    # CANON_RESOLVE_MAX and rate-capped at CRAWL_RATE so it never starves the
+    # hourly novedades growth or raises the OPAC request rate.
+    bibliohack catalog canon match
+    bibliohack catalog canon resolve \
+      --max "${CANON_RESOLVE_MAX:-150}" \
+      --rate "${CRAWL_RATE:-1.0}"
     ;;
   *)
     echo "[$(ts)] unknown job: $JOB" >&2

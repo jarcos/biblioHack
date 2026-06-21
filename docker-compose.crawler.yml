@@ -52,6 +52,10 @@ services:
       COVERS_MAX: "100"          # cover ISBNs resolved per 2-hourly run (off-OPAC)
       EMBED_MAX: "200"           # records embedded per 3-hourly run (off-OPAC, via HF)
       RELEVANCE_WINDOW_DAYS: "90" # trailing availability window the nightly relevance recompute reads (off-OPAC, pure DB)
+      # Unmatched canon classics resolved against the OPAC per 4-hourly run.
+      # On-OPAC: shares the crawl lock + CRAWL_RATE budget. Kept modest so it
+      # never starves the hourly novedades growth; raise once novedades is idle.
+      CANON_RESOLVE_MAX: "150"   # canon-seed works resolved per 4-hourly run (on-OPAC, bounded)
       # Resolve covers into the shared store (the api serves them read-only).
       COVERS_STORE_PATH: /covers
       # BGE-M3 embeddings via the HF Inference API (token from .env).

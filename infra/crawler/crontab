@@ -24,3 +24,14 @@
 # /browse and search lead with the best titles. Offset from the 03:00 growth
 # nightly so it reads a settled snapshot set.
 0 4 * * * /app/run-job.sh relevance
+# Canon seed refresh monthly at 05:00 on the 1st — off the OPAC (hits WDQS +
+# the curated award list), own lock, rebuilds canon_seed and links classics the
+# mirror already holds. Offset from the 03:00/04:00 nightlies; off-OPAC so it
+# can overlap the hourly growth crawl anyway.
+0 5 1 * * /app/run-job.sh canon_seed
+# Canon resolve every 4 hours at :50 — on the OPAC (shares the polite crawl
+# lock + 1 req/s budget), asks whether the RBPA holds still-unmatched classics
+# and seeds held TITNs for the worker to ingest. At :50 it's clear of the :00
+# growth (which finishes before :30), the :30 refresh, and the :15/:45 off-OPAC
+# jobs; bounded by CANON_RESOLVE_MAX so it never starves novedades growth.
+50 */4 * * * /app/run-job.sh canon_resolve
