@@ -246,3 +246,20 @@ def test_award_bearing_canon_scores_higher_than_equally_notable_non_award() -> N
     c_no = score_record(no_award, corpus, RelevanceWeights(), now=NOW).components["canon"]
     c_aw = score_record(awarded, corpus, RelevanceWeights(), now=NOW).components["canon"]
     assert c_aw > c_no
+
+
+def test_more_ol_ratings_canon_scores_higher() -> None:
+    """C4: the Open Library rating count is a positive canon popularity signal."""
+    unrated = _signals(record_id="u", is_canon=True, canon_notability=10, canon_ol_rating_count=0)
+    popular = _signals(record_id="p", is_canon=True, canon_notability=10, canon_ol_rating_count=400)
+    corpus = build_corpus_stats([unrated, popular])
+    c_unrated = score_record(unrated, corpus, RelevanceWeights(), now=NOW).components["canon"]
+    c_popular = score_record(popular, corpus, RelevanceWeights(), now=NOW).components["canon"]
+    assert c_popular > c_unrated
+
+
+def test_ol_ratings_do_not_leak_into_non_canon_records() -> None:
+    """A non-match contributes nothing even if it carried a stray rating count."""
+    plain = _signals(record_id="plain", is_canon=False, canon_ol_rating_count=999)
+    corpus = build_corpus_stats([plain])
+    assert score_record(plain, corpus, RelevanceWeights(), now=NOW).components["canon"] == 0.0

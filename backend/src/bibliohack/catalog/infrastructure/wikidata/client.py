@@ -4,8 +4,10 @@ Off-OPAC entirely: this hits ``query.wikidata.org/sparql``, which is free and
 needs no auth but enforces a ~60s per-query timeout and rate-limits abusive
 clients (429 + ``Retry-After``). So the client:
 
-* paginates with ``LIMIT``/``OFFSET`` (page text built in ``query.py``),
-  stopping when a short page signals the end of the result set;
+* paginates by **keyset** (page text built in ``query.py``): each page seeks
+  past the last work IRI of the previous one, so deep pages stay cheap and don't
+  504-timeout the way a growing ``OFFSET`` did. Stops when a short page signals
+  the end of the result set;
 * sends a descriptive ``User-Agent`` (WDQS etiquette / a 403 otherwise);
 * backs off on 429 (honouring ``Retry-After``) and transient 5xx, with a
   bounded number of retries per page;
@@ -25,6 +27,7 @@ from bibliohack.catalog.infrastructure.wikidata.query import (
     DEFAULT_MIN_SITELINKS,
     DEFAULT_PAGE_SIZE,
     build_canon_query,
+    next_cursor,
     parse_bindings,
 )
 
@@ -66,20 +69,21 @@ class WikidataCanonSource:
     async def fetch_works(self, *, max_works: int | None = None) -> AsyncIterator[CanonSeedWork]:
         """Yield seed works across as many pages as needed (or until ``max_works``).
 
-        A page shorter than ``page_size`` means we've reached the end of the
-        result set, so iteration stops there.
+        Pages are fetched by keyset seek: each page asks for works sorting after
+        the previous page's last work IRI. A page shorter than ``page_size``
+        means we've reached the end of the result set, so iteration stops there.
         """
         import httpx  # type: ignore[import-not-found,unused-ignore]
 
         emitted = 0
-        offset = 0
+        after_qid: str | None = None
         async with httpx.AsyncClient(timeout=self._timeout, follow_redirects=True) as client:
             while True:
                 query = build_canon_query(
                     min_sitelinks=self._min_sitelinks,
                     spanish_only=self._spanish_only,
                     limit=self._page_size,
-                    offset=offset,
+                    after_qid=after_qid,
                 )
                 rows = await self._fetch_page(client, query)
                 if not rows:
@@ -91,7 +95,12 @@ class WikidataCanonSource:
                         return
                 if len(rows) < self._page_size:
                     return  # last (partial) page
-                offset += self._page_size
+                cursor = next_cursor(rows)
+                if cursor is None or cursor == after_qid:
+                    # No usable cursor (or it didn't advance) — stop rather than
+                    # risk re-requesting the same page forever.
+                    return
+                after_qid = cursor
                 await asyncio.sleep(self._page_pause)
 
     async def _fetch_page(self, client: object, query: str) -> list[dict[str, Any]]:

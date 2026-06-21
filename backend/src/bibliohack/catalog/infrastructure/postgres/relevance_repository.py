@@ -84,7 +84,8 @@ canon AS (
     SELECT
         matched_record_id AS record_id,
         MAX(notability) AS canon_notability,
-        MAX(COALESCE(array_length(awards, 1), 0)) AS canon_award_count
+        MAX(COALESCE(array_length(awards, 1), 0)) AS canon_award_count,
+        MAX(COALESCE(ol_rating_count, 0)) AS canon_ol_rating_count
     FROM canon_seed
     WHERE matched_record_id IS NOT NULL
     GROUP BY matched_record_id
@@ -111,7 +112,8 @@ SELECT
     COALESCE(d.n_obs, 0) AS n_obs,
     (cn.record_id IS NOT NULL) AS is_canon,
     COALESCE(cn.canon_notability, 0) AS canon_notability,
-    COALESCE(cn.canon_award_count, 0) AS canon_award_count
+    COALESCE(cn.canon_award_count, 0) AS canon_award_count,
+    COALESCE(cn.canon_ol_rating_count, 0) AS canon_ol_rating_count
 FROM bibliographic_records r
 LEFT JOIN holdings h ON h.record_id = r.id
 LEFT JOIN demand d ON d.record_id = r.id
@@ -227,4 +229,5 @@ def _row_to_signals(row: object) -> RecordSignals:
         is_canon=bool(m["is_canon"]),  # type: ignore[index]
         canon_notability=int(m["canon_notability"] or 0),  # type: ignore[index]
         canon_award_count=int(m["canon_award_count"] or 0),  # type: ignore[index]
+        canon_ol_rating_count=int(m["canon_ol_rating_count"] or 0),  # type: ignore[index]
     )

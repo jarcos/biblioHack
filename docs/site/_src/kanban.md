@@ -3,13 +3,25 @@ title: "biblioHack — Kanban"
 h1: "Kanban — project status"
 raw_html: true
 ---
-  <p class="intro">Status as of <strong>2026-06-16</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
+  <p class="intro">Status as of <strong>2026-06-21</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
 
   <div class="board">
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">17</span></h2>
+      <h2>Done <span class="n">19</span></h2>
+
+      <div class="card">
+        <h3>Canon import — classics from open sources (C0–C4 + scheduling)</h3>
+        <p>A back-catalogue path that doesn't wait on the MARC dump: Wikidata/award seed (<code>canon_seed</code>, CC0) → ISBN-13/title+author matcher → positive-only <code>canon</code> relevance boost (folded into the nightly recompute) → polite OPAC <code>resolve</code> that seeds held classics into the existing worker → Open Library ratings + curated award fallback. As of 2026-06-21 the pipeline is <strong>scheduled and live on the crawl plane</strong> (<code>canon_seed</code> monthly, <code>canon_resolve</code> 4-hourly) and bootstrapped in prod: ~1,210 seed works, 28 matched to holdings (~5.7%, all title+author). Two follow-ups also closed 2026-06-21: <strong>WDQS keyset pagination</strong> (seek by last work IRI, no more deep-<code>OFFSET</code> 504s capping the seed at ~500), the <strong>OL rating count wired into the canon boost</strong>, and a <strong>canon coverage row on the Grafana dashboard</strong> (seed size · % matched · % held · acquire-status · ratings). Full plan: <a href="canon-import.html">Canon Import</a>.</p>
+        <div class="meta"><span class="tag t-done">2026-06-21</span><span class="tag t-done">255e491…2d3ad86</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Future-year pub_year fix</h3>
+        <p>Browse was floating 2033/2029/2028 rows to the top (sorts by <code>pub_year DESC</code>). Capped the parser's plausibility band at the current year + 1 (was 2100), unified the ceiling into one shared helper, cleaned the existing bad rows in prod, and shipped end-to-end. New records can no longer store implausible future years.</p>
+        <div class="meta"><span class="tag t-done">2026-06-21</span><span class="tag t-done">057bc70…1caf751</span></div>
+      </div>
 
       <div class="card">
         <h3>Relevance milestone — Phase R (R0–R3)</h3>
@@ -90,7 +102,7 @@ raw_html: true
 
       <div class="card">
         <h3>Catalogue crawl (autonomous)</h3>
-        <p>~21,000 records mirrored (2026-06-13). Active discovery scope is the <em>novedades 2024+</em> set (56,083 records, ~40% done); the full ~2.66M TITN space stays the long game (the MARC dump closes it, not crawling). Steady state was discovery-bound at <code>DISCOVER_MAX=100</code>/hr (~2.4k/day); the pooled browser (dbe7486) freed worker headroom, so on 2026-06-13 we raised it to <code>400</code>/hr (~9.6k/day, <code>CRAWL_RATE</code> untouched) — novedades now finishes in ~3.5 days. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
+        <p><strong>Novedades 2024+ window is caught up:</strong> ~54,030 records mirrored (2026-06-21) against a ~55–56k result set, so the resumable <code>(@fepu&gt;=2024)</code> cursor has reached the end and the hourly bars are now a near-zero trickle of newly-catalogued arrivals — expected, not a break (a 2026-06-18 "imports stopped" scare turned out to be exactly this). The full ~2.66M TITN space stays the long game (the MARC dump closes it, not crawling). With novedades caught up there's spare OPAC budget, now partly used by the new <code>canon_resolve</code> job. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
         <div class="meta"><span class="tag t-wip">CONTINUOUS</span></div>
       </div>
 
@@ -109,7 +121,15 @@ raw_html: true
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">12</span></h2>
+      <h2>To do <span class="n">13</span></h2>
+
+      <div class="divider">Canon import — follow-ups</div>
+
+      <div class="card">
+        <h3>LibraryThing / OCLC ubiquity (optional)</h3>
+        <p>The last canon-import item: a "held by N libraries" worldcat-style signal to deepen notability. Low priority — only if Wikidata + Open Library prove insufficient. (WDQS keyset pagination, the OL-ratings boost, and the Grafana coverage row all shipped 2026-06-21.)</p>
+        <div class="meta"><span class="tag t-todo">DEFERRED</span></div>
+      </div>
 
       <div class="divider">Ops — needs José</div>
 
@@ -129,7 +149,7 @@ raw_html: true
 
       <div class="card">
         <h3>Demand-driven fetcher (unmatched shelf books)</h3>
-        <p>Resolve unmatched Goodreads/StoryGraph shelf entries (and failed searches) via an OPAC title query → TITN → immediate ingest. ~5–10 requests per book — makes the catalogue feel complete <em>for real users</em> years before the full sweep finishes. Just another job on the existing gateway.</p>
+        <p>Resolve unmatched Goodreads/StoryGraph shelf entries (and failed searches) via an OPAC title query → TITN → immediate ingest. ~5–10 requests per book — makes the catalogue feel complete <em>for real users</em> years before the full sweep finishes. Just another job on the existing gateway. <em>The canon <code>resolve</code> job now does exactly this for classics; this card is the user-shelf variant, which can reuse the same resolve machinery.</em></p>
         <div class="meta"><span class="tag t-todo">MEDIUM</span></div>
       </div>
 

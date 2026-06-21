@@ -287,6 +287,82 @@
         }
       ],
       "fieldConfig": { "defaults": { "unit": "none", "min": 0, "max": 1, "decimals": 3 }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Canon seed size",
+      "description": "Total canonical works in canon_seed (Wikidata + curated award fallback). Grows on each monthly refresh-seed run (canon_seed job).",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 33 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) AS works FROM canon_seed"
+        }
+      ],
+      "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "gauge",
+      "title": "Canon matched %",
+      "description": "Share of seed works the matcher linked to a record already in the mirror (matched_record_id set) — the classics the RBPA already holds, which the C2/C4 relevance boost lifts.",
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 33 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE matched_record_id IS NOT NULL) / greatest(count(*), 1), 1) AS pct FROM canon_seed"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 5 }, { "color": "green", "value": 20 } ] } }, "overrides": [] }
+    },
+    {
+      "type": "gauge",
+      "title": "Canon held %",
+      "description": "Share of seed works confirmed held by the RBPA — matched in the mirror OR resolved as held/ingested via the OPAC (canon_resolve job). Grows as resolve runs.",
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 33 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE matched_record_id IS NOT NULL OR acquire_status IN ('held','ingested')) / greatest(count(*), 1), 1) AS pct FROM canon_seed"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 5 }, { "color": "green", "value": 20 } ] } }, "overrides": [] }
+    },
+    {
+      "type": "bargauge",
+      "title": "Canon acquire status",
+      "description": "canon_seed rows by acquire_status: unchecked (not yet resolved against the OPAC) · held · not_held · ingested. The canon_resolve job moves rows out of 'unchecked'.",
+      "gridPos": { "h": 5, "w": 8, "x": 12, "y": 33 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) FILTER (WHERE acquire_status = 'unchecked') AS unchecked, count(*) FILTER (WHERE acquire_status = 'held') AS held, count(*) FILTER (WHERE acquire_status = 'not_held') AS not_held, count(*) FILTER (WHERE acquire_status = 'ingested') AS ingested FROM canon_seed"
+        }
+      ],
+      "options": { "orientation": "horizontal", "displayMode": "gradient" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Canon OL ratings collected",
+      "description": "Seed works enriched with an Open Library rating count (ol_rating_count set) by enrich-ratings — the C4 popularity signal now feeding the canon relevance boost.",
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 33 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) FILTER (WHERE ol_rating_count IS NOT NULL) AS rated FROM canon_seed"
+        }
+      ],
+      "options": { "graphMode": "none", "colorMode": "value" }
     }
   ]
 }

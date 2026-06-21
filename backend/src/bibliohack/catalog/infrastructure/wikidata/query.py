@@ -16,9 +16,14 @@ Two practicalities shape the SPARQL:
 * **One row per work.** ISBNs and awards are folded with ``GROUP_CONCAT`` so a
   work with three editions and two awards is a single row, not six. The
   domain re-cleans/dedups the concatenated values anyway.
-* **Stable, cheap pagination.** ``ORDER BY ?work`` (a bound QID, not a computed
-  aggregate) keeps ``LIMIT``/``OFFSET`` deterministic across pages and avoids
-  the sort-the-whole-universe cost that trips the ~60s WDQS timeout.
+* **Keyset pagination.** Each page is ``ORDER BY ?work`` + ``LIMIT`` with a
+  ``FILTER(STR(?work) > "<last work IRI>")`` seek instead of a growing
+  ``OFFSET``. ``OFFSET`` made WDQS re-scan and re-sort the *entire* result set on
+  every page, so deep pages (≥ page 2) reliably 504-timed out at the ~60s limit
+  and capped the seed at one page (~500 works). A keyset seek keeps every page a
+  cheap bounded query, so the seed can grow to the full few-thousand target.
+  ``ORDER BY ?work`` and the ``STR(?work)`` comparison use the same lexical IRI
+  ordering, so the seek is consistent and skips nothing.
 """
 
 from __future__ import annotations
@@ -34,6 +39,10 @@ if TYPE_CHECKING:
 _Q_LITERARY_WORK = "Q7725634"  # "literary work"
 _Q_SPANISH = "Q1321"  # "Spanish" (language)
 
+# Entity IRI prefix — the keyset cursor compares full work IRIs as strings, and
+# this is also how a bare QID is turned into the value the seek FILTER needs.
+_ENTITY_PREFIX = "http://www.wikidata.org/entity/"
+
 _CONCAT_SEP = "␟"  # ␟ unit separator — won't appear inside a label/ISBN.
 
 # Pagination + politeness defaults (the client may override).
@@ -46,7 +55,7 @@ def build_canon_query(
     min_sitelinks: int = DEFAULT_MIN_SITELINKS,
     spanish_only: bool = False,
     limit: int = DEFAULT_PAGE_SIZE,
-    offset: int = 0,
+    after_qid: str | None = None,
 ) -> str:
     """Render one page of the canon-seed SPARQL query.
 
@@ -54,6 +63,12 @@ def build_canon_query(
     builder pulls a few thousand → low tens of thousands of works, not all of
     Wikidata). ``spanish_only`` drops the award branch and requires the work to
     be in Spanish; otherwise we take Spanish-language *or* award-bearing works.
+
+    ``after_qid`` is the keyset cursor: the QID of the last work seen on the
+    previous page. When set, the query only returns works whose IRI sorts after
+    it (``FILTER(STR(?work) > "<prefix><after_qid>")``), so pagination never pays
+    the deep-``OFFSET`` re-scan cost that 504-times-out at WDQS. ``None`` (the
+    default) fetches the first page.
     """
     if spanish_only:
         scope = f"?work wdt:P407 wd:{_Q_SPANISH} ."
@@ -61,6 +76,9 @@ def build_canon_query(
         scope = (
             "{ ?work wdt:P407 wd:" + _Q_SPANISH + " . }\n  UNION\n  { ?work wdt:P166 ?_anyAward . }"
         )
+    # Keyset seek: compare full work IRIs as strings, matching ORDER BY ?work's
+    # lexical IRI ordering. Empty on the first page.
+    seek = f'  FILTER(STR(?work) > "{_ENTITY_PREFIX}{after_qid}")\n' if after_qid else ""
     return f"""\
 SELECT ?work ?workLabel ?authorLabel (MIN(?year) AS ?pubYear)
        (GROUP_CONCAT(DISTINCT ?isbn13; separator="{_CONCAT_SEP}") AS ?isbn13s)
@@ -71,7 +89,7 @@ WHERE {{
   ?work wdt:P31/wdt:P279* wd:{_Q_LITERARY_WORK} .
   ?work wikibase:sitelinks ?sitelinks .
   FILTER(?sitelinks >= {int(min_sitelinks)})
-  {scope}
+{seek}  {scope}
   OPTIONAL {{ ?work wdt:P50 ?author . }}
   OPTIONAL {{ ?work wdt:P577 ?pubdate . BIND(YEAR(?pubdate) AS ?year) }}
   OPTIONAL {{ ?work wdt:P212 ?isbn13 . }}
@@ -85,7 +103,7 @@ WHERE {{
 }}
 GROUP BY ?work ?workLabel ?authorLabel
 ORDER BY ?work
-LIMIT {int(limit)} OFFSET {int(offset)}
+LIMIT {int(limit)}
 """
 
 
@@ -124,6 +142,23 @@ def _to_year(value: str | None) -> int | None:
         return int(value)
     except ValueError:
         return None
+
+
+def next_cursor(rows: Sequence[Mapping[str, Any]]) -> str | None:
+    """The keyset cursor for the *next* page: the QID of the largest work IRI
+    on this page.
+
+    Computed from the raw bindings (not the parsed works) so a row that
+    ``parse_bindings`` drops — e.g. an unlabelled work at the page boundary —
+    still advances the cursor; otherwise the seek would re-request it forever.
+    Taking the max (rather than trusting row order) keeps the cursor correct
+    regardless of how the endpoint orders the JSON. Returns ``None`` if no row
+    carries a usable work IRI.
+    """
+    uris = [uri for row in rows if (uri := _binding_value(row, "work"))]
+    if not uris:
+        return None
+    return _qid_from_uri(max(uris))
 
 
 def parse_bindings(rows: Sequence[Mapping[str, Any]]) -> list[CanonSeedWork]:

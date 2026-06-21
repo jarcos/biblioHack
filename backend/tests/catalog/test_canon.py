@@ -13,6 +13,7 @@ from bibliohack.catalog.domain.canon import (
 from bibliohack.catalog.domain.isbn import isbn10_to_13
 from bibliohack.catalog.infrastructure.wikidata.query import (
     build_canon_query,
+    next_cursor,
     parse_bindings,
 )
 
@@ -85,12 +86,25 @@ def test_enums_store_expected_string_values() -> None:
 
 
 def test_query_has_core_clauses_and_pagination() -> None:
-    q = build_canon_query(min_sitelinks=12, limit=10, offset=20)
+    q = build_canon_query(min_sitelinks=12, limit=10)
     assert "wd:Q7725634" in q  # literary work
     assert "wikibase:sitelinks ?sitelinks" in q
     assert "?sitelinks >= 12" in q
-    assert "LIMIT 10 OFFSET 20" in q
+    assert "LIMIT 10" in q
+    assert "OFFSET" not in q  # keyset, not offset
     assert "ORDER BY ?work" in q  # stable, cheap pagination
+
+
+def test_first_page_has_no_seek_filter() -> None:
+    q = build_canon_query(limit=10)
+    assert "FILTER(STR(?work) >" not in q
+
+
+def test_keyset_seek_filters_past_the_cursor() -> None:
+    q = build_canon_query(limit=10, after_qid="Q480")
+    assert 'FILTER(STR(?work) > "http://www.wikidata.org/entity/Q480")' in q
+    assert "OFFSET" not in q
+    assert "ORDER BY ?work" in q  # seek + order share the same lexical ordering
 
 
 def test_default_query_includes_award_union() -> None:
@@ -148,3 +162,38 @@ def test_parse_bindings_skips_unlabelled_rows() -> None:
         {"workLabel": _cell("No work uri")},  # missing ?work
     ]
     assert parse_bindings(rows) == []
+
+
+# --- keyset cursor -----------------------------------------------------------
+
+
+def test_next_cursor_returns_max_work_qid() -> None:
+    rows = [
+        {"work": _cell("http://www.wikidata.org/entity/Q480")},
+        {"work": _cell("http://www.wikidata.org/entity/Q999")},
+        {"work": _cell("http://www.wikidata.org/entity/Q700")},
+    ]
+    # Max by IRI string (the same ordering ORDER BY ?work uses), not row order.
+    assert next_cursor(rows) == "Q999"
+
+
+def test_next_cursor_advances_past_an_unlabelled_boundary_row() -> None:
+    # The largest work on the page is one parse_bindings would drop (label==QID).
+    # The cursor must still advance to it, or the seek would re-request it forever.
+    rows = [
+        {
+            "work": _cell("http://www.wikidata.org/entity/Q500"),
+            "workLabel": _cell("A real title"),
+        },
+        {
+            "work": _cell("http://www.wikidata.org/entity/Q999"),
+            "workLabel": _cell("Q999"),  # dropped by parse_bindings
+        },
+    ]
+    assert parse_bindings(rows)  # the labelled row survives
+    assert next_cursor(rows) == "Q999"  # cursor still advances to the max
+
+
+def test_next_cursor_none_when_no_work_uri() -> None:
+    assert next_cursor([{"workLabel": _cell("no uri here")}]) is None
+    assert next_cursor([]) is None

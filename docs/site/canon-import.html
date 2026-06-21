@@ -84,7 +84,7 @@
 <header class="site">
   <div class="wrap">
     <h1>Canon Import — classics from Wikidata &amp; open sources</h1>
-    <p class="tag">Designed 2026-06-17 · C0–C2 built 2026-06-18. A back-catalogue path that doesn't depend on the Junta MARC dump or a full OPAC crawl.</p>
+    <p class="tag">Designed 2026-06-17 · C0–C4 built 2026-06-18→20 · scheduled &amp; live on the crawl plane 2026-06-21. A back-catalogue path that doesn't depend on the Junta MARC dump or a full OPAC crawl.</p>
   </div>
 </header>
 
@@ -107,17 +107,34 @@ MARC dump or (b) crawling the whole ~2.66M-TITN historical catalogue. The idea:
 let open knowledge bases tell us <em>which</em> works are canonical, and let the live
 OPAC stay the source of truth for <em>what the libraries actually hold</em>.</p>
 <blockquote>
-<p>Status: <strong>C0, C1 and C2 built</strong> (2026-06-18) — the off-OPAC Wikidata seed
-builder (<code>canon_seed</code> table + <code>bibliohack catalog canon refresh-seed</code>), the
-DB-only matcher + coverage report (<code>bibliohack catalog canon match</code>), and the
-positive-only canon relevance boost (now folded into the nightly
-<code>catalog relevance recompute</code>), <strong>C3 resolve</strong> (<code>catalog canon resolve</code>: query
-the OPAC for unmatched classics by ISBN then a precise title+author expert
-query, seed held TITNs for the worker, mark <code>held</code>/<code>not_held</code>), and <strong>C4</strong>
-(<code>catalog canon refresh-awards</code> — a curated Nobel/Cervantes fallback — and
-<code>catalog canon enrich-ratings</code> — Open Library ratings collected into
-<code>ol_rating_count</code>). C0–C2 touch the OPAC zero times; only C3 resolve does.
-Pending: wiring the OL rating signal into the canon boost.
+<p>Status: <strong>C0–C4 all built and now scheduled + live on the crawl plane</strong>
+(code 2026-06-18→20; wired into the crawler and bootstrapped in production
+2026-06-21). What shipped:</p>
+<ul>
+<li><strong>C0</strong> — off-OPAC Wikidata seed builder (<code>canon_seed</code> table + <code>bibliohack
+  catalog canon refresh-seed</code>).</li>
+<li><strong>C1</strong> — DB-only matcher + coverage report (<code>bibliohack catalog canon match</code>).</li>
+<li><strong>C2</strong> — positive-only canon relevance boost, folded into the nightly
+  <code>catalog relevance recompute</code>.</li>
+<li><strong>C3</strong> — OPAC resolve (<code>catalog canon resolve</code>: query the OPAC for unmatched
+  classics by ISBN then a precise title+author expert query, seed held TITNs
+  for the worker, mark <code>held</code>/<code>not_held</code>).</li>
+<li><strong>C4</strong> — <code>catalog canon refresh-awards</code> (curated Nobel/Cervantes fallback)
+  and <code>catalog canon enrich-ratings</code> (Open Library ratings collected into
+  <code>ol_rating_count</code>, migration <code>0017</code>).</li>
+</ul>
+<p>C0–C2 touch the OPAC zero times; only C3 resolve does. As of 2026-06-21 the
+two crawl-plane jobs (<code>canon_seed</code> monthly, <code>canon_resolve</code> 4-hourly) are baked
+into the running crawler container and a one-off bootstrap has run in
+production: <strong>~1,210 seed works</strong> (705 new + 487 updated from Wikidata, plus 18
+award fallbacks), <strong>28 matched</strong> to mirror holdings (~5.7%), all via
+title+author.</p>
+<p><strong>Follow-ups closed 2026-06-21:</strong> the WDQS seed builder now uses <strong>keyset
+pagination</strong> (seek by last work IRI instead of <code>OFFSET</code>) so it can grow past
+the old ~500-works-per-page cap; the <strong>OL rating count</strong> is now a popularity
+sub-signal in the canon relevance boost; and the crawl dashboard has a <strong>canon
+coverage</strong> row (seed size · % matched · % held · acquire-status · ratings
+collected). Remaining: optional LibraryThing/OCLC ubiquity (low priority).
 Sibling plan: <code>docs/design/relevance-and-libraries.html</code> (Phase R / R-later).</p>
 </blockquote>
 <hr>
@@ -264,14 +281,21 @@ Target seed size: a few thousand → low tens of thousands of works.</p>
 <hr>
 <h2 id="ops-crawl-plane-remember-crawler-cd">Ops (crawl plane — remember: crawler ≠ CD)</h2>
 <ul>
-<li><strong>Seed refresh</strong> — off-OPAC, monthly: <code>bibliohack catalog canon refresh-seed</code>
-  (hits WDQS / OL, own flock, no OPAC budget). </li>
-<li><strong>Canon acquisition</strong> — on-OPAC, shares the polite 1 req/s budget and the
-  crawl flock: <code>bibliohack catalog canon resolve --max N</code> resolves a bounded
-  batch of unmatched seed works per run (never raise <code>CRAWL_RATE</code>).</li>
-<li>Both ship in the <strong>crawler image</strong> → need the manual NAS rebuild, not CD.</li>
-<li><strong>Grafana</strong>: add a "canon coverage" panel (seed size · % matched in mirror · %
-  acquired) to the crawl dashboard, alongside the relevance panels.</li>
+<li><strong>Seed refresh</strong> — off-OPAC, monthly (<code>canon_seed</code> job, <code>0 5 1 * *</code>):
+  <code>refresh-seed</code> → <code>refresh-awards</code> → <code>match</code> (hits WDQS / OL, own flock, no OPAC
+  budget). <strong>Scheduled &amp; live since 2026-06-21.</strong></li>
+<li><strong>Canon acquisition</strong> — on-OPAC, 4-hourly (<code>canon_resolve</code> job, <code>50 */4 * * *</code>,
+  clear of the other crawl ticks): <code>match</code> then <code>resolve --max $CANON_RESOLVE_MAX</code>
+  (default 150). Shares the polite 1 req/s budget and the crawl flock so it can't
+  starve novedades or raise <code>CRAWL_RATE</code>. <strong>Scheduled &amp; live since 2026-06-21.</strong></li>
+<li>Both ship in the <strong>crawler image</strong> → need the manual NAS rebuild, not CD. The
+  2026-06-21 rebuild baked both jobs into the running container; the <code>run-job.sh</code>
+  cases (<code>canon_seed</code>, <code>canon_resolve</code>) and the <code>CANON_RESOLVE_MAX</code> compose knob
+  are the wiring.</li>
+<li><strong>Grafana</strong>: a "canon coverage" row is <strong>live</strong> on the crawl dashboard
+  alongside the relevance panels — seed size, % matched in mirror, % held,
+  acquire-status breakdown, and OL ratings collected
+  (<code>infra/grafana/bibliohack-crawl-dashboard.json</code>).</li>
 </ul>
 <hr>
 <h2 id="suggested-build-order">Suggested build order</h2>
@@ -310,10 +334,16 @@ Target seed size: a few thousand → low tens of thousands of works.</p>
 <td>Grows genuine classic coverage in the mirror. <em>(ISBN + title+author resolve shipped.)</em></td>
 </tr>
 <tr>
-<td><strong>C4</strong> ◑</td>
+<td><strong>C4</strong> ✅</td>
 <td>Open Library ratings + curated award fallback + (optional) LibraryThing</td>
 <td>mixed</td>
-<td>Deepens the popularity/notability signal. <em>(Award fallback + OL ratings collection shipped; feeding ratings into the boost + LibraryThing pending.)</em></td>
+<td>Deepens the popularity/notability signal. <em>(Award fallback, OL ratings collection, and the OL-rating boost sub-signal all shipped; only optional LibraryThing/OCLC left.)</em></td>
+</tr>
+<tr>
+<td><strong>C-ops</strong> ✅</td>
+<td>Schedule the pipeline on the crawl plane (<code>canon_seed</code> monthly, <code>canon_resolve</code> 4-hourly) + production bootstrap</td>
+<td>crawl plane</td>
+<td>Pipeline now self-maintains. <em>(Shipped 2026-06-21, commit <code>2d3ad86</code>; NAS crawler rebuilt, bootstrap run.)</em></td>
 </tr>
 </tbody>
 </table>
@@ -322,6 +352,18 @@ where politeness matters; keep it bounded and rate-unchanged.</p>
 <hr>
 <h2 id="open-questions-risks-resolve-beforewithin-c3">Open questions &amp; risks (resolve before/within C3)</h2>
 <ul>
+<li><strong>WDQS deep-pagination 504 (found in production 2026-06-21) — RESOLVED
+  2026-06-21.</strong> The builder paginated with <code>LIMIT</code>/<code>OFFSET</code>, but only page 1
+  (<code>OFFSET 0</code>) returned reliably; <code>OFFSET 500</code> repeatedly <strong>504-timed out</strong> at
+  WDQS — the heavy query (subclass walk + UNION + GROUP_CONCAT + label service)
+  re-scanned the whole result set on every deep offset and blew the ~60s limit,
+  capping the seed at ~500 works per page. <strong>Fixed</strong> by switching to <strong>keyset
+  pagination</strong>: each page seeks past the previous page's last work IRI with
+  <code>FILTER(STR(?work) &gt; "&lt;iri&gt;")</code> (matching <code>ORDER BY ?work</code>'s lexical ordering)
+  and drops <code>OFFSET</code>, so every page is a cheap bounded query. The cursor is
+  computed from the raw bindings (max work IRI), so an unlabelled boundary row
+  still advances it; a non-advancing cursor stops iteration as a loop guard.
+  Lands on the next crawler rebuild.</li>
 <li><strong>OPAC search fields (was blocking for C3) — RESOLVED 2026-06-18.</strong> Confirmed
   against the live RBPA OPAC: the <code>xsqf99</code> expert query supports a MARC-tag
   index of the form <code>(&lt;term&gt;.tNNN.)</code>, so <strong>ISBN</strong> is <code>(&lt;isbn&gt;.t020.)</code> (MARC tag
