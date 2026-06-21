@@ -24,12 +24,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from selectolax.parser import HTMLParser
 
 from bibliohack.catalog.domain.isbn import normalize_to_isbn13
+from bibliohack.catalog.domain.pub_year import max_plausible_pub_year
 
 if TYPE_CHECKING:
     from bibliohack.catalog.domain.titn import Titn
@@ -420,11 +420,6 @@ def _extract_document_type(tree: HTMLParser) -> str | None:
 # regex catching a non-year 4-digit run) and must not be stored as a real year
 # — especially since browse sorts by pub_year desc, floating these to the top.
 _MIN_PLAUSIBLE_PUB_YEAR = 1
-_PUB_YEAR_FUTURE_BUFFER = 1  # tolerate next-year imprints for forthcoming titles
-
-
-def _max_plausible_pub_year(now: datetime | None = None) -> int:
-    return (now or datetime.now(UTC)).year + _PUB_YEAR_FUTURE_BUFFER
 
 
 def _extract_pub_year(tree: HTMLParser, *, max_year: int | None = None) -> int | None:
@@ -432,11 +427,11 @@ def _extract_pub_year(tree: HTMLParser, *, max_year: int | None = None) -> int |
 
     Out-of-band values (the 9999 MARC 'unknown date' sentinel, 0, and future
     years beyond next year) are normalised to ``None`` — an unknown year is
-    stored as NULL, never as a bogus number. ``max_year`` defaults to the
-    current year plus a one-year buffer; tests pass it explicitly.
+    stored as NULL, never as a bogus number. ``max_year`` defaults to the shared
+    plausibility ceiling (current year + 1); tests pass it explicitly.
     """
     if max_year is None:
-        max_year = _max_plausible_pub_year()
+        max_year = max_plausible_pub_year()
 
     def _in_band(year: int) -> bool:
         return _MIN_PLAUSIBLE_PUB_YEAR <= year <= max_year

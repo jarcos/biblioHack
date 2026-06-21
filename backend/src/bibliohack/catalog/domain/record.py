@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Self
 
+from bibliohack.catalog.domain.pub_year import max_plausible_pub_year
 from bibliohack.shared.domain import Entity, Identifier
 
 if TYPE_CHECKING:
@@ -65,9 +66,11 @@ class BibliographicRecord(Entity[BibliographicRecordId]):
             msg = "BibliographicRecord must have a non-empty title"
             raise ValueError(msg)
         # Bounds are intentionally loose — we'd rather store an oddity than
-        # reject a real record. The OPAC has plenty of pre-modern facsimiles.
+        # reject a real record. The OPAC has plenty of pre-modern facsimiles, so
+        # the floor is 1400; the ceiling is the shared dynamic plausibility bound
+        # (current year + 1, see catalog.domain.pub_year), not a fixed 2100.
         min_plausible_year = 1400
-        max_plausible_year = 2100
+        max_plausible_year = max_plausible_pub_year()
         if pub_year is not None and not (min_plausible_year <= pub_year <= max_plausible_year):
             msg = f"Implausible publication year: {pub_year}"
             raise ValueError(msg)

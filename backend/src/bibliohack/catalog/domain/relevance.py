@@ -53,6 +53,8 @@ import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from bibliohack.catalog.domain.pub_year import max_plausible_pub_year
+
 if TYPE_CHECKING:
     from datetime import datetime
     from typing import TypeGuard
@@ -86,9 +88,9 @@ FIRST_SEEN_HALF_LIFE_DAYS = 180.0
 # "unknown date" sentinels like 9999) are treated as *unknown* → neutral
 # recency, and excluded from the corpus min/max so a 9999 can't define the top
 # of the recency scale and drag sentinel-year records to the front of /browse.
-# 2100 matches the upper bound the browse API already enforces on year filters.
+# The upper bound is the shared dynamic ceiling (current year + 1), see
+# catalog.domain.pub_year — never a fixed far-future constant.
 _MIN_PLAUSIBLE_PUB_YEAR = 1
-_MAX_PLAUSIBLE_PUB_YEAR = 2100
 
 # Completeness sub-weights (must sum to 1).
 _COVER_SUBWEIGHT = 0.40
@@ -228,7 +230,7 @@ def _is_plausible_pub_year(pub_year: int | None) -> TypeGuard[int]:
     """True for a real publication year; False for None or out-of-band values
     (0/negatives and MARC 'unknown date' sentinels like 9999). A TypeGuard so
     callers get `int` narrowing in both branches."""
-    return pub_year is not None and _MIN_PLAUSIBLE_PUB_YEAR <= pub_year <= _MAX_PLAUSIBLE_PUB_YEAR
+    return pub_year is not None and _MIN_PLAUSIBLE_PUB_YEAR <= pub_year <= max_plausible_pub_year()
 
 
 def _log_scale(value: float, p95: float) -> float:
