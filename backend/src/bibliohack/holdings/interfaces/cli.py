@@ -14,7 +14,7 @@ import typer
 from bibliohack.holdings.application.use_cases.enrich_branch_geo import EnrichBranchGeo
 from bibliohack.holdings.infrastructure.nominatim import NominatimGeocoder
 from bibliohack.holdings.infrastructure.postgres.branch_repository import PostgresBranchRepository
-from bibliohack.shared.infrastructure import get_settings, transactional_session
+from bibliohack.shared.infrastructure import db_session, get_settings
 
 holdings_app = typer.Typer(no_args_is_help=True, help="Branch / holdings commands.")
 
@@ -50,9 +50,16 @@ async def _run_enrich_branches(max_branches: int | None, batch_size: int) -> Non
     typer.echo("Off-OPAC — hits nominatim.openstreetmap.org only, ≤ 1 req/s.")
     typer.echo()
     try:
-        async with transactional_session() as session:
+        # Non-transactional session + per-batch commit so a long run persists
+        # progress incrementally and resumes cleanly if interrupted.
+        async with db_session() as session:
             repo = PostgresBranchRepository(session)
-            use_case = EnrichBranchGeo(geocoder=geocoder, repository=repo, batch_size=batch_size)
+            use_case = EnrichBranchGeo(
+                geocoder=geocoder,
+                repository=repo,
+                batch_size=batch_size,
+                commit=session.commit,
+            )
             stats = await use_case.execute(max_branches=max_branches)
     except Exception as exc:
         typer.echo(typer.style(f"Branch geocode failed: {exc}", fg=typer.colors.RED), err=True)

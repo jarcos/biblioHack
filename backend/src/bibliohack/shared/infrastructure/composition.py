@@ -48,3 +48,22 @@ async def transactional_session() -> AsyncIterator[AsyncSession]:
             yield session
     finally:
         await engine.dispose()
+
+
+@asynccontextmanager
+async def db_session() -> AsyncIterator[AsyncSession]:
+    """Like :func:`transactional_session` but *without* a wrapping transaction.
+
+    For long-running CLI jobs that need to **commit incrementally** (per batch)
+    so progress survives an interruption, rather than one all-or-nothing
+    transaction. The caller is responsible for calling ``session.commit()``.
+    Engine is disposed on exit.
+    """
+    settings = get_settings()
+    engine = make_engine(settings)
+    factory = make_session_factory(engine)
+    try:
+        async with factory() as session:
+            yield session
+    finally:
+        await engine.dispose()

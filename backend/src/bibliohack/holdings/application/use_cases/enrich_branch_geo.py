@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from bibliohack.holdings.application.ports import BranchGeoRepository, Geocoder
 
 DEFAULT_BATCH_SIZE = 50
@@ -44,11 +46,15 @@ class EnrichBranchGeo:
         repository: BranchGeoRepository,
         batch_size: int = DEFAULT_BATCH_SIZE,
         pause_seconds: float = DEFAULT_PAUSE_SECONDS,
+        commit: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._geocoder = geocoder
         self._repo = repository
         self._batch_size = max(1, batch_size)
         self._pause = max(0.0, pause_seconds)
+        # Commit hook so a long run persists progress per batch and survives an
+        # interruption (a 500-branch geocode is ~10 min — too long for one tx).
+        self._commit = commit
 
     async def execute(self, *, max_branches: int | None = None) -> GeocodeStats:
         scanned = geocoded = missed = 0
@@ -79,6 +85,11 @@ class EnrichBranchGeo:
                     geocoded += 1
                 if self._pause:
                     await asyncio.sleep(self._pause)
+
+            # Persist this batch's writes before moving on, so an interruption
+            # keeps progress (and a re-run resumes from the remaining NULLs).
+            if self._commit is not None:
+                await self._commit()
 
             # Geocoded branches leave the queue; page past the ones still NULL.
             offset += batch_missed

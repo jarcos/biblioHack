@@ -98,3 +98,24 @@ async def test_blank_municipality_counts_as_miss_without_calling_geocoder() -> N
     ).execute()
     assert stats.missed == 1
     assert geocoder.calls == []  # None municipality short-circuits
+
+
+async def test_commit_hook_fires_once_per_batch() -> None:
+    rows = [_Row(f"AL{i:02d}", f"Town{i}", "Almería") for i in range(5)]
+    repo = _FakeRepo(rows)
+    geocoder = _FakeGeocoder({f"Town{i}": (36.0 + i, -3.0) for i in range(5)})
+    commits = 0
+
+    async def _commit() -> None:
+        nonlocal commits
+        commits += 1
+
+    # batch_size=2 over 5 geocodable rows → batches of 2, 2, 1 → 3 commits.
+    await EnrichBranchGeo(
+        geocoder=geocoder,
+        repository=repo,
+        batch_size=2,
+        pause_seconds=0.0,
+        commit=_commit,
+    ).execute()
+    assert commits == 3
