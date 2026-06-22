@@ -1,6 +1,7 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import { AccountPanel } from "@/components/auth/AccountPanel";
+import { LibraryPicker } from "@/components/LibraryPicker";
 
 const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
 ---
@@ -11,5 +12,10 @@ const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800
       <h1 class="font-serif text-3xl font-semibold leading-tight tracking-tight">Mi cuenta</h1>
     </header>
     <AccountPanel apiBaseUrl={apiBaseUrl} client:only="react" />
+
+    <section class="space-y-3">
+      <h2 class="font-serif text-lg font-semibold">Mis bibliotecas</h2>
+      <LibraryPicker apiBaseUrl={apiBaseUrl} client:only="react" />
+    </section>
   </section>
 </Layout>

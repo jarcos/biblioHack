@@ -108,8 +108,8 @@ raw_html: true
 
       <div class="card">
         <h3>Libraries milestone (building)</h3>
-        <p>Follow real RBPA branches by proximity, then scope browse/search/recs to «my libraries → province → full». <strong>L0 shipped 2026-06-22</strong> (<code>f40f884</code>): branch geo/contact schema (<code>address/lat/lng/url/phone/opening_hours</code>) + backfill — all 572 branches now have a municipality, 571 a province (from the AbsysNET code prefix). <strong>Next:</strong> L0 geocode CLI (Nominatim centroids) → L1 follow table + <code>/api/branches</code>, <code>/api/me/branches</code> → L2 geolocation picker (client-side) → L3 <code>scope</code> on browse + search → L4 library-aware recommendations. Full plan: <a href="relevance-and-libraries.html">Relevance &amp; Libraries</a>.</p>
-        <div class="meta"><span class="tag t-wip">MILESTONE</span><span class="tag t-done">L0 done</span></div>
+        <p>Follow real RBPA branches by proximity, then scope browse/search/recs to «my libraries → province → full». <strong>L0–L2 shipped 2026-06-22.</strong> L0: branch geo/contact schema + backfill, then a Nominatim geocode CLI (<code>holdings enrich-branches</code>, resumable per-batch commits + dedication-name cleaning) — <strong>571/573 branches geocoded</strong>. L1: <code>user_followed_branches</code> table + <code>/api/branches</code> (public) and <code>/api/me/branches</code> (get/put). L2: the «Mis bibliotecas» picker on <code>/account</code> — geolocation proximity sort (client-side only, never sent), type-ahead fallback, follow/unfollow + save. <strong>Next:</strong> L3 <code>scope</code> on browse + search («mis bibliotecas → provincia → todo») → L4 library-aware recommendations. Full plan: <a href="relevance-and-libraries.html">Relevance &amp; Libraries</a>.</p>
+        <div class="meta"><span class="tag t-wip">MILESTONE</span><span class="tag t-done">L0–L2 done</span></div>
       </div>
 
       <div class="card">
