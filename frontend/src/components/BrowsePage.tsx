@@ -60,7 +60,7 @@ interface Filters {
   yearFrom?: number | undefined;
   yearTo?: number | undefined;
   available: boolean;
-  sort: "newest" | "title";
+  sort: "relevance" | "newest" | "title";
 }
 
 const FACET_LABELS: Record<string, (value: string) => string> = {
@@ -78,7 +78,7 @@ const FACET_TITLES: Record<string, string> = {
 };
 
 function BrowseInner({ apiBaseUrl }: Props): ReactElement {
-  const [filters, setFilters] = useState<Filters>({ available: false, sort: "newest" });
+  const [filters, setFilters] = useState<Filters>({ available: false, sort: "relevance" });
   const [page, setPage] = useState(0);
 
   const params: BrowseParams = {
@@ -177,6 +177,7 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
             aria-label="Ordenar por"
             className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
           >
+            <option value="relevance">Destacados</option>
             <option value="newest">Más recientes</option>
             <option value="title">Título (A–Z)</option>
           </select>

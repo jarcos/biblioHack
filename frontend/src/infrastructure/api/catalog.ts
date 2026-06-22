@@ -264,7 +264,7 @@ export interface BrowseParams {
   yearTo?: number;
   /** Only records with at least one copy on a shelf right now. */
   available?: boolean;
-  sort?: "newest" | "title";
+  sort?: "relevance" | "newest" | "title";
   limit?: number;
   offset?: number;
 }
