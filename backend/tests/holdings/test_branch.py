@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from bibliohack.holdings.domain import Branch, BranchCode
+from bibliohack.holdings.domain.branch import clean_branch_municipality
 
 
 def test_branch_code_round_trips() -> None:
@@ -54,6 +55,21 @@ def test_branch_geo_fields_default_to_none_and_has_geo_is_false() -> None:
     assert branch.lng is None
     assert branch.address is None
     assert branch.has_geo is False
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("Carcabuey-Almudena Grandes", "Carcabuey"),
+        ("Níjar. Red de Bibliotecas Públicas Municipales", "Níjar"),
+        ("Casabermeja - B.P. Unicaja", "Casabermeja"),
+        ("Almería-Biblioteca Provincial", "Almería"),
+        ("Vélez Rubio", "Vélez Rubio"),  # no separator → unchanged
+        ("Huércal de Almería", "Huércal de Almería"),
+    ],
+)
+def test_clean_branch_municipality(name: str, expected: str) -> None:
+    assert clean_branch_municipality(name) == expected
 
 
 def test_branch_has_geo_true_only_with_both_coordinates() -> None:

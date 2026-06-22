@@ -7,10 +7,27 @@ UUID, because the upstream system is the source of truth for branch identity.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from bibliohack.shared.domain import Entity
+
+# Branch names often carry the library's *dedication* after the town, e.g.
+# "Carcabuey-Almudena Grandes", "Nijar. Red de Bibliotecas...",
+# "Casabermeja - B.P. Unicaja". The town is the part before the first
+# separator (that's what geocodes): a hyphen, an en dash, or ". ".
+_TOWN_SEPARATOR = re.compile("\\s*[-–]\\s*|\\.\\s+")  # noqa: RUF001 (en dash is intentional)
+
+
+def clean_branch_municipality(name: str) -> str:
+    """The geocodable town from a (possibly dedication-suffixed) branch name.
+
+    ``"Carcabuey-Almudena Grandes"`` → ``"Carcabuey"``;
+    ``"Níjar. Red de Bibliotecas…"`` → ``"Níjar"``;
+    a plain ``"Vélez Rubio"`` is returned unchanged.
+    """
+    return _TOWN_SEPARATOR.split(name, maxsplit=1)[0].strip()
 
 
 @dataclass(frozen=True, slots=True)

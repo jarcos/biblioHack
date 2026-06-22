@@ -18,6 +18,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from bibliohack.holdings.domain.branch import clean_branch_municipality
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -74,9 +76,8 @@ class EnrichBranchGeo:
                     missed += 1
                     batch_missed += 1
                     continue
-                coords = await self._geocoder.geocode(
-                    municipality=row.municipality, province=row.province
-                )
+                town = clean_branch_municipality(row.municipality)
+                coords = await self._geocoder.geocode(municipality=town, province=row.province)
                 if coords is None:
                     missed += 1
                     batch_missed += 1
