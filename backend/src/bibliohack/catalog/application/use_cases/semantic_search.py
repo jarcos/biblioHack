@@ -39,6 +39,7 @@ class SemanticSearch:
         limit: int = 20,
         offset: int = 0,
         scope: SearchScope = SearchScope.LITERARY,
+        library_branch_codes: list[str] | None = None,
     ) -> SearchPage:
         from bibliohack.catalog.application.dto import SearchPage
 
@@ -55,4 +56,5 @@ class SemanticSearch:
             limit=limit,
             offset=offset,
             scope=scope,
+            library_branch_codes=library_branch_codes,
         )

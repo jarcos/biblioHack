@@ -49,6 +49,7 @@ class _FakeReadRepo:
         limit: int = 20,
         offset: int = 0,
         scope: SearchScope = SearchScope.LITERARY,
+        library_branch_codes: list[str] | None = None,
     ) -> SearchPage:
         self.calls.append(
             {
@@ -57,6 +58,7 @@ class _FakeReadRepo:
                 "limit": limit,
                 "offset": offset,
                 "scope": scope,
+                "library_branch_codes": library_branch_codes,
             }
         )
         return SearchPage(query=query, items=(), total=0, limit=limit, offset=offset)

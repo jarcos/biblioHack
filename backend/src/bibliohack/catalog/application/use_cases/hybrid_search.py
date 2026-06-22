@@ -56,6 +56,7 @@ class HybridSearch:
         limit: int = 20,
         offset: int = 0,
         scope: SearchScope = SearchScope.LITERARY,
+        library_branch_codes: list[str] | None = None,
     ) -> SearchPage:
         from bibliohack.catalog.application.dto import SearchPage
 
@@ -66,14 +67,23 @@ class HybridSearch:
         # Embedding needs no DB session, so it overlaps the keyword query.
         embed_task = asyncio.create_task(self._embed_or_none(cleaned))
         keyword_page: SearchPage = await self._read_repo.search(  # type: ignore[attr-defined]
-            query=query, limit=_POOL, offset=0, scope=scope
+            query=query,
+            limit=_POOL,
+            offset=0,
+            scope=scope,
+            library_branch_codes=library_branch_codes,
         )
         vector = await embed_task
 
         semantic_items: tuple[CatalogRecordSummary, ...] = ()
         if vector:
             semantic_page: SearchPage = await self._read_repo.semantic_search(  # type: ignore[attr-defined]
-                query_vector=vector, query=query, limit=_POOL, offset=0, scope=scope
+                query_vector=vector,
+                query=query,
+                limit=_POOL,
+                offset=0,
+                scope=scope,
+                library_branch_codes=library_branch_codes,
             )
             semantic_items = semantic_page.items
 

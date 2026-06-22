@@ -265,6 +265,8 @@ export interface BrowseParams {
   /** Only records with at least one copy on a shelf right now. */
   available?: boolean;
   sort?: "relevance" | "newest" | "title";
+  /** Library scope (L3): 'mine' / 'province' / 'full'. Needs the session cookie. */
+  libraryScope?: "mine" | "province" | "full";
   limit?: number;
   offset?: number;
 }
@@ -286,6 +288,7 @@ export async function browseCatalog(
     year_to: params.yearTo !== undefined ? String(params.yearTo) : undefined,
     available: params.available ? "true" : undefined,
     sort: params.sort,
+    library_scope: params.libraryScope,
     limit: params.limit !== undefined ? String(params.limit) : undefined,
     offset: params.offset !== undefined ? String(params.offset) : undefined,
   };
@@ -294,6 +297,9 @@ export async function browseCatalog(
   }
   const response = await fetch(url.toString(), {
     headers: { Accept: "application/json" },
+    // Send the session cookie so the backend can resolve the user's followed
+    // branches for library scoping (no-op for anonymous visitors).
+    credentials: "include",
     ...(signal ? { signal } : {}),
   });
   if (!response.ok) {

@@ -80,8 +80,17 @@ class _FakeReadRepo:
         limit: int = 20,
         offset: int = 0,
         scope: SearchScope = SearchScope.LITERARY,
+        library_branch_codes: list[str] | None = None,
     ) -> SearchPage:
-        self.search_calls.append({"query": query, "limit": limit, "offset": offset, "scope": scope})
+        self.search_calls.append(
+            {
+                "query": query,
+                "limit": limit,
+                "offset": offset,
+                "scope": scope,
+                "library_branch_codes": library_branch_codes,
+            }
+        )
         items = tuple(_summary(t) for t in self._keyword)
         return SearchPage(query=query, items=items, total=len(items), limit=limit, offset=offset)
 
@@ -93,8 +102,16 @@ class _FakeReadRepo:
         limit: int = 20,
         offset: int = 0,
         scope: SearchScope = SearchScope.LITERARY,
+        library_branch_codes: list[str] | None = None,
     ) -> SearchPage:
-        self.semantic_calls.append({"query_vector": query_vector, "limit": limit, "scope": scope})
+        self.semantic_calls.append(
+            {
+                "query_vector": query_vector,
+                "limit": limit,
+                "scope": scope,
+                "library_branch_codes": library_branch_codes,
+            }
+        )
         items = tuple(_summary(t) for t in self._semantic)
         return SearchPage(query=query, items=items, total=len(items), limit=limit, offset=offset)
 
@@ -161,3 +178,13 @@ async def test_scope_threads_through_to_both_rankers() -> None:
 
     assert repo.search_calls[0]["scope"] is SearchScope.ALL
     assert repo.semantic_calls[0]["scope"] is SearchScope.ALL
+
+
+async def test_library_scope_threads_through_to_both_rankers() -> None:
+    repo = _FakeReadRepo(keyword_titns=[1], semantic_titns=[2])
+    await HybridSearch(read_repo=repo, embedder=_FakeEmbedder()).execute(
+        query="x", library_branch_codes=["AL03", "AL04"]
+    )
+
+    assert repo.search_calls[0]["library_branch_codes"] == ["AL03", "AL04"]
+    assert repo.semantic_calls[0]["library_branch_codes"] == ["AL03", "AL04"]

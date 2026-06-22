@@ -196,6 +196,7 @@ class PostgresCatalogReadRepository:
         limit: int = 20,
         offset: int = 0,
         scope: SearchScope = SearchScope.LITERARY,
+        library_branch_codes: list[str] | None = None,
     ) -> SearchPage:
         cleaned = query.strip()
         if not cleaned:
@@ -215,6 +216,8 @@ class PostgresCatalogReadRepository:
         # records we are confident are children's/youth or non-fiction;
         # 'unknown' on either axis stays visible. SearchScope.ALL skips this.
         base_q = self._apply_scope(base_q, scope)
+        # Library scope (L3): hard-filter to records held in followed branches.
+        base_q = self._apply_library_scope(base_q, library_branch_codes)
 
         # Count first (separate query — keeps the main fetch indexable).
         total = (
@@ -260,6 +263,7 @@ class PostgresCatalogReadRepository:
         sort: str = "newest",
         limit: int = 20,
         offset: int = 0,
+        library_branch_codes: list[str] | None = None,
     ) -> BrowsePage:
         """Faceted catalogue navigator (no query string — filters + facets).
 
@@ -301,6 +305,9 @@ class PostgresCatalogReadRepository:
                 stmt = stmt.where(BibliographicRecordModel.pub_year >= year_from)
             if year_to is not None:
                 stmt = stmt.where(BibliographicRecordModel.pub_year <= year_to)
+            # Library scope (L3) — a hard pre-filter, not a facet, so it applies
+            # to every dimension's counts too (no `exclude` carve-out).
+            stmt = self._apply_library_scope(stmt, library_branch_codes)
             if available_only:
                 latest = (
                     select(
@@ -415,6 +422,7 @@ class PostgresCatalogReadRepository:
         limit: int = 20,
         offset: int = 0,
         scope: SearchScope = SearchScope.LITERARY,
+        library_branch_codes: list[str] | None = None,
     ) -> SearchPage:
         """K-nearest-neighbour search over BGE-M3 embeddings (pgvector cosine).
 
@@ -440,6 +448,7 @@ class PostgresCatalogReadRepository:
             BibliographicRecordModel.embedding.is_not(None)
         )
         base_q = self._apply_scope(base_q, scope)
+        base_q = self._apply_library_scope(base_q, library_branch_codes)
 
         total = (
             await self._session.execute(select(func.count()).select_from(base_q.subquery()))
@@ -544,6 +553,27 @@ class PostgresCatalogReadRepository:
                 BibliographicRecordModel.literary_form.in_(default_scope_forms()),
             )
         return stmt
+
+    @staticmethod
+    def _apply_library_scope(stmt: _SelectT, branch_codes: list[str] | None) -> _SelectT:
+        """Hard-filter to records held in a set of branches (Libraries L3).
+
+        ``branch_codes=None`` is the full catalogue (no filter). Otherwise keep
+        only records with at least one *active* copy in one of those branches —
+        the same EXISTS shape the availability filter uses. An empty list would
+        match nothing, so callers pass ``None`` (not ``[]``) for "no scope".
+        """
+        if branch_codes is None:
+            return stmt
+        return stmt.where(
+            select(CopyModel.id)
+            .where(
+                CopyModel.record_id == BibliographicRecordModel.id,
+                CopyModel.is_active.is_(True),
+                CopyModel.branch_code.in_(branch_codes),
+            )
+            .exists()
+        )
 
     async def _summarize(
         self, rows: Sequence[BibliographicRecordModel]

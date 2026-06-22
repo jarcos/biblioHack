@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { audienceLabel, formLabel, genreLabel } from "@/lib/literary";
+import { fetchMyBranches } from "@infrastructure/api/branches";
 import {
   browseCatalog,
   CatalogApiError,
@@ -61,6 +62,7 @@ interface Filters {
   yearTo?: number | undefined;
   available: boolean;
   sort: "relevance" | "newest" | "title";
+  libraryScope: "mine" | "province" | "full";
 }
 
 const FACET_LABELS: Record<string, (value: string) => string> = {
@@ -78,8 +80,25 @@ const FACET_TITLES: Record<string, string> = {
 };
 
 function BrowseInner({ apiBaseUrl }: Props): ReactElement {
-  const [filters, setFilters] = useState<Filters>({ available: false, sort: "relevance" });
+  const [filters, setFilters] = useState<Filters>({
+    available: false,
+    sort: "relevance",
+    libraryScope: "mine",
+  });
   const [page, setPage] = useState(0);
+  // Whether to offer the library-scope control: only for signed-in users who
+  // follow ≥1 branch. The backend resolves scope to the full catalogue for
+  // everyone else, so sending the param is harmless when this is false.
+  const [followsBranches, setFollowsBranches] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchMyBranches(apiBaseUrl, controller.signal).then(
+      (codes) => setFollowsBranches(codes !== null && codes.length > 0),
+      () => setFollowsBranches(false),
+    );
+    return () => controller.abort();
+  }, [apiBaseUrl]);
 
   const params: BrowseParams = {
     ...(filters.author !== undefined ? { author: filters.author } : {}),
@@ -91,6 +110,7 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
     ...(filters.yearTo !== undefined ? { yearTo: filters.yearTo } : {}),
     ...(filters.available ? { available: true } : {}),
     sort: filters.sort,
+    ...(followsBranches ? { libraryScope: filters.libraryScope } : {}),
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
   };
@@ -182,6 +202,29 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
             <option value="title">Título (A–Z)</option>
           </select>
         </section>
+
+        {followsBranches && (
+          <section className="space-y-2">
+            <h3 className="font-serif text-sm font-semibold">Bibliotecas</h3>
+            <select
+              value={filters.libraryScope}
+              onChange={(e) => update({ libraryScope: e.target.value as Filters["libraryScope"] })}
+              aria-label="Ámbito de bibliotecas"
+              className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+            >
+              <option value="mine">Mis bibliotecas</option>
+              <option value="province">Mi provincia</option>
+              <option value="full">Todo el catálogo</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Filtra por lo que hay en las bibliotecas que sigues.{" "}
+              <a href="/account" className="underline underline-offset-4">
+                Edítalas
+              </a>
+              .
+            </p>
+          </section>
+        )}
       </aside>
 
       <section className="space-y-6">

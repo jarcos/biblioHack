@@ -42,6 +42,11 @@ from bibliohack.catalog.interfaces.http.schemas import (
     SearchResponseSchema,
     SimilarResponseSchema,
 )
+from bibliohack.holdings.infrastructure.postgres.branch_repository import (
+    PostgresBranchRepository,
+)
+from bibliohack.identity.domain.user import User  # noqa: TC001 (FastAPI dep introspection)
+from bibliohack.identity.interfaces.http.dependencies import get_optional_user
 from bibliohack.interfaces.http.dependencies import get_embedder, get_session
 
 if TYPE_CHECKING:
@@ -68,6 +73,32 @@ class BrowseSort(StrEnum):
     RELEVANCE = "relevance"
     NEWEST = "newest"
     TITLE = "title"
+
+
+class LibraryScope(StrEnum):
+    """Library scope for /catalog/browse + /catalog/search (Libraries L3).
+
+    Distinct from the literary `scope` (media filter). `mine` is the default:
+    for a signed-in user who follows ≥1 branch it hard-filters to records held
+    there; for anonymous / no-follow users it resolves to the full catalogue.
+    """
+
+    MINE = "mine"
+    PROVINCE = "province"
+    FULL = "full"
+
+
+async def _resolve_library_codes(
+    session: AsyncSession, user: User | None, level: LibraryScope
+) -> list[str] | None:
+    """Branch codes to hard-filter on, or None for the full catalogue.
+
+    None whenever there's no session, the user follows nothing, or `full` is
+    requested — so the feature degrades cleanly to the whole mirror.
+    """
+    if user is None or level is LibraryScope.FULL:
+        return None
+    return await PostgresBranchRepository(session).scope_branch_codes(str(user.id), level.value)
 
 
 @router.get(
@@ -106,12 +137,17 @@ async def search_catalog(
     q: Annotated[str, Query(min_length=1, description="Free-text search query.")],
     session: Annotated[AsyncSession, Depends(get_session)],
     embedder: Annotated[HuggingFaceEmbedder | None, Depends(get_embedder)],
+    user: Annotated[User | None, Depends(get_optional_user)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
     scope: Annotated[
         SearchScope,
         Query(description="'literary' (default: adult literature, all genres) or 'all'."),
     ] = SearchScope.LITERARY,
+    library_scope: Annotated[
+        LibraryScope,
+        Query(description="'mine' (followed branches, default), 'province', or 'full'."),
+    ] = LibraryScope.MINE,
     mode: Annotated[
         SearchMode,
         Query(
@@ -136,21 +172,24 @@ async def search_catalog(
     non-fiction); pass `scope=all` for the whole mirror.
     """
     repo = PostgresCatalogReadRepository(session)
+    library_codes = await _resolve_library_codes(session, user, library_scope)
 
     if mode is SearchMode.HYBRID and embedder is not None:
         page = await HybridSearch(read_repo=repo, embedder=embedder).execute(
-            query=q, limit=limit, offset=offset, scope=scope
+            query=q, limit=limit, offset=offset, scope=scope, library_branch_codes=library_codes
         )
         return _page_to_schema(page, mode=SearchMode.HYBRID)
 
     if mode is SearchMode.SEMANTIC and embedder is not None:
         page = await SemanticSearch(read_repo=repo, embedder=embedder).execute(
-            query=q, limit=limit, offset=offset, scope=scope
+            query=q, limit=limit, offset=offset, scope=scope, library_branch_codes=library_codes
         )
         return _page_to_schema(page, mode=SearchMode.SEMANTIC)
 
     # keyword, or semantic/hybrid requested without an embedder → fall back.
-    page = await repo.search(query=q, limit=limit, offset=offset, scope=scope)
+    page = await repo.search(
+        query=q, limit=limit, offset=offset, scope=scope, library_branch_codes=library_codes
+    )
     return _page_to_schema(page, mode=SearchMode.KEYWORD)
 
 
@@ -160,6 +199,7 @@ async def search_catalog(
 )
 async def browse_catalog(
     session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[User | None, Depends(get_optional_user)],
     author: Annotated[
         str | None, Query(description="Exact contributor name, as returned by /catalog/authors.")
     ] = None,
@@ -173,6 +213,10 @@ async def browse_catalog(
         bool, Query(description="Only records with at least one copy on a shelf right now.")
     ] = False,
     sort: Annotated[BrowseSort, Query()] = BrowseSort.RELEVANCE,
+    library_scope: Annotated[
+        LibraryScope,
+        Query(description="'mine' (followed branches, default), 'province', or 'full'."),
+    ] = LibraryScope.MINE,
     limit: Annotated[int, Query(ge=1, le=100)] = 24,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> BrowseResponseSchema:
@@ -190,6 +234,7 @@ async def browse_catalog(
     filter (latest snapshot == available on any branch).
     """
     repo = PostgresCatalogReadRepository(session)
+    library_codes = await _resolve_library_codes(session, user, library_scope)
     page = await repo.browse(
         author=author,
         language=language,
@@ -202,6 +247,7 @@ async def browse_catalog(
         sort=sort.value,
         limit=limit,
         offset=offset,
+        library_branch_codes=library_codes,
     )
     return BrowseResponseSchema(
         total=page.total,

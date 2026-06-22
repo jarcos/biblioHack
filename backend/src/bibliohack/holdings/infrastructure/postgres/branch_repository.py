@@ -115,6 +115,37 @@ class PostgresBranchRepository:
         )
         return list((await self._session.execute(stmt)).scalars().all())
 
+    async def scope_branch_codes(self, user_id: str, level: str) -> list[str] | None:
+        """Branch codes for a library scope level (Libraries L3).
+
+        - ``"mine"``     → the user's followed branches.
+        - ``"province"`` → every active branch in a province the user follows.
+        - ``"full"`` (or no follows) → ``None`` (the whole catalogue).
+
+        Returns ``None`` (not ``[]``) when there's nothing to scope to, so the
+        caller treats it as full catalogue rather than "match nothing".
+        """
+        if level == "mine":
+            return (await self.followed_codes(user_id)) or None
+        if level == "province":
+            followed_provinces = (
+                select(BranchModel.province)
+                .join(
+                    UserFollowedBranchModel,
+                    UserFollowedBranchModel.branch_code == BranchModel.code,
+                )
+                .where(
+                    UserFollowedBranchModel.user_id == user_id,
+                    BranchModel.province.isnot(None),
+                )
+            )
+            stmt = select(BranchModel.code).where(
+                BranchModel.is_active.is_(True),
+                BranchModel.province.in_(followed_provinces),
+            )
+            return list((await self._session.execute(stmt)).scalars().all()) or None
+        return None
+
     async def existing_codes(self, codes: Sequence[str]) -> set[str]:
         """Subset of `codes` that are real, active branch codes (input validation)."""
         if not codes:
