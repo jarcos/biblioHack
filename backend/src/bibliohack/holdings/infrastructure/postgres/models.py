@@ -13,6 +13,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     func,
@@ -71,3 +72,24 @@ class CopyModel(Base):
     )
 
     __table_args__ = (Index("ix_copies_record_branch", "record_id", "branch_code"),)
+
+
+class UserFollowedBranchModel(Base):
+    """A branch a user follows (Libraries milestone L1). PK = (user, branch)."""
+
+    __tablename__ = "user_followed_branches"
+
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    branch_code: Mapped[str] = mapped_column(
+        String(32), ForeignKey("branches.code"), primary_key=True
+    )
+    position: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (Index("ix_user_followed_branches_user_id", "user_id"),)

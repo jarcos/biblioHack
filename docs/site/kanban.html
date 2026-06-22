@@ -102,13 +102,19 @@
 </nav>
 
 <main class="wrap">
-  <p class="intro">Status as of <strong>2026-06-21</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
+  <p class="intro">Status as of <strong>2026-06-22</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
 
   <div class="board">
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">19</span></h2>
+      <h2>Done <span class="n">20</span></h2>
+
+      <div class="card">
+        <h3>Browse default → relevance sort («Destacados»)</h3>
+        <p><code>/browse</code> was hardcoded to «Más recientes» (pub_year desc) in the frontend, so the relevance score — and the canon boost on top of it — never showed: freshly-added 2026 novedades with score 0 floated to the top. Added a «Destacados» (relevance) sort, made it the default, aligned the type unions. Now the boosted classics lead the page; «Más recientes» / «Título» stay as options. The 2026-at-top puzzle was this sort, <em>not</em> a pub_year import bug — canon titles carry their real years (Pilares 1994, Doctor Zhivago 1984).</p>
+        <div class="meta"><span class="tag t-done">2026-06-22</span><span class="tag t-done">7c0d5c0</span></div>
+      </div>
 
       <div class="card">
         <h3>Canon import — classics from open sources (C0–C4 + scheduling)</h3>
@@ -197,7 +203,13 @@
 
     <!-- ── IN PROGRESS ───────────────────────────────────── -->
     <section class="col wip">
-      <h2>In progress <span class="n">3</span></h2>
+      <h2>In progress <span class="n">4</span></h2>
+
+      <div class="card">
+        <h3>Libraries milestone (building)</h3>
+        <p>Follow real RBPA branches by proximity, then scope browse/search/recs to «my libraries → province → full». <strong>L0 shipped 2026-06-22</strong> (<code>f40f884</code>): branch geo/contact schema (<code>address/lat/lng/url/phone/opening_hours</code>) + backfill — all 572 branches now have a municipality, 571 a province (from the AbsysNET code prefix). <strong>Next:</strong> L0 geocode CLI (Nominatim centroids) → L1 follow table + <code>/api/branches</code>, <code>/api/me/branches</code> → L2 geolocation picker (client-side) → L3 <code>scope</code> on browse + search → L4 library-aware recommendations. Full plan: <a href="relevance-and-libraries.html">Relevance &amp; Libraries</a>.</p>
+        <div class="meta"><span class="tag t-wip">MILESTONE</span><span class="tag t-done">L0 done</span></div>
+      </div>
 
       <div class="card">
         <h3>Catalogue crawl (autonomous)</h3>
@@ -220,7 +232,7 @@
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">13</span></h2>
+      <h2>To do <span class="n">12</span></h2>
 
       <div class="divider">Canon import — follow-ups</div>
 
@@ -280,14 +292,6 @@
         <h3>Edge rate limiting (Cloudflare WAF)</h3>
         <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears.</p>
         <div class="meta"><span class="tag t-todo">IF NEEDED</span></div>
-      </div>
-
-      <div class="divider">Next milestones — designed 2026-06-15 (<a href="relevance-and-libraries.html">plan</a>)</div>
-
-      <div class="card">
-        <h3>Libraries milestone (ships next)</h3>
-        <p>Promote <code>Branch</code> to a user-facing entity (geo/address/url); users follow multiple branches by geolocation proximity (location client-side only). Hard-filter browse + search to «my libraries → province → full»; library-aware recommendations.</p>
-        <div class="meta"><span class="tag t-todo">MILESTONE</span></div>
       </div>
 
       <div class="divider">Roadmap (bigger bets)</div>

@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     covers_store_path: str = "~/biblioHack-data/covers"
     covers_user_agent: str = "bibliohack/0.1 (+https://biblio.josearcos.me)"
 
+    # ───── Branch geocoding (Libraries L0) ─────
+    # Nominatim's usage policy requires a descriptive UA with contact info.
+    nominatim_user_agent: str = (
+        "bibliohack/0.1 (+https://biblio.josearcos.me; josearcoscampos@gmail.com)"
+    )
+
     # ───── Identity / auth (§4) ─────
     # Public base URL used in emails (verification / password-reset links).
     public_base_url: str = "https://biblio.josearcos.me"
