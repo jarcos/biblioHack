@@ -46,3 +46,26 @@ def test_two_branches_with_same_code_are_equal() -> None:
     b = Branch(code=BranchCode(value="21001"), name="Huelva Provincial")
     # Equality is by identity (the BranchCode), not by state.
     assert a == b
+
+
+def test_branch_geo_fields_default_to_none_and_has_geo_is_false() -> None:
+    branch = Branch(code=BranchCode(value="AL03"), name="Adra")
+    assert branch.lat is None
+    assert branch.lng is None
+    assert branch.address is None
+    assert branch.has_geo is False
+
+
+def test_branch_has_geo_true_only_with_both_coordinates() -> None:
+    geocoded = Branch(
+        code=BranchCode(value="AL03"),
+        name="Adra",
+        municipality="Adra",
+        province="Almería",
+        lat=36.7497,
+        lng=-3.0206,
+    )
+    assert geocoded.has_geo is True
+    # A half-set coordinate pair is not usable for proximity sorting.
+    half = Branch(code=BranchCode(value="AL04"), name="Berja", lat=36.85)
+    assert half.has_geo is False

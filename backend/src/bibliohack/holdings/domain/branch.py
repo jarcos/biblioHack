@@ -38,6 +38,12 @@ class Branch(Entity[BranchCode]):
         name: str,
         municipality: str | None = None,
         province: str | None = None,
+        address: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
+        url: str | None = None,
+        phone: str | None = None,
+        opening_hours: str | None = None,
         is_active: bool = True,
         first_seen_at: datetime | None = None,
     ) -> None:
@@ -48,9 +54,20 @@ class Branch(Entity[BranchCode]):
         self.name = name.strip()
         self.municipality = municipality
         self.province = province
+        self.address = address
+        self.lat = lat
+        self.lng = lng
+        self.url = url
+        self.phone = phone
+        self.opening_hours = opening_hours
         self.is_active = is_active
         self.first_seen_at = first_seen_at or datetime.now(tz=UTC)
 
     @property
     def code(self) -> BranchCode:
         return self.id
+
+    @property
+    def has_geo(self) -> bool:
+        """True once the branch has been geocoded (usable for proximity sort)."""
+        return self.lat is not None and self.lng is not None

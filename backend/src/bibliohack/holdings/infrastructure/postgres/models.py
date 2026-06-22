@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     String,
@@ -28,7 +29,15 @@ class BranchModel(Base):
     code: Mapped[str] = mapped_column(String(32), primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     municipality: Mapped[str | None] = mapped_column(Text)
-    province: Mapped[str | None] = mapped_column(Text)
+    province: Mapped[str | None] = mapped_column(Text, index=True)
+    # Geo/contact enrichment (Libraries milestone L0). lat/lng filled off-OPAC by
+    # `holdings enrich-branches`; the rest reserved for an official directory feed.
+    address: Mapped[str | None] = mapped_column(Text)
+    lat: Mapped[float | None] = mapped_column(Float)
+    lng: Mapped[float | None] = mapped_column(Float)
+    url: Mapped[str | None] = mapped_column(Text)
+    phone: Mapped[str | None] = mapped_column(Text)
+    opening_hours: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
