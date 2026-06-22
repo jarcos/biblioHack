@@ -10,6 +10,11 @@ from fastapi import Depends
 # the note in identity/interfaces/http/dependencies.py).
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
+from bibliohack.holdings.infrastructure.postgres.branch_repository import (
+    PostgresBranchRepository,
+)
+from bibliohack.identity.domain.user import User  # noqa: TC001
+from bibliohack.identity.interfaces.http.dependencies import get_current_user
 from bibliohack.interfaces.http.dependencies import get_tx_session
 from bibliohack.recommendations.application.ports import (  # noqa: TC001
     CandidateRetriever,
@@ -45,6 +50,17 @@ def get_candidate_retriever(
     session: Annotated[AsyncSession, Depends(get_tx_session)],
 ) -> CandidateRetriever:
     return PostgresCandidateRetriever(session)
+
+
+async def get_caller_branch_codes(
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_tx_session)],
+) -> list[str] | None:
+    """The caller's followed branch codes (L4 library-aware recs), or None.
+
+    A dependency (not an inline call) so tests can override it without a DB.
+    """
+    return await PostgresBranchRepository(session).scope_branch_codes(str(user.id), "mine")
 
 
 def get_rationale_writer(

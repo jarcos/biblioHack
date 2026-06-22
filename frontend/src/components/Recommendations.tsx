@@ -1,12 +1,17 @@
 import { useEffect, useState, type ReactElement } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { fetchMyBranches } from "@infrastructure/api/branches";
 import { fetchRecommendations, type RecommendationItem } from "@infrastructure/api/recommendations";
 
 /**
  * Recommendations — the per-user "qué leer ahora" grid. The first request
  * after a shelf change generates the batch server-side (pgvector + LLM), so
  * it can take a few seconds; afterwards it's cached until the shelf moves.
+ *
+ * Library-aware (L4): titles borrowable in followed branches are boosted
+ * server-side; users who follow branches also get a "solo en mis bibliotecas"
+ * toggle that hard-filters to nearby availability.
  */
 
 interface Props {
@@ -17,10 +22,23 @@ export function Recommendations({ apiBaseUrl }: Props): ReactElement {
   const [items, setItems] = useState<RecommendationItem[] | null>(null);
   const [reason, setReason] = useState<"ok" | "empty_profile">("ok");
   const [error, setError] = useState(false);
+  const [nearby, setNearby] = useState(false);
+  const [followsBranches, setFollowsBranches] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchRecommendations(apiBaseUrl, controller.signal).then(
+    fetchMyBranches(apiBaseUrl, controller.signal).then(
+      (codes) => setFollowsBranches(codes !== null && codes.length > 0),
+      () => setFollowsBranches(false),
+    );
+    return () => controller.abort();
+  }, [apiBaseUrl]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setItems(null);
+    setError(false);
+    fetchRecommendations(apiBaseUrl, { nearby, signal: controller.signal }).then(
       (response) => {
         setItems(response.items);
         setReason(response.reason);
@@ -28,7 +46,20 @@ export function Recommendations({ apiBaseUrl }: Props): ReactElement {
       () => setError(true),
     );
     return () => controller.abort();
-  }, [apiBaseUrl]);
+  }, [apiBaseUrl, nearby]);
+
+  const toggle =
+    followsBranches && reason === "ok" ? (
+      <label className="flex items-center gap-2 text-sm text-muted-foreground">
+        <input
+          type="checkbox"
+          checked={nearby}
+          onChange={(e) => setNearby(e.target.checked)}
+          className="h-4 w-4 rounded border-border accent-primary"
+        />
+        Solo en mis bibliotecas
+      </label>
+    ) : null;
 
   if (error) {
     return (
@@ -57,20 +88,28 @@ export function Recommendations({ apiBaseUrl }: Props): ReactElement {
   }
   if (items.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Todavía nada que sugerir — el catálogo sigue indexándose. Vuelve a pasarte pronto.
-      </p>
+      <div className="space-y-3">
+        {toggle}
+        <p className="text-sm text-muted-foreground">
+          {nearby
+            ? "Ninguna sugerencia disponible ahora mismo en tus bibliotecas. Prueba a quitar el filtro o a seguir más bibliotecas."
+            : "Todavía nada que sugerir — el catálogo sigue indexándose. Vuelve a pasarte pronto."}
+        </p>
+      </div>
     );
   }
 
   return (
-    <ul className="grid gap-4 sm:grid-cols-2">
-      {items.map((item) => (
-        <li key={item.record.titn}>
-          <RecommendationCard item={item} apiBaseUrl={apiBaseUrl} />
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-4">
+      {toggle}
+      <ul className="grid gap-4 sm:grid-cols-2">
+        {items.map((item) => (
+          <li key={item.record.titn}>
+            <RecommendationCard item={item} apiBaseUrl={apiBaseUrl} />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

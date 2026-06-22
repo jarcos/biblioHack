@@ -13,6 +13,7 @@ from bibliohack.interfaces.http.app import create_app
 from bibliohack.interfaces.http.dependencies import get_tx_session
 from bibliohack.recommendations.application.ports import CandidateBatch
 from bibliohack.recommendations.interfaces.http.dependencies import (
+    get_caller_branch_codes,
     get_candidate_retriever,
     get_rationale_writer,
     get_recommendation_repository,
@@ -43,6 +44,8 @@ def _app(reader: User, *, fingerprint: str | None) -> FastAPI:
     )
     app.dependency_overrides[get_rationale_writer] = FakeRationales
     app.dependency_overrides[get_recommendation_repository] = FakeRepository
+    # Library-aware resolution is a dependency so it overrides without a DB.
+    app.dependency_overrides[get_caller_branch_codes] = lambda: None
     # The route declares a raw session for enrichment; with an empty batch it
     # is never touched, so a stub keeps these tests DB-free.
     app.dependency_overrides[get_tx_session] = lambda: None

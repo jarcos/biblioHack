@@ -9,6 +9,7 @@ user's shelf and the result lands under their id only.
 
 from __future__ import annotations
 
+import hashlib
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -46,17 +47,31 @@ class GetRecommendations:
         self._limit = limit
 
     async def execute(
-        self, user_id: str
+        self,
+        user_id: str,
+        *,
+        library_codes: list[str] | None = None,
+        nearby_only: bool = False,
     ) -> Result[tuple[Recommendation, ...], RecommendationsError]:
-        cache_key = await self._shelf.fingerprint(user_id)
-        if cache_key is None:
+        fingerprint = await self._shelf.fingerprint(user_id)
+        if fingerprint is None:
             return Err(RecommendationsError.EMPTY_PROFILE)
+
+        # The library context is part of the cache identity: changing followed
+        # branches or toggling "nearby only" must regenerate (the batch ordering
+        # depends on it). No context → the plain shelf fingerprint (back-compat).
+        cache_key = _cache_key(fingerprint, library_codes, nearby_only)
 
         cached = await self._repository.get_cached(user_id, cache_key)
         if cached is not None:
             return Ok(cached)
 
-        batch = await self._retriever.retrieve(user_id, limit=self._limit)
+        batch = await self._retriever.retrieve(
+            user_id,
+            limit=self._limit,
+            followed_branch_codes=library_codes,
+            nearby_only=nearby_only,
+        )
         if not batch.candidates:
             # Profile exists but nothing retrievable (e.g. embeddings still
             # catching up). Cache the emptiness too — the fingerprint will
@@ -77,3 +92,14 @@ class GetRecommendations:
         )
         await self._repository.replace(user_id, cache_key, recommendations)
         return Ok(recommendations)
+
+
+def _cache_key(fingerprint: str, library_codes: list[str] | None, nearby_only: bool) -> str:
+    """Shelf fingerprint, extended with the library context when there is one."""
+    if not library_codes:
+        return fingerprint
+    digest = hashlib.sha256(fingerprint.encode())
+    digest.update(f"|nearby={nearby_only}|".encode())
+    for code in sorted(library_codes):
+        digest.update(f"{code},".encode())
+    return digest.hexdigest()

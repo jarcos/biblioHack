@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 # Runtime imports — FastAPI evaluates endpoint signatures at runtime (see
 # the note in identity/interfaces/http/dependencies.py).
@@ -29,6 +29,7 @@ from bibliohack.recommendations.application.use_cases.get_recommendations import
     GetRecommendations,
 )
 from bibliohack.recommendations.interfaces.http.dependencies import (
+    get_caller_branch_codes,
     get_candidate_retriever,
     get_rationale_writer,
     get_recommendation_repository,
@@ -57,15 +58,25 @@ async def get_recommendations(
     retriever: Annotated[CandidateRetriever, Depends(get_candidate_retriever)],
     rationales: Annotated[RationaleWriter, Depends(get_rationale_writer)],
     repository: Annotated[RecommendationRepository, Depends(get_recommendation_repository)],
+    library_codes: Annotated[list[str] | None, Depends(get_caller_branch_codes)],
+    nearby: Annotated[
+        bool,
+        Query(description="Only recommend titles borrowable in your followed branches."),
+    ] = False,
 ) -> RecommendationsResponseSchema:
-    """The caller's current recommendation batch (cached per shelf state)."""
+    """The caller's current recommendation batch (cached per shelf state).
+
+    Library-aware (L4): titles borrowable in the user's followed branches are
+    boosted up the ranking; `nearby=true` hard-filters to only those. Users who
+    follow no branches get the plain taste-based batch.
+    """
     result = await GetRecommendations(
         shelf=shelf,
         retriever=retriever,
         rationales=rationales,
         repository=repository,
         limit=settings.recommendations_limit,
-    ).execute(str(user.id))
+    ).execute(str(user.id), library_codes=library_codes, nearby_only=nearby)
 
     if isinstance(result, Err):
         return RecommendationsResponseSchema(reason=result.error.value, items=[])

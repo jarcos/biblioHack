@@ -21,15 +21,20 @@ export const RecommendationsResponseSchema = z.object({
 });
 export type RecommendationsResponse = z.infer<typeof RecommendationsResponseSchema>;
 
-/** `GET /api/recommendations` — the user's current batch (cached server-side). */
+/** `GET /api/recommendations` — the user's current batch (cached server-side).
+ *
+ * `nearby` (L4) hard-filters to titles borrowable in the user's followed
+ * branches; omitted/false leaves the library-aware boost in place. */
 export async function fetchRecommendations(
   apiBaseUrl: string,
-  signal?: AbortSignal,
+  opts: { nearby?: boolean; signal?: AbortSignal } = {},
 ): Promise<RecommendationsResponse> {
-  const response = await fetch(new URL("/api/recommendations", apiBaseUrl).toString(), {
+  const url = new URL("/api/recommendations", apiBaseUrl);
+  if (opts.nearby) url.searchParams.set("nearby", "true");
+  const response = await fetch(url.toString(), {
     headers: { Accept: "application/json" },
     credentials: "include",
-    ...(signal ? { signal } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
   });
   if (!response.ok) {
     throw new CatalogApiError(response.status, response.statusText || `HTTP ${response.status}`);

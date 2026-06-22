@@ -28,9 +28,21 @@ class FakeRetriever:
     def __init__(self, batch: CandidateBatch) -> None:
         self._batch = batch
         self.calls = 0
+        self.last_kwargs: dict[str, object] = {}
 
-    async def retrieve(self, user_id: str, *, limit: int) -> CandidateBatch:
+    async def retrieve(
+        self,
+        user_id: str,
+        *,
+        limit: int,
+        followed_branch_codes: list[str] | None = None,
+        nearby_only: bool = False,
+    ) -> CandidateBatch:
         self.calls += 1
+        self.last_kwargs = {
+            "followed_branch_codes": followed_branch_codes,
+            "nearby_only": nearby_only,
+        }
         return self._batch
 
 
@@ -125,3 +137,42 @@ async def test_empty_retrieval_is_cached_ok() -> None:
     ).execute("u-1")
     assert result == Ok(())
     assert repository.replaced == ("fp-1", ())
+
+
+async def test_library_context_threads_to_retriever() -> None:
+    retriever = FakeRetriever(_batch())
+    await GetRecommendations(
+        shelf=FakeShelf("fp-1"),
+        retriever=retriever,
+        rationales=FakeRationales(),
+        repository=FakeRepository(),
+        limit=10,
+    ).execute("u-1", library_codes=["AL03", "AL04"], nearby_only=True)
+    assert retriever.last_kwargs == {
+        "followed_branch_codes": ["AL03", "AL04"],
+        "nearby_only": True,
+    }
+
+
+async def test_library_context_changes_the_cache_key() -> None:
+    """No follows → plain fingerprint; follows / nearby → distinct keys."""
+
+    async def key_for(library_codes: list[str] | None, *, nearby: bool) -> str:
+        repo = FakeRepository()
+        await GetRecommendations(
+            shelf=FakeShelf("fp-1"),
+            retriever=FakeRetriever(_batch()),
+            rationales=FakeRationales(),
+            repository=repo,
+            limit=10,
+        ).execute("u-1", library_codes=library_codes, nearby_only=nearby)
+        assert repo.replaced is not None
+        return repo.replaced[0]
+
+    plain = await key_for(None, nearby=False)
+    mine = await key_for(["AL03"], nearby=False)
+    nearby_only = await key_for(["AL03"], nearby=True)
+
+    assert plain == "fp-1"  # no library context → unchanged (back-compat)
+    assert mine != plain
+    assert nearby_only != mine  # toggling nearby regenerates

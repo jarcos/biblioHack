@@ -26,6 +26,7 @@ from bibliohack.catalog.domain.literary_profile import (
     default_scope_forms,
 )
 from bibliohack.catalog.infrastructure.postgres.models import BibliographicRecordModel
+from bibliohack.holdings.infrastructure.postgres.models import CopyModel
 from bibliohack.reading_history.infrastructure.postgres.models import ShelfEntryModel
 from bibliohack.recommendations.application.ports import Candidate, CandidateBatch
 from bibliohack.recommendations.domain.recommendation import Recommendation
@@ -39,6 +40,14 @@ if TYPE_CHECKING:
 # Profile size cap: enough signal for a stable centroid, small enough that
 # one reader's giant shelf can't make profile-building expensive.
 _MAX_PROFILE_BOOKS = 50
+
+# Library-aware ranking (L4). In boost mode we pull a wider KNN pool, add a
+# small bump to candidates borrowable in followed branches, then re-rank and
+# trim — so nearby titles surface without letting library availability override
+# taste similarity. Deliberately small, mirroring the canon relevance boost.
+_LIBRARY_BOOST = 0.05
+_POOL_FACTOR = 5
+_MAX_POOL = 200
 
 
 class PostgresRecommendationRepository:
@@ -133,7 +142,14 @@ class PostgresCandidateRetriever:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def retrieve(self, user_id: str, *, limit: int) -> CandidateBatch:
+    async def retrieve(
+        self,
+        user_id: str,
+        *,
+        limit: int,
+        followed_branch_codes: list[str] | None = None,
+        nearby_only: bool = False,
+    ) -> CandidateBatch:
         owned_ids, profile_ids = await self._profile_record_ids(UUID(user_id))
         if not profile_ids:
             return CandidateBatch(liked_books=(), candidates=())
@@ -157,9 +173,33 @@ class PostgresCandidateRetriever:
         liked_books = tuple(_label(row) for row in anchor_rows)
 
         distance = BibliographicRecordModel.embedding.cosine_distance(centroid)
-        stmt = (
-            select(BibliographicRecordModel, distance.label("distance"))
+        # "Held in a followed branch?" — a correlated EXISTS, present only when
+        # the caller passed branches (drives the L4 boost / nearby-only filter).
+        codes = followed_branch_codes or None
+        held_expr = (
+            select(CopyModel.id)
             .where(
+                CopyModel.record_id == BibliographicRecordModel.id,
+                CopyModel.is_active.is_(True),
+                CopyModel.branch_code.in_(codes),
+            )
+            .exists()
+            if codes
+            else None
+        )
+
+        stmt = select(BibliographicRecordModel, distance.label("distance"))
+        fetch_n = limit
+        if held_expr is not None:
+            stmt = stmt.add_columns(held_expr.label("held"))
+            if nearby_only:
+                stmt = stmt.where(held_expr)  # hard filter to borrowable-nearby
+            else:
+                # Boost mode: widen the pool so nearby titles a bit further down
+                # the taste ranking can still surface after the bump.
+                fetch_n = min(limit * _POOL_FACTOR, _MAX_POOL)
+        stmt = (
+            stmt.where(
                 BibliographicRecordModel.embedding.is_not(None),
                 BibliographicRecordModel.id.not_in(owned_ids),
                 BibliographicRecordModel.audience.in_(default_scope_audiences()),
@@ -167,20 +207,32 @@ class PostgresCandidateRetriever:
             )
             .options(selectinload(BibliographicRecordModel.contributors))
             .order_by(distance.asc(), BibliographicRecordModel.titn.asc())
-            .limit(limit)
+            .limit(fetch_n)
         )
         result = (await self._session.execute(stmt)).all()
 
-        candidates = tuple(
+        boosting = held_expr is not None and not nearby_only
+        candidates = [
             Candidate(
                 record_id=str(row.BibliographicRecordModel.id),
                 title=row.BibliographicRecordModel.title,
                 author=_first_author(row.BibliographicRecordModel),
-                score=round(max(0.0, 1.0 - float(row.distance)), 4),
+                score=round(
+                    min(
+                        1.0,
+                        max(0.0, 1.0 - float(row.distance))
+                        + (_LIBRARY_BOOST if boosting and bool(row.held) else 0.0),
+                    ),
+                    4,
+                ),
             )
             for row in result
-        )
-        return CandidateBatch(liked_books=liked_books, candidates=candidates)
+        ]
+        if boosting:
+            # Re-rank by the boosted score and trim the widened pool to `limit`.
+            candidates.sort(key=lambda c: c.score, reverse=True)
+            candidates = candidates[:limit]
+        return CandidateBatch(liked_books=liked_books, candidates=tuple(candidates))
 
     async def _profile_record_ids(self, user_id: UUID) -> tuple[list[UUID], list[UUID]]:
         """(everything matched on the shelf, the taste anchors).

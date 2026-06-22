@@ -51,11 +51,24 @@ class ShelfTasteReader(Protocol):
 class CandidateRetriever(Protocol):
     """The engine: per-user profile → KNN over the shared catalogue."""
 
-    async def retrieve(self, user_id: str, *, limit: int) -> CandidateBatch:
+    async def retrieve(
+        self,
+        user_id: str,
+        *,
+        limit: int,
+        followed_branch_codes: list[str] | None = None,
+        nearby_only: bool = False,
+    ) -> CandidateBatch:
         """Nearest unread records to the user's taste centroid.
 
         Excludes everything already on the user's shelf. Empty batch when
         the profile can't be built (no matched books / no embeddings yet).
+
+        Library-aware (L4): when ``followed_branch_codes`` is given, records
+        borrowable in those branches get a small score boost so they surface
+        higher (taste still dominates). ``nearby_only`` turns that into a hard
+        filter — only borrowable-nearby candidates. Both no-op when the list is
+        empty/None.
         """
         ...
 
