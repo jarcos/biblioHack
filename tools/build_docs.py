@@ -33,6 +33,7 @@ PAGES: list[tuple[pathlib.Path, str, str, bool]] = [
     (DESIGN / "identity-milestone.md", "identity-milestone.html", "Identity Milestone", False),
     (DESIGN / "relevance-and-libraries.md", "relevance-and-libraries.html", "Relevance & Libraries", False),
     (DESIGN / "canon-import.md", "canon-import.html", "Canon Import", False),
+    (DESIGN / "demand-driven-shelf-fetcher.md", "demand-driven-shelf-fetcher.html", "Demand-driven Fetcher", False),
     (SRC / "pending-and-ops.md", "pending-and-ops.html", "Pending & Operations", False),
     (SRC / "kanban.md", "kanban.html", "Kanban", True),
 ]
