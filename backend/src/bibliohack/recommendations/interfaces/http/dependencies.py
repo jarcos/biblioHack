@@ -10,17 +10,25 @@ from fastapi import Depends
 # the note in identity/interfaces/http/dependencies.py).
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
+from bibliohack.catalog.infrastructure.embeddings.huggingface import (  # noqa: TC001
+    HuggingFaceEmbedder,
+)
 from bibliohack.holdings.infrastructure.postgres.branch_repository import (
     PostgresBranchRepository,
 )
 from bibliohack.identity.domain.user import User  # noqa: TC001
 from bibliohack.identity.interfaces.http.dependencies import get_current_user
-from bibliohack.interfaces.http.dependencies import get_tx_session
+from bibliohack.interfaces.http.dependencies import get_embedder, get_tx_session
 from bibliohack.recommendations.application.ports import (  # noqa: TC001
     CandidateRetriever,
+    ColdStartClassifier,
     RationaleWriter,
     RecommendationRepository,
     ShelfTasteReader,
+)
+from bibliohack.recommendations.infrastructure.llm.openrouter_cold_start import (
+    NullColdStartClassifier,
+    OpenRouterColdStartClassifier,
 )
 from bibliohack.recommendations.infrastructure.llm.openrouter_rationales import (
     NullRationaleWriter,
@@ -48,8 +56,11 @@ def get_shelf_taste_reader(
 
 def get_candidate_retriever(
     session: Annotated[AsyncSession, Depends(get_tx_session)],
+    embedder: Annotated[HuggingFaceEmbedder | None, Depends(get_embedder)],
 ) -> CandidateRetriever:
-    return PostgresCandidateRetriever(session)
+    # The embedder powers cold-start retrieval (§8.3.3); None → cold-start
+    # yields an empty batch and the response degrades to empty-profile.
+    return PostgresCandidateRetriever(session, embedder=embedder)
 
 
 async def get_caller_branch_codes(
@@ -69,6 +80,19 @@ def get_rationale_writer(
     if not settings.openrouter_api_key:
         return NullRationaleWriter()
     return OpenRouterRationaleWriter(
+        api_key=settings.openrouter_api_key,
+        model=settings.openrouter_model,
+        base_url=settings.openrouter_base_url,
+    )
+
+
+def get_cold_start_classifier(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ColdStartClassifier:
+    """The LLM cold-start classifier (§8.3.3), or a Null one without a key."""
+    if not settings.openrouter_api_key:
+        return NullColdStartClassifier()
+    return OpenRouterColdStartClassifier(
         api_key=settings.openrouter_api_key,
         model=settings.openrouter_model,
         base_url=settings.openrouter_base_url,

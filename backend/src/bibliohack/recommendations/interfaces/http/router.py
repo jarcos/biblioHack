@@ -21,6 +21,7 @@ from bibliohack.identity.interfaces.http.dependencies import get_current_user
 from bibliohack.interfaces.http.dependencies import get_tx_session
 from bibliohack.recommendations.application.ports import (  # noqa: TC001
     CandidateRetriever,
+    ColdStartClassifier,
     RationaleWriter,
     RecommendationRepository,
     ShelfTasteReader,
@@ -31,6 +32,7 @@ from bibliohack.recommendations.application.use_cases.get_recommendations import
 from bibliohack.recommendations.interfaces.http.dependencies import (
     get_caller_branch_codes,
     get_candidate_retriever,
+    get_cold_start_classifier,
     get_rationale_writer,
     get_recommendation_repository,
     get_shelf_taste_reader,
@@ -58,6 +60,7 @@ async def get_recommendations(
     retriever: Annotated[CandidateRetriever, Depends(get_candidate_retriever)],
     rationales: Annotated[RationaleWriter, Depends(get_rationale_writer)],
     repository: Annotated[RecommendationRepository, Depends(get_recommendation_repository)],
+    classifier: Annotated[ColdStartClassifier, Depends(get_cold_start_classifier)],
     library_codes: Annotated[list[str] | None, Depends(get_caller_branch_codes)],
     nearby: Annotated[
         bool,
@@ -75,12 +78,19 @@ async def get_recommendations(
         retriever=retriever,
         rationales=rationales,
         repository=repository,
+        classifier=classifier,
         limit=settings.recommendations_limit,
     ).execute(str(user.id), library_codes=library_codes, nearby_only=nearby)
 
     if isinstance(result, Err):
         return RecommendationsResponseSchema(reason=result.error.value, items=[])
-    return RecommendationsResponseSchema(reason="ok", items=await _enrich(session, result.value))
+    outcome = result.value
+    return RecommendationsResponseSchema(
+        reason="ok",
+        cold_start=outcome.cold_start,
+        inferred_tastes=list(outcome.inferred_tastes),
+        items=await _enrich(session, outcome.recommendations),
+    )
 
 
 async def _enrich(

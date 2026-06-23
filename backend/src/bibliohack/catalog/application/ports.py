@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterable, Sequence
     from datetime import datetime
 
+    from bibliohack.catalog.application.dto import RewrittenQuery
     from bibliohack.catalog.domain.canon import (
         AcquireStatus,
         CanonMatchVia,
@@ -178,6 +179,27 @@ class Embedder(Protocol):
 
     def embed_query(self, text: str) -> list[float]:
         """Embed a single search query as one L2-normalized vector."""
+        ...
+
+
+# ───────────────────────────────────────────────────────────────
+# Query rewriting — natural language → structured search (§8.3.1)
+# ───────────────────────────────────────────────────────────────
+
+
+class QueryRewriter(Protocol):
+    """Turns a natural-language query into structured search intent.
+
+    User-facing inference, strictly best-effort: the implementation runs one
+    OpenRouter chat call (the free tier is fine for per-request work) and
+    returns a :class:`RewrittenQuery`, or ``None`` when there's no useful
+    structure to extract or anything at all goes wrong (HTTP, timeout, bad
+    JSON). The caller treats ``None`` as "just run the literal query", so a
+    rewriter outage never costs more than a plain search.
+    """
+
+    async def rewrite(self, query: str) -> RewrittenQuery | None:
+        """Parsed intent for `query`, or None (no structure / any failure)."""
         ...
 
 

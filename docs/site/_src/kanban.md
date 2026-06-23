@@ -9,7 +9,25 @@ raw_html: true
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">21</span></h2>
+      <h2>Done <span class="n">24</span></h2>
+
+      <div class="card">
+        <h3>LLM query rewriting + cold-start classification</h3>
+        <p>The two remaining OpenRouter jobs from §8.3, each behind a port with an OpenRouter adapter + Null fallback (selected on <code>OPENROUTER_API_KEY</code>), strictly best-effort. <strong>Query rewriting:</strong> <code>rewrite=true</code> (default) on <code>GET /catalog/search</code> turns natural language into structured intent — a cheap <code>should_rewrite</code> heuristic gates the LLM call (short keyword queries never pay), structured intent (author / year / orden) runs as a faceted <code>/browse</code>, a zero-result rewrite falls back to the literal search, and the response echoes the applied intent so the UI shows a revertible «buscar literalmente» chip (the Google pattern — no opt-in toggle). <strong>Cold-start:</strong> when a new user has no catalogue-matched books yet, the LLM reads the raw imported titles into a taste descriptor, embedded (BGE-M3) + KNN-retrieved; the response is flagged <code>cold_start</code> with «detectamos que te gusta…» chips and a note it sharpens as the shelf matches — empty shelf / LLM-down degrades to the prior <code>empty_profile</code>. No schema change (cold-start reuses the recommendation cache under a raw-shelf key). Tests: rewriter + classifier adapters, the rewrite-aware use case, cold-start branching, and HTTP. <strong>Deploy:</strong> commit/push auto-deploys backend + frontend; no Alembic, no NAS crawler rebuild.</p>
+        <div class="meta"><span class="tag t-done">2026-06-23</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Demand-driven fetcher — unmatched shelf books</h3>
+        <p>The user-shelf sibling of canon C3: resolve still-unmatched Goodreads/StoryGraph shelf entries against the live OPAC and ingest the ones the RBPA actually holds. <strong>S0</strong> — resolve bookkeeping on <code>shelf_entries</code> (<code>resolve_status</code> · <code>resolve_attempts</code> · <code>last_resolved_at</code> + partial index, migration <code>0020</code>). <strong>S1</strong> — <code>RematchShelf</code> + <code>bibliohack shelf rematch</code> (DB-only): links unmatched entries the worker has since ingested, closing the «re-matches for free as the catalogue grows» gap that previously only fired on re-import. <strong>S2</strong> — <code>ResolveUnmatchedShelf</code> + <code>shelf resolve</code> (on-OPAC): deduped across users by ISBN→title+author, 30-day re-try cooldown, seeds held TITNs into the existing worker; never invents a phantom record. <strong>S3</strong> — crawl-plane <code>shelf_resolve</code> job (rematch→resolve under the shared OPAC lock, <code>40 */6</code>, bounded by <code>SHELF_RESOLVE_MAX</code>). <strong>S4</strong> — Grafana «shelf coverage» row. Gate green: 595 passed · mypy clean · 81.9% coverage. <strong>Deploy pending:</strong> commit/push (auto-deploys backend + migration <code>0020</code>), manual NAS crawler rebuild (the <code>shelf_resolve</code> job), Grafana reload. Full plan: <a href="demand-driven-shelf-fetcher.html">Demand-driven fetcher</a>.</p>
+        <div class="meta"><span class="tag t-done">2026-06-22</span><span class="tag t-todo">DEPLOY PENDING</span></div>
+      </div>
+
+      <div class="card">
+        <h3>OPENROUTER_API_KEY set on the NAS</h3>
+        <p>Key added to the prod <code>.env</code> at <code>/volume1/docker/bibliohack/.env</code> and the <code>api</code> container force-recreated to pick it up — recommendation rationales now populate (empty key shipped them blank by design). Unblocks the LLM query-rewriting + cold-start work. Manual NAS step (CD never touches <code>.env</code>).</p>
+        <div class="meta"><span class="tag t-done">2026-06-22</span><span class="tag t-ops">OPS</span></div>
+      </div>
 
       <div class="card">
         <h3>Libraries milestone (L0–L4)</h3>
@@ -133,66 +151,46 @@ raw_html: true
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">12</span></h2>
+      <h2>To do <span class="n">9</span></h2>
 
-      <div class="divider">Canon import — follow-ups</div>
+      <div class="divider">Next up — prioritised 2026-06-22 (leverage ÷ effort); LLM query rewriting + cold-start shipped to Done 2026-06-23</div>
+
+      <div class="card">
+        <h3>1 · MARC-dump request to the Junta (RBPA) — postponed</h3>
+        <p>Email the RBPA coordinator for a periodic MARC-XML dump (Madrid precedent, CC-BY). One «sí» obsoletes ~90% of the crawl — bibliographic data arrives in bulk; only holdings/availability still need probing. Deploy-free, highest long-term leverage and it attacks the binding constraint behind every canon/relevance feature (the corpus being a thin <code>pub_year ≥ 2023</code> slice). <strong>Postponed by José 2026-06-22</strong> — still #1 on merit; pick it back up when ready to send.</p>
+        <div class="meta"><span class="tag t-ops">OPS</span><span class="tag t-todo">QUICK · POSTPONED</span></div>
+      </div>
+
+      <div class="card">
+        <h3>2 · Search ⇄ browse cross-links</h3>
+        <p>Natural follow-on to the navigator: clicking an author/genre badge on a search result or record page jumps into <code>/browse</code> pre-filtered; search box on /browse. <strong>#2:</strong> small, cheap, self-contained UX polish.</p>
+        <div class="meta"><span class="tag t-todo">SMALL</span></div>
+      </div>
+
+      <div class="card">
+        <h3>3 · StoryGraph CSV importer</h3>
+        <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof. <strong>#3:</strong> small but demand-gated — let a real request pull it forward. <em>Note: the demand-driven fetcher already covers StoryGraph entries for free once they exist (it resolves from stored title/author/ISBN, nothing Goodreads-specific).</em></p>
+        <div class="meta"><span class="tag t-todo">SMALL</span></div>
+      </div>
+
+      <div class="card">
+        <h3>4 · OTel on the crawl/worker plane</h3>
+        <p>When <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough; <code>scrape_log</code> remains unwired. <strong>#4:</strong> internal observability — defer until the status rows actually fall short.</p>
+        <div class="meta"><span class="tag t-todo">MEDIUM</span></div>
+      </div>
+
+      <div class="card">
+        <h3>5 · Edge rate limiting (Cloudflare WAF)</h3>
+        <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears. <strong>#5:</strong> reactive — only worth doing once abuse shows up.</p>
+        <div class="meta"><span class="tag t-todo">IF NEEDED</span></div>
+      </div>
+
+      <div class="divider">Won't do (reviewed 2026-06-22)</div>
 
       <div class="card">
         <h3>LibraryThing / OCLC ubiquity (optional)</h3>
-        <p>The last canon-import item: a "held by N libraries" worldcat-style signal to deepen notability. Low priority — only if Wikidata + Open Library prove insufficient. (WDQS keyset pagination, the OL-ratings boost, and the Grafana coverage row all shipped 2026-06-21.)</p>
-        <div class="meta"><span class="tag t-todo">DEFERRED</span></div>
-      </div>
-
-      <div class="divider">Ops — needs José</div>
-
-      <div class="card">
-        <h3>Set OPENROUTER_API_KEY on the NAS</h3>
-        <p>Until it's in the prod <code>.env</code>, recommendation rationales silently stay empty (by design).</p>
-        <div class="meta"><span class="tag t-ops">OPS</span><span class="tag t-todo">QUICK</span></div>
-      </div>
-
-      <div class="divider">Next features (rough order)</div>
-
-      <div class="card">
-        <h3>MARC-dump request to the Junta (RBPA)</h3>
-        <p>Email the RBPA coordinator for a periodic MARC-XML dump (Madrid precedent, CC-BY). One «sí» obsoletes ~90% of the crawl — bibliographic data arrives in bulk; only holdings/availability still need probing. Deploy-free, highest long-term leverage.</p>
-        <div class="meta"><span class="tag t-ops">OPS</span><span class="tag t-todo">QUICK</span></div>
-      </div>
-
-      <div class="card">
-        <h3>Demand-driven fetcher (unmatched shelf books)</h3>
-        <p>Resolve unmatched Goodreads/StoryGraph shelf entries (and failed searches) via an OPAC title query → TITN → immediate ingest. ~5–10 requests per book — makes the catalogue feel complete <em>for real users</em> years before the full sweep finishes. Just another job on the existing gateway. <em>The canon <code>resolve</code> job now does exactly this for classics; this card is the user-shelf variant, which can reuse the same resolve machinery.</em></p>
-        <div class="meta"><span class="tag t-todo">MEDIUM</span></div>
-      </div>
-
-      <div class="card">
-        <h3>Search ⇄ browse cross-links</h3>
-        <p>Natural follow-on to the navigator: clicking an author/genre badge on a search result or record page jumps into <code>/browse</code> pre-filtered; search box on /browse.</p>
-        <div class="meta"><span class="tag t-todo">SMALL</span></div>
-      </div>
-
-      <div class="card">
-        <h3>StoryGraph CSV importer</h3>
-        <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof.</p>
-        <div class="meta"><span class="tag t-todo">SMALL</span></div>
-      </div>
-
-      <div class="card">
-        <h3>LLM query rewriting + cold-start classification</h3>
-        <p>The two remaining OpenRouter jobs from §8.3. Needs the API key set first (see ops).</p>
-        <div class="meta"><span class="tag t-todo">MEDIUM</span></div>
-      </div>
-
-      <div class="card">
-        <h3>OTel on the crawl/worker plane</h3>
-        <p>When <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough; <code>scrape_log</code> remains unwired.</p>
-        <div class="meta"><span class="tag t-todo">MEDIUM</span></div>
-      </div>
-
-      <div class="card">
-        <h3>Edge rate limiting (Cloudflare WAF)</h3>
-        <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears.</p>
-        <div class="meta"><span class="tag t-todo">IF NEEDED</span></div>
+        <p>A "held by N libraries" worldcat-style signal to deepen canon notability. <strong>Won't do for now (reviewed 2026-06-22):</strong> it's a third ubiquity proxy redundant with signals already in the blend — the canon term already carries Wikipedia-sitelink notability (sub-weight 0.30) and OL rating popularity (0.20), all inside a capped <code>CANON_MAX_BOOST = 0.15</code>. It fires only on <code>is_canon</code> matches (~28 of ~37k records, ≈0.08%) and the corpus is <code>pub_year ≥ 2023</code>, so the boost barely has a population to act on until the back-catalogue import lands (2–4 mo effort). Cost is lopsided: Wikidata + OL are CC0/free, whereas OCLC WorldCat Search API v1 shut off in 2025 and v2 needs an institutional Cataloging + FirstSearch/Discovery subscription biblioHack doesn't have. <strong>Revisit</strong> only after back-catalogue grows matched classics into the thousands <em>and</em> telemetry shows notability + OL can't separate them — and even then prefer LibraryThing (accessible) over OCLC (paywalled).</p>
+        <div class="meta"><span class="tag t-todo">WON'T DO · revisit post-back-catalogue</span></div>
       </div>
 
       <div class="divider">Roadmap (bigger bets)</div>

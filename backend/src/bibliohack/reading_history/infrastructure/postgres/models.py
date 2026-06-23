@@ -19,10 +19,12 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -68,6 +70,16 @@ class ShelfEntryModel(Base):
     )
     matched_via: Mapped[str] = mapped_column(String(16), nullable=False, server_default="none")
 
+    # Demand-driven fetcher bookkeeping (kanban "Demand-driven fetcher"). Whether
+    # we've asked the OPAC about this (still-unmatched) entry, how many times, and
+    # when last — the crawl-plane resolve job uses these to pick eligible rows and
+    # honour a re-try cooldown. Orthogonal to `matched_via` (how a link was made).
+    resolve_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="unchecked"
+    )
+    resolve_attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    last_resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -83,6 +95,11 @@ class ShelfEntryModel(Base):
         Index("ix_shelf_entries_matched_record_id", "matched_record_id"),
         Index("ix_shelf_entries_shelf", "shelf"),
         Index("ix_shelf_entries_user_id", "user_id"),
+        Index(
+            "ix_shelf_entries_resolvable",
+            "last_resolved_at",
+            postgresql_where=text("matched_record_id IS NULL"),
+        ),
     )
 
 

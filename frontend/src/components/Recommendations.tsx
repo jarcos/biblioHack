@@ -21,6 +21,8 @@ interface Props {
 export function Recommendations({ apiBaseUrl }: Props): ReactElement {
   const [items, setItems] = useState<RecommendationItem[] | null>(null);
   const [reason, setReason] = useState<"ok" | "empty_profile">("ok");
+  const [coldStart, setColdStart] = useState(false);
+  const [tastes, setTastes] = useState<string[]>([]);
   const [error, setError] = useState(false);
   const [nearby, setNearby] = useState(false);
   const [followsBranches, setFollowsBranches] = useState(false);
@@ -42,6 +44,8 @@ export function Recommendations({ apiBaseUrl }: Props): ReactElement {
       (response) => {
         setItems(response.items);
         setReason(response.reason);
+        setColdStart(response.cold_start);
+        setTastes(response.inferred_tastes);
       },
       () => setError(true),
     );
@@ -89,6 +93,7 @@ export function Recommendations({ apiBaseUrl }: Props): ReactElement {
   if (items.length === 0) {
     return (
       <div className="space-y-3">
+        {coldStart && <ColdStartBanner tastes={tastes} />}
         {toggle}
         <p className="text-sm text-muted-foreground">
           {nearby
@@ -101,6 +106,7 @@ export function Recommendations({ apiBaseUrl }: Props): ReactElement {
 
   return (
     <div className="space-y-4">
+      {coldStart && <ColdStartBanner tastes={tastes} />}
       {toggle}
       <ul className="grid gap-4 sm:grid-cols-2">
         {items.map((item) => (
@@ -109,6 +115,33 @@ export function Recommendations({ apiBaseUrl }: Props): ReactElement {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * Cold-start banner (§8.3.3): when there are no catalogue-matched books yet,
+ * the batch is inferred from the raw imported titles — weaker than taste-based
+ * recs, so we say so plainly and show the inferred tastes as chips, with a
+ * note that recs sharpen as the shelf matches the catalogue.
+ */
+function ColdStartBanner({ tastes }: { tastes: readonly string[] }): ReactElement {
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-muted/40 p-4">
+      <p className="text-sm font-medium text-foreground">Para empezar, según tu estantería</p>
+      {tastes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-sm text-muted-foreground">Detectamos que te gusta:</span>
+          {tastes.map((taste) => (
+            <Badge key={taste} variant="secondary">
+              {taste}
+            </Badge>
+          ))}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Estas sugerencias se afinarán a medida que emparejemos tus libros con el catálogo.
+      </p>
     </div>
   );
 }

@@ -586,11 +586,13 @@ Hybrid: BM25 via Postgres FTS *plus* cosine over pgvector embeddings, combined v
 
 ### 8.3 LLM layer (OpenRouter)
 
+> **Status: all three jobs BUILT (2026-06-23).** Each lives behind a port with an OpenRouter adapter + a Null fallback selected on `OPENROUTER_API_KEY`; all are strictly best-effort (any failure degrades, never 500s).
+
 The LLM is **not** the retriever. It does three small jobs:
 
-1. **Query rewriting** — user types "lo último de Sapiens" → LLM rewrites to a structured search (`author:"Yuval Noah Harari" sort:pub_year desc`).
+1. **Query rewriting** — user types "lo último de Sapiens" → LLM rewrites to a structured search (`author:"Yuval Noah Harari" sort:pub_year desc`). Surfaced as `rewrite=true` (default) on `GET /catalog/search`: a cheap `should_rewrite` heuristic gates the LLM call (short keyword queries skip it), structured intent runs as a faceted `/browse`, a zero-result rewrite falls back to the literal search, and the response echoes the applied intent in `rewritten` for a revertible "buscar literalmente" chip. (`catalog/.../rewrite_aware_search.py` + `catalog/infrastructure/llm/openrouter_query_rewriter.py`.)
 2. **Rationales** — generate one-paragraph "why we recommend this for you" text. Cached per (user, record) pair.
-3. **Cold-start classification** — for a brand-new user, ask the LLM to extract preferred genres/topics from their imported Goodreads shelf.
+3. **Cold-start classification** — for a brand-new user with no catalogue-matched books yet (`fingerprint` is None), the LLM reads the raw imported shelf titles into a taste descriptor, which is embedded (BGE-M3) and KNN-retrieved; the response is flagged `cold_start` with the inferred `inferred_tastes` chips. A genuinely empty shelf or an LLM/embedder outage degrades to the prior `empty_profile`. No schema change — cold-start reuses the recommendation cache under a raw-shelf key. (`recommendations/.../get_recommendations.py` + `recommendations/infrastructure/llm/openrouter_cold_start.py`.)
 
 Constraints from the OpenRouter free-model tier (20 RPM, 50–1,000 requests/day depending on account credit): batch jobs **must not** go through OpenRouter. Everything that would consume the daily budget (re-embedding, mass classification) runs on local models instead. ([OpenRouter free models](https://openrouter.ai/collections/free-models))
 

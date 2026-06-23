@@ -81,6 +81,21 @@ class CatalogRecordSummarySchema(BaseModel):
     )
 
 
+class RewrittenIntentSchema(BaseModel):
+    """The structured intent a natural-language query was rewritten to (§8.3.1).
+
+    Present on the search response only when an LLM rewrite was *applied* (the
+    results came from a faceted browse on these filters). The UI renders a
+    revertible chip ("Resultados para autor X… · buscar literalmente"); the
+    literal search re-issues the same query with `rewrite=false`.
+    """
+
+    author: str | None = None
+    year_from: int | None = None
+    year_to: int | None = None
+    sort: str | None = Field(None, description="Applied ordering: newest | title | relevance.")
+
+
 class SearchResponseSchema(BaseModel):
     """A page of search results."""
 
@@ -97,6 +112,14 @@ class SearchResponseSchema(BaseModel):
     offset: int = Field(..., ge=0)
     has_more: bool
     items: list[CatalogRecordSummarySchema]
+    rewritten: RewrittenIntentSchema | None = Field(
+        None,
+        description=(
+            "Structured intent the natural-language query was rewritten to, when a "
+            "rewrite was applied; null otherwise. Drives the revertible 'showing "
+            "results for…' chip."
+        ),
+    )
 
 
 class FacetCountSchema(BaseModel):

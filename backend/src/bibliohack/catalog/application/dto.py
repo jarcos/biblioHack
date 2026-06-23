@@ -139,3 +139,32 @@ class SearchPage:
     @property
     def has_more(self) -> bool:
         return self.offset + len(self.items) < self.total
+
+
+@dataclass(frozen=True, slots=True)
+class RewrittenQuery:
+    """Structured intent parsed from a natural-language search query (§8.3.1).
+
+    All fields optional — the LLM extracts only what the phrasing supports.
+    `cleaned_query` is the free-text remainder to hand keyword/semantic search;
+    `author` / `year_from` / `year_to` / `sort` map onto the `/browse` filters.
+    `sort` is one of the `/browse` orderings (``newest`` | ``title`` |
+    ``relevance``) or None.
+
+    `is_structured` is the routing signal: True when at least one *filter* was
+    extracted, so the search should run as a faceted browse rather than free
+    text. A rewrite that only cleaned the wording (cleaned_query, no filters)
+    is applied silently — there's nothing to show in the revertible chip.
+    """
+
+    cleaned_query: str | None = None
+    author: str | None = None
+    year_from: int | None = None
+    year_to: int | None = None
+    sort: str | None = None
+
+    @property
+    def is_structured(self) -> bool:
+        return any(
+            value is not None for value in (self.author, self.year_from, self.year_to, self.sort)
+        )

@@ -35,6 +35,20 @@ class CandidateBatch:
     candidates: tuple[Candidate, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ColdStartProfile:
+    """An LLM read of a brand-new user's shelf when nothing matched yet (§8.3.3).
+
+    `descriptor` is a free-text taste summary we embed to retrieve candidates
+    by meaning; `tastes` are short genre/topic phrases the UI shows as "we
+    detected you like…" chips so the (necessarily weaker) cold-start batch is
+    transparent about why it surfaced.
+    """
+
+    descriptor: str
+    tastes: tuple[str, ...] = ()
+
+
 class ShelfTasteReader(Protocol):
     """Reads the user's shelf as recommendation fuel."""
 
@@ -45,6 +59,24 @@ class ShelfTasteReader(Protocol):
         None when the user has no catalogue-matched books to build a taste
         profile from (nothing to recommend with).
         """
+        ...
+
+    async def raw_shelf(self, user_id: str) -> tuple[str, ...]:
+        """Every shelf entry as "Title — Author", matched to the catalogue or not.
+
+        The cold-start fuel: when `fingerprint` is None (no matched books) we
+        still have the raw imported titles to infer taste from. Empty tuple
+        only when the shelf itself is empty.
+        """
+        ...
+
+
+class ColdStartClassifier(Protocol):
+    """LLM taste extraction from a new user's raw shelf. Strictly best-effort."""
+
+    async def infer(self, shelf_titles: Sequence[str]) -> ColdStartProfile | None:
+        """A taste profile inferred from the titles, or None on any failure
+        (so the caller falls back to today's empty-profile behaviour)."""
         ...
 
 
@@ -69,6 +101,17 @@ class CandidateRetriever(Protocol):
         higher (taste still dominates). ``nearby_only`` turns that into a hard
         filter — only borrowable-nearby candidates. Both no-op when the list is
         empty/None.
+        """
+        ...
+
+    async def retrieve_cold_start(self, descriptor: str, *, limit: int) -> CandidateBatch:
+        """KNN over the catalogue from an inferred taste `descriptor` (§8.3.3).
+
+        Used when the user has no catalogue-matched books to build a centroid
+        from: the descriptor is embedded and ranked by cosine distance, with
+        the same literary scope filter as taste-based retrieval. Empty batch
+        when no embedder is available or embedding fails (the caller then
+        degrades to the empty-profile response).
         """
         ...
 

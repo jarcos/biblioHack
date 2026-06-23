@@ -95,6 +95,7 @@
     <a href="identity-milestone.html">Identity Milestone</a>
     <a href="relevance-and-libraries.html">Relevance & Libraries</a>
     <a href="canon-import.html">Canon Import</a>
+    <a href="demand-driven-shelf-fetcher.html">Demand-driven Fetcher</a>
     <a href="pending-and-ops.html">Pending & Operations</a>
     <a href="kanban.html">Kanban</a>
     
@@ -786,11 +787,14 @@ recommendations (id, user_id, record_id, score, rationale_text, generated_at, mo
 <h3 id="82-retrieval">8.2 Retrieval</h3>
 <p>Hybrid: BM25 via Postgres FTS <em>plus</em> cosine over pgvector embeddings, combined via Reciprocal Rank Fusion. The combined ranker is implemented in the <code>recommendations/infrastructure/</code> adapter behind a <code>RecommenderEngine</code> port — switching to a learned reranker later is one file.</p>
 <h3 id="83-llm-layer-openrouter">8.3 LLM layer (OpenRouter)</h3>
+<blockquote>
+<p><strong>Status: all three jobs BUILT (2026-06-23).</strong> Each lives behind a port with an OpenRouter adapter + a Null fallback selected on <code>OPENROUTER_API_KEY</code>; all are strictly best-effort (any failure degrades, never 500s).</p>
+</blockquote>
 <p>The LLM is <strong>not</strong> the retriever. It does three small jobs:</p>
 <ol>
-<li><strong>Query rewriting</strong> — user types "lo último de Sapiens" → LLM rewrites to a structured search (<code>author:"Yuval Noah Harari" sort:pub_year desc</code>).</li>
+<li><strong>Query rewriting</strong> — user types "lo último de Sapiens" → LLM rewrites to a structured search (<code>author:"Yuval Noah Harari" sort:pub_year desc</code>). Surfaced as <code>rewrite=true</code> (default) on <code>GET /catalog/search</code>: a cheap <code>should_rewrite</code> heuristic gates the LLM call (short keyword queries skip it), structured intent runs as a faceted <code>/browse</code>, a zero-result rewrite falls back to the literal search, and the response echoes the applied intent in <code>rewritten</code> for a revertible "buscar literalmente" chip. (<code>catalog/.../rewrite_aware_search.py</code> + <code>catalog/infrastructure/llm/openrouter_query_rewriter.py</code>.)</li>
 <li><strong>Rationales</strong> — generate one-paragraph "why we recommend this for you" text. Cached per (user, record) pair.</li>
-<li><strong>Cold-start classification</strong> — for a brand-new user, ask the LLM to extract preferred genres/topics from their imported Goodreads shelf.</li>
+<li><strong>Cold-start classification</strong> — for a brand-new user with no catalogue-matched books yet (<code>fingerprint</code> is None), the LLM reads the raw imported shelf titles into a taste descriptor, which is embedded (BGE-M3) and KNN-retrieved; the response is flagged <code>cold_start</code> with the inferred <code>inferred_tastes</code> chips. A genuinely empty shelf or an LLM/embedder outage degrades to the prior <code>empty_profile</code>. No schema change — cold-start reuses the recommendation cache under a raw-shelf key. (<code>recommendations/.../get_recommendations.py</code> + <code>recommendations/infrastructure/llm/openrouter_cold_start.py</code>.)</li>
 </ol>
 <p>Constraints from the OpenRouter free-model tier (20 RPM, 50–1,000 requests/day depending on account credit): batch jobs <strong>must not</strong> go through OpenRouter. Everything that would consume the daily budget (re-embedding, mass classification) runs on local models instead. (<a href="https://openrouter.ai/collections/free-models">OpenRouter free models</a>)</p>
 <p>Model selection happens behind a <code>LlmClient</code> port; the adapter implements OpenRouter, but a local Ollama adapter is the obvious fallback.</p>

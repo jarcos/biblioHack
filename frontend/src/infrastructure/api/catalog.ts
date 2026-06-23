@@ -109,6 +109,18 @@ export const CatalogRecordSummarySchema = z.object({
 });
 export type CatalogRecordSummary = z.infer<typeof CatalogRecordSummarySchema>;
 
+/** The structured intent a natural-language query was rewritten to (§8.3.1).
+ * Present only when a rewrite was *applied* (results came from a faceted
+ * browse); the UI shows a revertible chip. `.catch(null)` tolerates an older
+ * backend that doesn't send the field. */
+export const RewrittenIntentSchema = z.object({
+  author: z.string().nullable().optional(),
+  year_from: z.number().int().nullable().optional(),
+  year_to: z.number().int().nullable().optional(),
+  sort: z.string().nullable().optional(),
+});
+export type RewrittenIntent = z.infer<typeof RewrittenIntentSchema>;
+
 export const SearchResponseSchema = z.object({
   query: z.string(),
   /** Effective ranking used. May differ from the requested mode when semantic
@@ -121,6 +133,7 @@ export const SearchResponseSchema = z.object({
   offset: z.number().int().nonnegative(),
   has_more: z.boolean(),
   items: z.array(CatalogRecordSummarySchema),
+  rewritten: RewrittenIntentSchema.nullable().optional().catch(null),
 });
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 
@@ -224,6 +237,12 @@ export interface SearchParams {
    * server-side default holds.
    */
   mode?: SearchMode;
+  /**
+   * Natural-language rewriting (§8.3.1). Backend default is on; only sent
+   * when explicitly `false` to force a literal search (the "buscar
+   * literalmente" escape from the rewrite chip).
+   */
+  rewrite?: boolean;
 }
 
 /**
@@ -233,7 +252,7 @@ export interface SearchParams {
  */
 export async function searchCatalog(
   apiBaseUrl: string,
-  { query, limit, offset, scope, mode }: SearchParams,
+  { query, limit, offset, scope, mode, rewrite }: SearchParams,
   signal?: AbortSignal,
 ): Promise<SearchResponse> {
   const url = new URL("/catalog/search", apiBaseUrl);
@@ -242,6 +261,7 @@ export async function searchCatalog(
   if (offset !== undefined) url.searchParams.set("offset", String(offset));
   if (scope !== undefined) url.searchParams.set("scope", scope);
   if (mode !== undefined) url.searchParams.set("mode", mode);
+  if (rewrite === false) url.searchParams.set("rewrite", "false");
 
   const response = await fetch(url.toString(), {
     headers: { Accept: "application/json" },

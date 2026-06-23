@@ -12,11 +12,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import date, datetime
 
     from bibliohack.reading_history.application.use_cases.import_shelf import ImportStats
     from bibliohack.reading_history.domain.import_job import ImportJobStatus
-    from bibliohack.reading_history.domain.shelf import MatchVia, Shelf
+    from bibliohack.reading_history.domain.shelf import MatchVia, Shelf, ShelfResolveStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,37 @@ class ShelfEntryData:
     date_added: date | None
     matched_record_id: str | None
     matched_via: MatchVia
+
+
+@dataclass(frozen=True, slots=True)
+class UnmatchedShelfEntry:
+    """An unmatched shelf entry, with just the fields a re-match needs.
+
+    `id` is the `shelf_entries` row id (UUID string) so a successful match can be
+    linked back to exactly this row.
+    """
+
+    id: str
+    title: str
+    author: str | None
+    isbn_13: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvableShelfBook:
+    """A distinct unmatched book to resolve against the OPAC (demand-driven fetcher).
+
+    Deduped across users: `entry_ids` are every still-unmatched shelf entry that
+    shares this book (same ISBN-13, else same normalised title+author), so a single
+    OPAC query — and its outcome — covers them all. `isbn13` are the distinct
+    non-null ISBNs seen in the group (ISBN resolve tries each); `title`/`author` are
+    a representative for the title+author fallback.
+    """
+
+    entry_ids: tuple[str, ...]
+    title: str
+    author: str | None
+    isbn13: tuple[str, ...]
 
 
 class ShelfRepository(Protocol):
@@ -68,6 +100,47 @@ class ShelfRepository(Protocol):
 
         Returns True when a new row was inserted, False when an existing row was
         updated — lets the import report new-vs-updated.
+        """
+        ...
+
+    async def iter_unmatched(self, *, limit: int) -> list[UnmatchedShelfEntry]:
+        """Up to `limit` still-unmatched shelf entries (`matched_record_id IS NULL`).
+
+        Oldest-attempt-first (never-tried entries lead) so a bounded re-match run
+        makes steady progress through the backlog rather than re-scanning the same
+        head each time.
+        """
+        ...
+
+    async def link_match(self, entry_id: str, record_id: str, via: MatchVia) -> None:
+        """Link an unmatched entry to a now-present catalogue record.
+
+        Sets `matched_record_id` + `matched_via`; the row then drops out of
+        `iter_unmatched`. Idempotent — re-linking the same pair is a no-op.
+        """
+        ...
+
+    async def iter_resolvable_books(
+        self, *, limit: int, cooldown_days: int
+    ) -> list[ResolvableShelfBook]:
+        """Up to `limit` distinct unmatched books eligible for an OPAC resolve.
+
+        Eligible = still unmatched and either never asked (`unchecked`) or asked
+        and not held but past the `cooldown_days` re-try window. Deduped across
+        users by ISBN-13 (else normalised title+author) so each distinct book is
+        queried once, oldest-attempt-first (never-tried books lead).
+        """
+        ...
+
+    async def mark_resolve_result(
+        self, entry_ids: Sequence[str], status: ShelfResolveStatus
+    ) -> None:
+        """Record an OPAC resolve outcome on every entry in a deduped book group.
+
+        Sets `resolve_status`, bumps `resolve_attempts`, and stamps
+        `last_resolved_at` so the cooldown applies. A `held`/`not_held` row then
+        drops out of `iter_resolvable_books` (held permanently; not_held until the
+        cooldown lapses).
         """
         ...
 

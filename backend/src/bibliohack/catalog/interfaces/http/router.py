@@ -17,7 +17,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 # TYPE_CHECKING block.
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
+from bibliohack.catalog.application.ports import (
+    QueryRewriter,  # noqa: TC001 (FastAPI dep introspection)
+)
 from bibliohack.catalog.application.use_cases.hybrid_search import HybridSearch
+from bibliohack.catalog.application.use_cases.rewrite_aware_search import RewriteAwareSearch
 from bibliohack.catalog.application.use_cases.semantic_search import SemanticSearch
 from bibliohack.catalog.domain.literary_profile import Audience, Genre, LiteraryForm, SearchScope
 from bibliohack.catalog.domain.titn import Titn
@@ -39,6 +43,7 @@ from bibliohack.catalog.interfaces.http.schemas import (
     CopySchema,
     CoverSchema,
     FacetCountSchema,
+    RewrittenIntentSchema,
     SearchResponseSchema,
     SimilarResponseSchema,
 )
@@ -47,12 +52,13 @@ from bibliohack.holdings.infrastructure.postgres.branch_repository import (
 )
 from bibliohack.identity.domain.user import User  # noqa: TC001 (FastAPI dep introspection)
 from bibliohack.identity.interfaces.http.dependencies import get_optional_user
-from bibliohack.interfaces.http.dependencies import get_embedder, get_session
+from bibliohack.interfaces.http.dependencies import get_embedder, get_query_rewriter, get_session
 
 if TYPE_CHECKING:
     from bibliohack.catalog.application.dto import (
         CatalogRecordSummary,
         CatalogRecordView,
+        RewrittenQuery,
         SearchPage,
     )
 
@@ -138,6 +144,7 @@ async def search_catalog(
     session: Annotated[AsyncSession, Depends(get_session)],
     embedder: Annotated[HuggingFaceEmbedder | None, Depends(get_embedder)],
     user: Annotated[User | None, Depends(get_optional_user)],
+    rewriter: Annotated[QueryRewriter, Depends(get_query_rewriter)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
     scope: Annotated[
@@ -157,6 +164,19 @@ async def search_catalog(
             ),
         ),
     ] = SearchMode.KEYWORD,
+    rewrite: Annotated[
+        bool,
+        Query(
+            description=(
+                "When true (default), a natural-language query is interpreted by "
+                "the LLM and, if it carries structured intent (author / year / "
+                "order), run as a faceted browse — the response echoes it in "
+                "'rewritten' for a revertible chip. Short keyword queries are "
+                "never rewritten (a cheap heuristic gates the call); set "
+                "rewrite=false to force a literal search."
+            ),
+        ),
+    ] = True,
 ) -> SearchResponseSchema:
     """Search the catalogue by keyword (FTS), meaning (vectors), or both fused.
 
@@ -173,6 +193,26 @@ async def search_catalog(
     """
     repo = PostgresCatalogReadRepository(session)
     library_codes = await _resolve_library_codes(session, user, library_scope)
+
+    # Rewrite path (§8.3.1): interpret a natural-language query and, when it
+    # carries structured intent, serve it as a faceted browse. The use case
+    # gates the LLM call behind a heuristic and falls back to the literal
+    # search on any miss, so this never degrades the default experience. The
+    # effective `mode` reported stays the requested one (the free-text fallback
+    # still honours it); a structured rewrite is signalled by `rewritten`.
+    if rewrite:
+        page, applied = await RewriteAwareSearch(
+            read_repo=repo, embedder=embedder, rewriter=rewriter
+        ).execute(
+            query=q,
+            mode=mode.value if embedder is not None else SearchMode.KEYWORD.value,
+            limit=limit,
+            offset=offset,
+            scope=scope,
+            library_branch_codes=library_codes,
+        )
+        effective_mode = mode if embedder is not None and applied is None else SearchMode.KEYWORD
+        return _page_to_schema(page, mode=effective_mode, rewritten=applied)
 
     if mode is SearchMode.HYBRID and embedder is not None:
         page = await HybridSearch(read_repo=repo, embedder=embedder).execute(
@@ -371,7 +411,12 @@ def _summary_to_schema(summary: CatalogRecordSummary) -> CatalogRecordSummarySch
     )
 
 
-def _page_to_schema(page: SearchPage, *, mode: SearchMode) -> SearchResponseSchema:
+def _page_to_schema(
+    page: SearchPage,
+    *,
+    mode: SearchMode,
+    rewritten: RewrittenQuery | None = None,
+) -> SearchResponseSchema:
     return SearchResponseSchema(
         query=page.query,
         mode=mode.value,
@@ -380,4 +425,14 @@ def _page_to_schema(page: SearchPage, *, mode: SearchMode) -> SearchResponseSche
         offset=page.offset,
         has_more=page.has_more,
         items=[_summary_to_schema(item) for item in page.items],
+        rewritten=(
+            RewrittenIntentSchema(
+                author=rewritten.author,
+                year_from=rewritten.year_from,
+                year_to=rewritten.year_to,
+                sort=rewritten.sort,
+            )
+            if rewritten is not None
+            else None
+        ),
     )

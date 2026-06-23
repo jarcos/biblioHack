@@ -42,3 +42,18 @@ class MatchVia(StrEnum):
     ISBN = "isbn"
     TITLE_AUTHOR = "title_author"
     NONE = "none"
+
+
+class ShelfResolveStatus(StrEnum):
+    """Whether the demand-driven fetcher has asked the OPAC about an unmatched entry.
+
+    Orthogonal to `MatchVia` (which records how a *link* was made, not whether we
+    queried the OPAC). HELD → the RBPA holds the book and we've seeded its TITN for
+    the worker, so a later re-match links it; NOT_HELD → the OPAC returned nothing
+    (re-tried after a cooldown, since the mirror keeps growing). UNCHECKED is the
+    default: never yet asked.
+    """
+
+    UNCHECKED = "unchecked"
+    HELD = "held"
+    NOT_HELD = "not_held"

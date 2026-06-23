@@ -95,6 +95,7 @@
     <a href="identity-milestone.html">Identity Milestone</a>
     <a href="relevance-and-libraries.html">Relevance & Libraries</a>
     <a href="canon-import.html">Canon Import</a>
+    <a href="demand-driven-shelf-fetcher.html">Demand-driven Fetcher</a>
     <span class="here">Pending & Operations</span>
     <a href="kanban.html">Kanban</a>
     
@@ -138,7 +139,7 @@
   <table>
     <tr><th>Item</th><th>Trigger to revisit</th></tr>
     <tr><td>✓ Hybrid FTS + vector fusion <em>(shipped 2026-06-11)</em></td><td><code>?mode=hybrid</code> — RRF (k=60) over both rankings, degrades to keyword on embedder failure; three-way toggle in the UI</td></tr>
-    <tr><td>LLM query rewriting &amp; cold-start classification</td><td>Phase 4 shipped rationales only — the other two LLM jobs from §8.3 await demand</td></tr>
+    <tr><td>✓ LLM query rewriting &amp; cold-start classification <em>(shipped 2026-06-23)</em></td><td>All three §8.3 jobs now built: <code>rewrite=true</code> on <code>/catalog/search</code> (NL→structured browse, heuristic-gated, revertible chip) and cold-start recs from the raw shelf (LLM taste descriptor → BGE-M3 KNN, <code>cold_start</code> flag + chips). Best-effort; no schema change</td></tr>
     <tr><td>Tier-two importers (StoryGraph, Hardcover, BookWyrm)</td><td>One new <code>Importer</code> adapter each; wait for a real user asking</td></tr>
     <tr><td>OTel on the crawl/worker plane</td><td>If <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough to debug crawl health; <code>scrape_log</code> request log remains unwired</td></tr>
     <tr><td>Frontend audience/literary-form badge + scope toggle</td><td>§5.5 backend is done (<code>?scope=</code>); the UI affordance is still minimal</td></tr>
@@ -147,8 +148,9 @@
     <tr><td><strong>M7</strong> Other provinces (Sevilla, Cádiz…)</td><td>Generalise SUBC handling by config; copies are already stored network-wide, so it's mostly scoping + crawl budget</td></tr>
     <tr><td><strong>M8</strong> Mobile app</td><td>React Native/Expo over the same API; out of scope for now</td></tr>
     <tr><td>Request a MARC dump from the Junta <em>(email drafted 2026-06-13)</em></td><td>A periodic MARC-XML dump (Madrid precedent) would obsolete most of the scraper and close the full ~2.66M gap that crawling never will. Draft ready at <code>docs/outreach/marc-dump-request.md</code> — pending José to pick a channel and send</td></tr>
-    <tr><td>Demand-driven fetcher (unmatched shelf books)</td><td>Resolve unmatched Goodreads/StoryGraph entries via OPAC title query → TITN → immediate ingest (~5–10 req/book); makes the catalogue feel complete for real users years before the sweep. Just another job on the existing gateway</td></tr>
   </table>
+
+  <p class="muted"><em>Shipped 2026-06-22 (code complete, gate green; deploy pending): the demand-driven fetcher for unmatched shelf books — <code>shelf rematch</code> (DB-only) + <code>shelf resolve</code> (on-OPAC, deduped + cooldown) + the <code>shelf_resolve</code> crawl-plane job. See <a href="demand-driven-shelf-fetcher.html">Demand-driven fetcher</a>.</em></p>
 
   <h2>Ops runbook (the short version)</h2>
   <div class="panel">

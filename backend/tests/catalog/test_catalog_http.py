@@ -27,12 +27,17 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+from bibliohack.catalog.application.dto import RewrittenQuery
 from bibliohack.catalog.infrastructure.absysnet.parser import ParsedCopy, ParsedRecord
 from bibliohack.catalog.infrastructure.postgres.catalog_ingest_repository import (
     PostgresCatalogIngestRepository,
 )
 from bibliohack.interfaces.http.app import create_app
-from bibliohack.interfaces.http.dependencies import get_embedder, get_session
+from bibliohack.interfaces.http.dependencies import (
+    get_embedder,
+    get_query_rewriter,
+    get_session,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -309,6 +314,88 @@ async def test_search_caps_limit(client: AsyncClient) -> None:
     """Passing limit > 100 should be rejected by the Query validator."""
     r = await client.get("/catalog/search", params={"q": "x", "limit": 500})
     assert r.status_code == 422
+
+
+# ───────────────────────────────────────────────────────────────
+# Query rewriting (§8.3.1) — rewrite=true routes structured intent to browse
+# ───────────────────────────────────────────────────────────────
+
+
+class _StubRewriter:
+    """Rewrites one known phrase to a structured intent; passes everything else."""
+
+    def __init__(self, mapping: dict[str, RewrittenQuery]) -> None:
+        self._mapping = mapping
+
+    async def rewrite(self, query: str) -> RewrittenQuery | None:
+        return self._mapping.get(query)
+
+
+@pytest_asyncio.fixture
+async def rewrite_client(
+    applied_db: str, seeded_session: AsyncSession
+) -> AsyncIterator[AsyncClient]:
+    """Like `client`, but with a stub rewriter that maps a natural-language
+    query for García Márquez to author + newest-first."""
+    app = create_app()
+    engine = create_async_engine(applied_db, future=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def _override_get_session() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = _override_get_session
+    app.dependency_overrides[get_query_rewriter] = lambda: _StubRewriter(
+        {
+            "lo último de García Márquez": RewrittenQuery(
+                author="García Márquez, Gabriel", sort="newest"
+            ),
+            "lo último de Nadie Existente": RewrittenQuery(author="Nadie Existente"),
+        }
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        yield ac
+
+    app.dependency_overrides.clear()
+    await engine.dispose()
+
+
+async def test_rewrite_routes_to_browse_and_echoes_intent(rewrite_client: AsyncClient) -> None:
+    r = await rewrite_client.get("/catalog/search", params={"q": "lo último de García Márquez"})
+    assert r.status_code == 200
+    body = r.json()
+    # Browse on author=García Márquez, newest-first → only their two records, 1985 before 1967.
+    titns = [item["titn"] for item in body["items"]]
+    assert titns == [2, 1]
+    assert body["rewritten"] == {
+        "author": "García Márquez, Gabriel",
+        "year_from": None,
+        "year_to": None,
+        "sort": "newest",
+    }
+
+
+async def test_rewrite_false_forces_literal_search(rewrite_client: AsyncClient) -> None:
+    r = await rewrite_client.get(
+        "/catalog/search",
+        params={"q": "lo último de García Márquez", "rewrite": "false"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    # No rewrite applied → literal FTS, which won't match this phrase as a whole.
+    assert body["rewritten"] is None
+
+
+async def test_rewrite_zero_results_falls_back_to_literal(rewrite_client: AsyncClient) -> None:
+    """A mis-parsed author that browse can't satisfy degrades to literal search,
+    never an empty page courtesy of the rewrite."""
+    r = await rewrite_client.get("/catalog/search", params={"q": "lo último de Nadie Existente"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rewritten"] is None  # browse found nothing → rewrite abandoned
 
 
 # ───────────────────────────────────────────────────────────────

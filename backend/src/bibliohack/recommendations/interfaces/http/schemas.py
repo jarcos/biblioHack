@@ -23,7 +23,20 @@ class RecommendationsResponseSchema(BaseModel):
     `reason` tells the UI why `items` may be empty: `ok` (genuinely nothing
     retrievable yet) vs `empty_profile` (no catalogue-matched books on the
     shelf — the UI should point at the importer).
+
+    `cold_start` is True when the batch was inferred from the raw imported
+    shelf (no catalogue-matched books yet, §8.3.3) — necessarily weaker than
+    taste-based recs, so the UI labels it and shows `inferred_tastes` as
+    "detectamos que te gusta…" chips. `inferred_tastes` is populated only on a
+    freshly generated cold-start batch (not persisted across the cache).
     """
 
     reason: str = Field("ok", description="ok | empty_profile.")
+    cold_start: bool = Field(
+        False, description="True when these are LLM cold-start recs (no matched shelf yet)."
+    )
+    inferred_tastes: list[str] = Field(
+        default_factory=list,
+        description="Genre/topic chips inferred from the shelf on a fresh cold-start batch.",
+    )
     items: list[RecommendationItemSchema] = Field(default_factory=list)

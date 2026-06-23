@@ -17,6 +17,13 @@ export type RecommendationItem = z.infer<typeof RecommendationItemSchema>;
 
 export const RecommendationsResponseSchema = z.object({
   reason: z.enum(["ok", "empty_profile"]).catch("ok"),
+  /** True when the batch was inferred from the raw imported shelf (no
+   * catalogue-matched books yet, §8.3.3) — weaker than taste-based recs, so
+   * the UI labels it. `.catch(false)` tolerates an older backend. */
+  cold_start: z.boolean().catch(false),
+  /** Genre/topic chips inferred on a fresh cold-start batch ("detectamos que
+   * te gusta…"); empty on a cache hit (not persisted) or for taste-based recs. */
+  inferred_tastes: z.array(z.string()).catch([]),
   items: z.array(RecommendationItemSchema),
 });
 export type RecommendationsResponse = z.infer<typeof RecommendationsResponseSchema>;

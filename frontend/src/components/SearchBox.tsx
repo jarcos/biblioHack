@@ -10,6 +10,7 @@ import {
   CatalogApiError,
   searchCatalog,
   type CatalogRecordSummary,
+  type RewrittenIntent,
   type SearchMode,
 } from "@infrastructure/api/catalog";
 
@@ -67,9 +68,13 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
   // Keyword (FTS) by default; semantic ranks by meaning via BGE-M3 vectors;
   // hybrid fuses both rankings (RRF).
   const [mode, setMode] = useState<SearchMode>("keyword");
+  // Natural-language rewriting is on by default (server-side). The "buscar
+  // literalmente" link on the rewrite chip flips this for the current query;
+  // a fresh submit resets it.
+  const [forceLiteral, setForceLiteral] = useState(false);
 
   const { data, error, isFetching, isSuccess } = useQuery({
-    queryKey: ["catalog-search", query, includeAll ? "all" : "literary", mode],
+    queryKey: ["catalog-search", query, includeAll ? "all" : "literary", mode, forceLiteral],
     queryFn: ({ signal }) =>
       searchCatalog(
         apiBaseUrl,
@@ -77,11 +82,15 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
           query,
           ...(includeAll ? { scope: "all" as const } : {}),
           ...(mode !== "keyword" ? { mode } : {}),
+          ...(forceLiteral ? { rewrite: false as const } : {}),
         },
         signal,
       ),
     enabled: query.length > 0,
   });
+
+  // Present only when the backend applied a natural-language rewrite (§8.3.1).
+  const appliedRewrite = isSuccess ? (data.rewritten ?? null) : null;
 
   // The backend may downgrade a semantic/hybrid request to keyword when no
   // embedder is configured; `data.mode` reports what actually ran.
@@ -89,6 +98,7 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
+    setForceLiteral(false); // a new query starts interpreted again
     setQuery(draft.trim());
   };
 
@@ -173,6 +183,10 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
           </p>
         )}
 
+        {appliedRewrite !== null && (
+          <RewriteChip intent={appliedRewrite} onSearchLiterally={() => setForceLiteral(true)} />
+        )}
+
         <SearchState
           isLoading={isFetching}
           error={error}
@@ -183,6 +197,55 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
         />
       </CardContent>
     </Card>
+  );
+}
+
+const SORT_LABELS: Record<string, string> = {
+  newest: "más reciente",
+  title: "título",
+  relevance: "relevancia",
+};
+
+/** Human-readable Spanish summary of a rewritten intent for the chip. */
+function describeIntent(intent: RewrittenIntent): string {
+  const parts: string[] = [];
+  if (intent.author) parts.push(`autor ${intent.author}`);
+  if (intent.year_from != null && intent.year_to != null) {
+    parts.push(`${intent.year_from}–${intent.year_to}`);
+  } else if (intent.year_from != null) {
+    parts.push(`desde ${intent.year_from}`);
+  } else if (intent.year_to != null) {
+    parts.push(`hasta ${intent.year_to}`);
+  }
+  if (intent.sort) parts.push(`ordenado por ${SORT_LABELS[intent.sort] ?? intent.sort}`);
+  return parts.join(", ");
+}
+
+/**
+ * The revertible "showing results for…" chip (the Google pattern): the system
+ * acted on the interpreted intent, and one click reverts to a literal search.
+ */
+function RewriteChip({
+  intent,
+  onSearchLiterally,
+}: {
+  intent: RewrittenIntent;
+  onSearchLiterally: () => void;
+}): ReactElement {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+      <span aria-hidden="true">✨</span>
+      <span className="text-muted-foreground">
+        Interpretado como <strong className="text-foreground">{describeIntent(intent)}</strong>
+      </span>
+      <button
+        type="button"
+        onClick={onSearchLiterally}
+        className="ml-auto rounded text-primary underline-offset-2 hover:underline"
+      >
+        Buscar literalmente
+      </button>
+    </div>
   );
 }
 

@@ -14,10 +14,12 @@ Three small classes over one session:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+import structlog
 from sqlalchemy import delete, select
 from sqlalchemy.orm import selectinload
 
@@ -36,6 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from sqlalchemy.ext.asyncio import AsyncSession
+
+    from bibliohack.catalog.application.ports import Embedder
 
 # Profile size cap: enough signal for a stable centroid, small enough that
 # one reader's giant shelf can't make profile-building expensive.
@@ -135,12 +139,28 @@ class PostgresShelfTasteReader:
             )
         return digest.hexdigest()
 
+    async def raw_shelf(self, user_id: str) -> tuple[str, ...]:
+        rows = (
+            await self._session.execute(
+                select(ShelfEntryModel.title, ShelfEntryModel.author)
+                .where(ShelfEntryModel.user_id == UUID(user_id))
+                .order_by(ShelfEntryModel.source_book_id)
+            )
+        ).all()
+        return tuple(f"{row.title} — {row.author}" if row.author else row.title for row in rows)
+
 
 class PostgresCandidateRetriever:
-    """Concrete `CandidateRetriever` — centroid + cosine KNN."""
+    """Concrete `CandidateRetriever` — centroid + cosine KNN.
 
-    def __init__(self, session: AsyncSession) -> None:
+    The optional `embedder` powers cold-start retrieval (§8.3.3): embedding an
+    LLM-inferred taste descriptor when there's no shelf centroid to build from.
+    Taste-based `retrieve` never needs it (it averages stored vectors).
+    """
+
+    def __init__(self, session: AsyncSession, *, embedder: Embedder | None = None) -> None:
         self._session = session
+        self._embedder = embedder
 
     async def retrieve(
         self,
@@ -233,6 +253,47 @@ class PostgresCandidateRetriever:
             candidates.sort(key=lambda c: c.score, reverse=True)
             candidates = candidates[:limit]
         return CandidateBatch(liked_books=liked_books, candidates=tuple(candidates))
+
+    async def retrieve_cold_start(self, descriptor: str, *, limit: int) -> CandidateBatch:
+        embedder = self._embedder  # local: keep the None-narrowing across the await
+        if embedder is None or not descriptor.strip():
+            return CandidateBatch(liked_books=(), candidates=())
+        try:
+            # Blocking HTTPS call (HF inference) — keep it off the event loop.
+            vector = await asyncio.to_thread(embedder.embed_query, descriptor)
+        except Exception as exc:  # degrade to empty-profile — never 500 a request
+            structlog.get_logger().warning(
+                "recommendations.cold_start_embed_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            return CandidateBatch(liked_books=(), candidates=())
+        if not vector:
+            return CandidateBatch(liked_books=(), candidates=())
+
+        distance = BibliographicRecordModel.embedding.cosine_distance(vector)
+        stmt = (
+            select(BibliographicRecordModel, distance.label("distance"))
+            .where(
+                BibliographicRecordModel.embedding.is_not(None),
+                BibliographicRecordModel.audience.in_(default_scope_audiences()),
+                BibliographicRecordModel.literary_form.in_(default_scope_forms()),
+            )
+            .options(selectinload(BibliographicRecordModel.contributors))
+            .order_by(distance.asc(), BibliographicRecordModel.titn.asc())
+            .limit(limit)
+        )
+        result = (await self._session.execute(stmt)).all()
+        candidates = tuple(
+            Candidate(
+                record_id=str(row.BibliographicRecordModel.id),
+                title=row.BibliographicRecordModel.title,
+                author=_first_author(row.BibliographicRecordModel),
+                score=round(max(0.0, 1.0 - float(row.distance)), 4),
+            )
+            for row in result
+        )
+        return CandidateBatch(liked_books=(), candidates=candidates)
 
     async def _profile_record_ids(self, user_id: UUID) -> tuple[list[UUID], list[UUID]]:
         """(everything matched on the shelf, the taste anchors).

@@ -13,7 +13,14 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 
+from bibliohack.catalog.application.ports import (
+    QueryRewriter,  # noqa: TC001 (FastAPI dep introspection)
+)
 from bibliohack.catalog.infrastructure.embeddings.huggingface import HuggingFaceEmbedder
+from bibliohack.catalog.infrastructure.llm.openrouter_query_rewriter import (
+    NullQueryRewriter,
+    OpenRouterQueryRewriter,
+)
 from bibliohack.shared.infrastructure.db import (
     make_engine,
     make_session_factory,
@@ -156,4 +163,21 @@ def get_embedder(
     return _embedder_for_token(
         settings.huggingface_api_token,
         settings.huggingface_embedding_endpoint,
+    )
+
+
+def get_query_rewriter(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> QueryRewriter:
+    """FastAPI dependency: the LLM query rewriter (§8.3.1).
+
+    A real OpenRouter rewriter when the key is configured, else a Null rewriter
+    that never rewrites — so search degrades cleanly to the literal query.
+    """
+    if not settings.openrouter_api_key:
+        return NullQueryRewriter()
+    return OpenRouterQueryRewriter(
+        api_key=settings.openrouter_api_key,
+        model=settings.openrouter_model,
+        base_url=settings.openrouter_base_url,
     )

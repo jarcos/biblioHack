@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, literal_column, select
+from sqlalchemy import and_, func, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from bibliohack.catalog.infrastructure.postgres.models import (
@@ -20,12 +20,19 @@ from bibliohack.catalog.infrastructure.postgres.models import (
     ContributorModel,
     IsbnModel,
 )
+from bibliohack.reading_history.application.ports import (
+    ResolvableShelfBook,
+    UnmatchedShelfEntry,
+)
 from bibliohack.reading_history.infrastructure.postgres.models import ShelfEntryModel
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from bibliohack.reading_history.application.ports import ShelfEntryData
+    from bibliohack.reading_history.domain.shelf import MatchVia, ShelfResolveStatus
 
 # Trigram thresholds. Precision over recall: a wrong match pollutes the shelf,
 # whereas a miss simply stays re-checkable as the catalogue grows. Author names
@@ -114,3 +121,101 @@ class PostgresShelfRepository:
             await self._session.execute(upsert_stmt.returning(literal_column("(xmax = 0)")))
         ).scalar_one()
         return bool(inserted)
+
+    async def iter_unmatched(self, *, limit: int) -> list[UnmatchedShelfEntry]:
+        stmt = (
+            select(
+                ShelfEntryModel.id,
+                ShelfEntryModel.title,
+                ShelfEntryModel.author,
+                ShelfEntryModel.isbn_13,
+            )
+            .where(ShelfEntryModel.matched_record_id.is_(None))
+            # NULLS FIRST → never-tried entries lead; served by the partial
+            # `ix_shelf_entries_resolvable` index.
+            .order_by(ShelfEntryModel.last_resolved_at.asc().nullsfirst())
+            .limit(limit)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [
+            UnmatchedShelfEntry(
+                id=str(row.id), title=row.title, author=row.author, isbn_13=row.isbn_13
+            )
+            for row in rows
+        ]
+
+    async def link_match(self, entry_id: str, record_id: str, via: MatchVia) -> None:
+        await self._session.execute(
+            update(ShelfEntryModel)
+            .where(ShelfEntryModel.id == UUID(entry_id))
+            .values(
+                matched_record_id=UUID(record_id),
+                matched_via=via.value,
+                updated_at=func.now(),
+            )
+        )
+
+    async def iter_resolvable_books(
+        self, *, limit: int, cooldown_days: int
+    ) -> list[ResolvableShelfBook]:
+        # Dedup key: same ISBN groups together; ISBN-less entries group by their
+        # normalised title+author. Collisions across distinct books are vanishingly
+        # unlikely and only ever cost an extra-broad OPAC query, never a bad link.
+        group_key = func.coalesce(
+            func.nullif(ShelfEntryModel.isbn_13, ""),
+            func.concat(
+                func.lower(ShelfEntryModel.title),
+                "|",
+                func.lower(func.coalesce(ShelfEntryModel.author, "")),
+            ),
+        )
+        eligible = and_(
+            ShelfEntryModel.matched_record_id.is_(None),
+            ShelfEntryModel.resolve_status.in_(("unchecked", "not_held")),
+            or_(
+                ShelfEntryModel.last_resolved_at.is_(None),
+                ShelfEntryModel.last_resolved_at
+                < func.now() - func.make_interval(0, 0, 0, cooldown_days),
+            ),
+        )
+        stmt = (
+            select(
+                func.array_agg(ShelfEntryModel.id).label("entry_ids"),
+                func.min(ShelfEntryModel.title).label("title"),
+                func.min(ShelfEntryModel.author).label("author"),
+                func.array_agg(func.distinct(ShelfEntryModel.isbn_13))
+                .filter(ShelfEntryModel.isbn_13.isnot(None))
+                .label("isbns"),
+            )
+            .where(eligible)
+            .group_by(group_key)
+            # Never-tried groups (NULL min) lead, then oldest-attempted.
+            .order_by(func.min(ShelfEntryModel.last_resolved_at).asc().nullsfirst())
+            .limit(limit)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [
+            ResolvableShelfBook(
+                entry_ids=tuple(str(e) for e in row.entry_ids),
+                title=row.title,
+                author=row.author,
+                isbn13=tuple(row.isbns or ()),
+            )
+            for row in rows
+        ]
+
+    async def mark_resolve_result(
+        self, entry_ids: Sequence[str], status: ShelfResolveStatus
+    ) -> None:
+        if not entry_ids:
+            return
+        await self._session.execute(
+            update(ShelfEntryModel)
+            .where(ShelfEntryModel.id.in_([UUID(e) for e in entry_ids]))
+            .values(
+                resolve_status=status.value,
+                resolve_attempts=ShelfEntryModel.resolve_attempts + 1,
+                last_resolved_at=func.now(),
+                updated_at=func.now(),
+            )
+        )
