@@ -56,6 +56,10 @@ services:
       # On-OPAC: shares the crawl lock + CRAWL_RATE budget. Kept modest so it
       # never starves the hourly novedades growth; raise once novedades is idle.
       CANON_RESOLVE_MAX: "150"   # canon-seed works resolved per 4-hourly run (on-OPAC, bounded)
+      # Unmatched user-shelf books resolved against the OPAC per 6-hourly run.
+      # On-OPAC: shares the crawl lock + CRAWL_RATE budget (deduped across users),
+      # kept modest so it never starves the hourly novedades growth.
+      SHELF_RESOLVE_MAX: "100"   # distinct shelf books resolved per 6-hourly run (on-OPAC, bounded)
       # Resolve covers into the shared store (the api serves them read-only).
       COVERS_STORE_PATH: /covers
       # BGE-M3 embeddings via the HF Inference API (token from .env).

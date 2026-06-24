@@ -363,6 +363,82 @@
         }
       ],
       "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Shelf unmatched",
+      "description": "User shelf entries not yet linked to a catalogue record (matched_record_id NULL). The demand-driven fetcher (shelf_resolve job) shrinks this by resolving them against the OPAC, then re-matching once the worker ingests.",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 38 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) AS unmatched FROM shelf_entries WHERE matched_record_id IS NULL"
+        }
+      ],
+      "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "gauge",
+      "title": "Shelf matched %",
+      "description": "Share of all shelf entries linked to a catalogue record (cover + live availability shown on /shelf). Grows as the fetcher resolves held books and re-match links them.",
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 38 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE matched_record_id IS NOT NULL) / greatest(count(*), 1), 1) AS pct FROM shelf_entries"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 5 }, { "color": "green", "value": 20 } ] } }, "overrides": [] }
+    },
+    {
+      "type": "bargauge",
+      "title": "Shelf resolve status (unmatched)",
+      "description": "Still-unmatched shelf entries by resolve_status: unchecked (not yet asked the OPAC) · held (RBPA holds it, TITN seeded, awaiting ingest + re-match) · not_held (OPAC returned nothing; re-tried after the cooldown). The shelf_resolve job moves entries out of 'unchecked'.",
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 38 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) FILTER (WHERE resolve_status = 'unchecked') AS unchecked, count(*) FILTER (WHERE resolve_status = 'held') AS held, count(*) FILTER (WHERE resolve_status = 'not_held') AS not_held FROM shelf_entries WHERE matched_record_id IS NULL"
+        }
+      ],
+      "options": { "orientation": "horizontal", "displayMode": "gradient" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Shelf held (seeded)",
+      "description": "Unmatched entries the fetcher confirmed the RBPA holds and seeded into scrape_tasks — awaiting the worker's ingest and the next `shelf rematch` to link them.",
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 38 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) FILTER (WHERE resolve_status = 'held') AS held FROM shelf_entries WHERE matched_record_id IS NULL"
+        }
+      ],
+      "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Shelf OPAC attempts",
+      "description": "Total OPAC resolve attempts across all shelf entries (sum of resolve_attempts) — the cumulative polite query budget the fetcher has spent on user shelves.",
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 38 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT coalesce(sum(resolve_attempts), 0) AS attempts FROM shelf_entries"
+        }
+      ],
+      "options": { "graphMode": "none", "colorMode": "value" }
     }
   ]
 }

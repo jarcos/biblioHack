@@ -35,3 +35,10 @@
 # growth (which finishes before :30), the :30 refresh, and the :15/:45 off-OPAC
 # jobs; bounded by CANON_RESOLVE_MAX so it never starves novedades growth.
 50 */4 * * * /app/run-job.sh canon_resolve
+# Demand-driven shelf fetcher every 6 hours at :40 — on the OPAC (shares the
+# polite crawl lock + 1 req/s budget). Re-matches unmatched shelf entries the
+# worker has since ingested, then asks whether the RBPA holds the still-unmatched
+# books (deduped across users) and seeds held TITNs. At :40 it's clear of the :00
+# growth, :30 refresh, :15/:45 off-OPAC jobs, and the :50 canon resolve; bounded
+# by SHELF_RESOLVE_MAX so it never starves novedades growth.
+40 */6 * * * /app/run-job.sh shelf_resolve

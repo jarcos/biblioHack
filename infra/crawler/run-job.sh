@@ -11,7 +11,7 @@ set -euo pipefail
 # `bibliohack` resolves regardless of how the scheduler sets PATH.
 export PATH="/app/.venv/bin:${PATH:-/usr/local/bin:/usr/bin:/bin}"
 
-JOB="${1:?usage: run-job.sh discover_worker|refresh|covers|embed|relevance|canon_seed|canon_resolve}"
+JOB="${1:?usage: run-job.sh discover_worker|refresh|covers|embed|relevance|canon_seed|canon_resolve|shelf_resolve}"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # OPAC jobs share one lock (one polite OPAC budget). Cover resolution hits
@@ -82,6 +82,19 @@ case "$JOB" in
     bibliohack catalog canon match
     bibliohack catalog canon resolve \
       --max "${CANON_RESOLVE_MAX:-150}" \
+      --rate "${CRAWL_RATE:-1.0}"
+    ;;
+  shelf_resolve)
+    # On-OPAC (shared crawl lock — same polite budget as discover/refresh): the
+    # demand-driven fetcher for user shelves. First link any unmatched shelf
+    # entries whose record the worker has ingested since last run (DB-only), then
+    # ask the OPAC whether the RBPA holds the still-unmatched books (deduped across
+    # users) and seed the held TITNs into scrape_tasks for the worker. Bounded by
+    # SHELF_RESOLVE_MAX and rate-capped at CRAWL_RATE so it never starves the
+    # hourly novedades growth or raises the OPAC request rate.
+    bibliohack shelf rematch
+    bibliohack shelf resolve \
+      --max "${SHELF_RESOLVE_MAX:-100}" \
       --rate "${CRAWL_RATE:-1.0}"
     ;;
   *)
