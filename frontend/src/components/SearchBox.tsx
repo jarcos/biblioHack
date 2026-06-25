@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { audienceLabel, formLabel, inDefaultScope } from "@/lib/literary";
+import { browseHref } from "@/lib/browse";
+import { audienceLabel, formLabel, genreLabel, inDefaultScope } from "@/lib/literary";
 import {
   CatalogApiError,
   searchCatalog,
@@ -72,6 +73,17 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
   // literalmente" link on the rewrite chip flips this for the current query;
   // a fresh submit resets it.
   const [forceLiteral, setForceLiteral] = useState(false);
+
+  // Pick up a `?q=` deep link (the browse → search half of the cross-link
+  // loop). Done in an effect, not the initial state, to avoid a hydration
+  // mismatch on the `client:load` island (server renders the empty box).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q")?.trim();
+    if (q) {
+      setDraft(q);
+      setQuery(q);
+    }
+  }, []);
 
   const { data, error, isFetching, isSuccess } = useQuery({
     queryKey: ["catalog-search", query, includeAll ? "all" : "literary", mode, forceLiteral],
@@ -338,51 +350,85 @@ function ResultRow({
   // badge those so it's clear why they appear outside the literary default.
   const flagged = !inDefaultScope(record.audience, record.literary_form);
   const coverSrc = record.cover?.url ? `${apiBaseUrl}${record.cover.url}` : null;
+  const genreShown = record.genre !== "unknown";
+  const hasCrossLinks = record.authors.length > 0 || genreShown;
 
+  // The card is a div (not one big anchor) so the author/genre chips can be
+  // their own links into a pre-filtered /browse — anchors can't nest. The
+  // record link covers cover + title + meta, which is the bulk of the row.
   return (
-    <a
-      href={`/record?titn=${record.titn}`}
-      className="flex items-start justify-between gap-4 rounded-md border border-border bg-card p-4 transition-colors hover:border-foreground/30 hover:bg-muted/40"
-    >
-      <div className="flex min-w-0 items-start gap-4">
-        {coverSrc !== null ? (
-          <img
-            src={coverSrc}
-            alt=""
-            loading="lazy"
-            className="h-16 w-11 shrink-0 rounded border border-border object-cover"
-          />
-        ) : (
-          <div
-            aria-hidden="true"
-            className="flex h-16 w-11 shrink-0 items-center justify-center rounded border border-dashed border-border bg-muted/50 text-muted-foreground"
-          >
-            <span className="text-xs">📚</span>
-          </div>
-        )}
-        <div className="min-w-0 space-y-1">
-          <h3 className="font-serif text-lg font-semibold leading-tight tracking-tight">
-            {record.title}
-          </h3>
-          {subtitleParts.length > 0 && (
-            <p className="text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p>
-          )}
-          {flagged && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
-              <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
+    <div className="rounded-md border border-border bg-card transition-colors hover:border-foreground/30">
+      <a
+        href={`/record?titn=${record.titn}`}
+        className="flex items-start justify-between gap-4 rounded-md p-4 transition-colors hover:bg-muted/40"
+      >
+        <div className="flex min-w-0 items-start gap-4">
+          {coverSrc !== null ? (
+            <img
+              src={coverSrc}
+              alt=""
+              loading="lazy"
+              className="h-16 w-11 shrink-0 rounded border border-border object-cover"
+            />
+          ) : (
+            <div
+              aria-hidden="true"
+              className="flex h-16 w-11 shrink-0 items-center justify-center rounded border border-dashed border-border bg-muted/50 text-muted-foreground"
+            >
+              <span className="text-xs">📚</span>
             </div>
           )}
+          <div className="min-w-0 space-y-1">
+            <h3 className="font-serif text-lg font-semibold leading-tight tracking-tight">
+              {record.title}
+            </h3>
+            {subtitleParts.length > 0 && (
+              <p className="text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p>
+            )}
+            {flagged && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
+                <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        {record.available_count > 0 && (
-          <Badge variant="available">{record.available_count} disp. ahora</Badge>
-        )}
-        <Badge variant="outline">
-          {record.copies_count} ejemplar{record.copies_count === 1 ? "" : "es"}
-        </Badge>
-      </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {record.available_count > 0 && (
+            <Badge variant="available">{record.available_count} disp. ahora</Badge>
+          )}
+          <Badge variant="outline">
+            {record.copies_count} ejemplar{record.copies_count === 1 ? "" : "es"}
+          </Badge>
+        </div>
+      </a>
+      {hasCrossLinks && (
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-border px-4 py-2 text-xs">
+          <span className="text-muted-foreground">Explorar:</span>
+          {record.authors.map((author) => (
+            <BrowseChip key={author} href={browseHref({ author })}>
+              {author}
+            </BrowseChip>
+          ))}
+          {genreShown && (
+            <BrowseChip href={browseHref({ genre: record.genre })}>
+              {genreLabel(record.genre)}
+            </BrowseChip>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A small chip-link into a pre-filtered /browse (author or genre). */
+function BrowseChip({ href, children }: { href: string; children: string }): ReactElement {
+  return (
+    <a
+      href={href}
+      className="rounded-full border border-border px-2 py-0.5 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+    >
+      {children}
     </a>
   );
 }

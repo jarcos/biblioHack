@@ -4,7 +4,8 @@ import { useMemo, type ReactElement } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { availabilityLabel, availabilityVariant } from "@/lib/availability";
-import { audienceLabel, formLabel, inDefaultScope } from "@/lib/literary";
+import { browseHref } from "@/lib/browse";
+import { audienceLabel, formLabel, genreLabel, inDefaultScope } from "@/lib/literary";
 import {
   CatalogApiError,
   fetchRecord,
@@ -127,6 +128,21 @@ function RecordBody({
               </span>
             )}
           </div>
+          {(record.authors.length > 0 || record.genre !== "unknown") && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
+              <span className="text-muted-foreground">Explorar:</span>
+              {record.authors.map((author) => (
+                <BrowseChip key={author} href={browseHref({ author })}>
+                  {author}
+                </BrowseChip>
+              ))}
+              {record.genre !== "unknown" && (
+                <BrowseChip href={browseHref({ genre: record.genre })}>
+                  {genreLabel(record.genre)}
+                </BrowseChip>
+              )}
+            </div>
+          )}
         </div>
       </header>
 
@@ -295,6 +311,18 @@ function SimilarCard({
         </h3>
         {author !== null && <p className="truncate text-xs text-muted-foreground">{author}</p>}
       </div>
+    </a>
+  );
+}
+
+/** A small chip-link into a pre-filtered /browse (author or genre). */
+function BrowseChip({ href, children }: { href: string; children: string }): ReactElement {
+  return (
+    <a
+      href={href}
+      className="rounded-full border border-border px-2 py-0.5 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+    >
+      {children}
     </a>
   );
 }

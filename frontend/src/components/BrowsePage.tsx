@@ -4,6 +4,12 @@ import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  browseSearchParams,
+  DEFAULT_BROWSE_FILTERS,
+  parseBrowseFilters,
+  type BrowseFilters as Filters,
+} from "@/lib/browse";
 import { audienceLabel, formLabel, genreLabel } from "@/lib/literary";
 import { fetchMyBranches } from "@infrastructure/api/branches";
 import {
@@ -50,20 +56,9 @@ export function BrowsePage({ apiBaseUrl }: Props): ReactElement {
   );
 }
 
-// tsconfig has `exactOptionalPropertyTypes`, so the clearable filters spell
-// out `| undefined` — `update({ genre: undefined })` is how a filter clears.
-interface Filters {
-  author?: string | undefined;
-  language?: string | undefined;
-  genre?: Genre | undefined;
-  audience?: Audience | undefined;
-  literaryForm?: LiteraryForm | undefined;
-  yearFrom?: number | undefined;
-  yearTo?: number | undefined;
-  available: boolean;
-  sort: "relevance" | "newest" | "title";
-  libraryScope: "mine" | "province" | "full";
-}
+// `Filters` (and its `| undefined` clearable members, for
+// `exactOptionalPropertyTypes`) now lives in `@/lib/browse`, shared with the
+// cross-link builders so `/browse?author=…` deep links round-trip exactly.
 
 const FACET_LABELS: Record<string, (value: string) => string> = {
   genre: genreLabel,
@@ -80,12 +75,23 @@ const FACET_TITLES: Record<string, string> = {
 };
 
 function BrowseInner({ apiBaseUrl }: Props): ReactElement {
-  const [filters, setFilters] = useState<Filters>({
-    available: false,
-    sort: "relevance",
-    libraryScope: "mine",
-  });
+  // Seed from the URL so `/browse?author=…&genre=…` deep links (from a search
+  // result or record page) land pre-filtered; defaults when there's no query.
+  const [filters, setFilters] = useState<Filters>(() =>
+    typeof window === "undefined"
+      ? DEFAULT_BROWSE_FILTERS
+      : parseBrowseFilters(window.location.search),
+  );
   const [page, setPage] = useState(0);
+
+  // Mirror the active filters back into the URL (replace, not push — filter
+  // tweaks shouldn't pile up in history) so the page is shareable and the
+  // browser back button restores a sensible state.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const qs = browseSearchParams(filters).toString();
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, [filters]);
   // Whether to offer the library-scope control: only for signed-in users who
   // follow ≥1 branch. The backend resolves scope to the full catalogue for
   // everyone else, so sending the param is harmless when this is false.
@@ -135,6 +141,8 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
   return (
     <div className="grid gap-8 lg:grid-cols-[260px_1fr]">
       <aside className="space-y-6">
+        <CatalogSearchBox />
+
         <AuthorFacet
           apiBaseUrl={apiBaseUrl}
           selected={filters.author}
@@ -284,6 +292,38 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
         )}
       </section>
     </div>
+  );
+}
+
+/** Free-text search box on /browse — hands the query off to the full-text
+ *  search on the home page (`/?q=…`), the browse → search half of the
+ *  cross-link loop. */
+function CatalogSearchBox(): ReactElement {
+  const [draft, setDraft] = useState("");
+
+  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const q = draft.trim();
+    if (q.length === 0) return;
+    window.location.assign(`/?q=${encodeURIComponent(q)}`);
+  };
+
+  return (
+    <section className="space-y-2">
+      <h3 className="font-serif text-sm font-semibold">Buscar</h3>
+      <form onSubmit={onSubmit} className="flex gap-1">
+        <Input
+          type="search"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Buscar en el catálogo…"
+          aria-label="Buscar en el catálogo"
+        />
+        <Button type="submit" variant="outline" size="sm">
+          Ir
+        </Button>
+      </form>
+    </section>
   );
 }
 
