@@ -9,7 +9,13 @@ raw_html: true
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">26</span></h2>
+      <h2>Done <span class="n">27</span></h2>
+
+      <div class="card">
+        <h3>Cold-start taste chips persisted</h3>
+        <p>The §8.3.3 «detectamos que te gusta…» chips were returned only on a fresh recommendation and lost on a cache hit (kept migration-free at the time), so they flickered away on reload. Now persisted with the cached batch: migration <code>0021</code> adds a nullable <code>inferred_tastes text[]</code> on <code>recommendations</code>, denormalised onto each row of a batch (NULL for taste-centroid batches); a <code>CachedBatch(recommendations, inferred_tastes)</code> carries them through the repo, and a cold-start cache hit re-surfaces the stored chips with no second LLM call. Gate green on the Mac (ruff·mypy clean, 626 passed, 82.2% cov; +use-case cache-hit test + integration round-trip). <strong>Deploy:</strong> commit/push auto-deploys backend + migration <code>0021</code>; no NAS crawler rebuild.</p>
+        <div class="meta"><span class="tag t-done">2026-06-25</span><span class="tag t-done">2315c95</span></div>
+      </div>
 
       <div class="card">
         <h3>Audience / form surfaced end-to-end</h3>
@@ -163,31 +169,25 @@ raw_html: true
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">7</span></h2>
+      <h2>To do <span class="n">6</span></h2>
 
-      <div class="divider">Next up — re-prioritised 2026-06-25 (José: park MARC, focus on what we control); cross-links + audience/form surfacing shipped 2026-06-25</div>
-
-      <div class="card">
-        <h3>1 · Always-on cold-start taste chips</h3>
-        <p>The LLM cold-start «detectamos que te gusta…» chips show on a fresh recommendation generation but vanish on a cache hit — the inferred tastes aren't persisted (kept migration-free at the time). Persist them (a <code>recommendations</code> meta column or a small Redis side-key) so the chips are stable across reloads. <strong>#1:</strong> small follow-up that finishes the §8.3 work; no external dependency. <em>Touches the backend (a small migration or Redis key), so it's a step up in blast radius from the recent frontend-only wins.</em></p>
-        <div class="meta"><span class="tag t-todo">SMALL</span></div>
-      </div>
+      <div class="divider">Next up — re-prioritised 2026-06-25 (José: park MARC, focus on what we control); cross-links + audience/form + cold-start chips shipped 2026-06-25</div>
 
       <div class="card">
-        <h3>2 · StoryGraph CSV importer</h3>
-        <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof. <strong>#2:</strong> small but demand-gated — let a real request pull it forward. <em>Note: the demand-driven fetcher already covers StoryGraph entries for free once they exist (it resolves from stored title/author/ISBN, nothing Goodreads-specific).</em></p>
+        <h3>1 · StoryGraph CSV importer</h3>
+        <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof. <strong>#1:</strong> small but demand-gated — let a real request pull it forward. <em>Note: the demand-driven fetcher already covers StoryGraph entries for free once they exist (it resolves from stored title/author/ISBN, nothing Goodreads-specific).</em></p>
         <div class="meta"><span class="tag t-todo">SMALL · DEMAND-GATED</span></div>
       </div>
 
       <div class="card">
-        <h3>3 · OTel on the crawl/worker plane</h3>
-        <p>When <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough; <code>scrape_log</code> remains unwired. <strong>#3:</strong> internal observability — defer until the status rows actually fall short.</p>
+        <h3>2 · OTel on the crawl/worker plane</h3>
+        <p>When <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough; <code>scrape_log</code> remains unwired. <strong>#2:</strong> internal observability — defer until the status rows actually fall short.</p>
         <div class="meta"><span class="tag t-todo">MEDIUM</span></div>
       </div>
 
       <div class="card">
-        <h3>4 · Edge rate limiting (Cloudflare WAF)</h3>
-        <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears. <strong>#4:</strong> reactive — only worth doing once abuse shows up.</p>
+        <h3>3 · Edge rate limiting (Cloudflare WAF)</h3>
+        <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears. <strong>#3:</strong> reactive — only worth doing once abuse shows up.</p>
         <div class="meta"><span class="tag t-todo">IF NEEDED</span></div>
       </div>
 
