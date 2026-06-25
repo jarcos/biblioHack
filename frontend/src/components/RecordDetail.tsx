@@ -115,8 +115,14 @@ function RecordBody({
           )}
           {meta.length > 0 && <p className="text-sm text-muted-foreground">{meta.join(" · ")}</p>}
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
-            <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
+            {/* Público + forma double as filters: each jumps to /browse scoped
+                to that audience / literary form. */}
+            <a href={browseHref({ audience: record.audience })} className="inline-flex">
+              <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
+            </a>
+            <a href={browseHref({ literaryForm: record.literary_form })} className="inline-flex">
+              <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
+            </a>
             {record.classification != null && record.classification.length > 0 && (
               <Badge variant="outline" title="Clasificación CDU (MARC T080)">
                 CDU {record.classification}

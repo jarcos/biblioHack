@@ -56,6 +56,15 @@ describe("RecordDetail", () => {
     });
     expect(screen.getByText("Adultos")).toBeInTheDocument();
     expect(screen.getByText("Literatura")).toBeInTheDocument();
+    // Público + forma double as filters: each links into the matching /browse facet.
+    expect(screen.getByText("Adultos").closest("a")).toHaveAttribute(
+      "href",
+      "/browse?audience=adult",
+    );
+    expect(screen.getByText("Literatura").closest("a")).toHaveAttribute(
+      "href",
+      "/browse?form=literary",
+    );
     expect(screen.getByText("Novela estadounidense")).toBeInTheDocument();
     // Two branches; Huelva has 2 copies.
     expect(screen.getByText("Huelva Provincial")).toBeInTheDocument();

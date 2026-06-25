@@ -351,7 +351,7 @@ function ResultRow({
   const flagged = !inDefaultScope(record.audience, record.literary_form);
   const coverSrc = record.cover?.url ? `${apiBaseUrl}${record.cover.url}` : null;
   const genreShown = record.genre !== "unknown";
-  const hasCrossLinks = record.authors.length > 0 || genreShown;
+  const hasCrossLinks = record.authors.length > 0 || genreShown || flagged;
 
   // The card is a div (not one big anchor) so the author/genre chips can be
   // their own links into a pre-filtered /browse — anchors can't nest. The
@@ -385,12 +385,6 @@ function ResultRow({
             {subtitleParts.length > 0 && (
               <p className="text-sm text-muted-foreground">{subtitleParts.join(" · ")}</p>
             )}
-            {flagged && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
-                <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
-              </div>
-            )}
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
@@ -414,6 +408,18 @@ function ResultRow({
             <BrowseChip href={browseHref({ genre: record.genre })}>
               {genreLabel(record.genre)}
             </BrowseChip>
+          )}
+          {/* Out-of-default-scope hits (infantil / juvenil / no ficción) expose
+              público + forma as cross-links into the matching /browse facet. */}
+          {flagged && (
+            <>
+              <BrowseChip href={browseHref({ audience: record.audience })}>
+                {audienceLabel(record.audience)}
+              </BrowseChip>
+              <BrowseChip href={browseHref({ literaryForm: record.literary_form })}>
+                {formLabel(record.literary_form)}
+              </BrowseChip>
+            </>
           )}
         </div>
       )}

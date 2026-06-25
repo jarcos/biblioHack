@@ -10,7 +10,7 @@ import {
   parseBrowseFilters,
   type BrowseFilters as Filters,
 } from "@/lib/browse";
-import { audienceLabel, formLabel, genreLabel } from "@/lib/literary";
+import { audienceLabel, formLabel, genreLabel, inDefaultScope } from "@/lib/literary";
 import { fetchMyBranches } from "@infrastructure/api/branches";
 import {
   browseCatalog,
@@ -498,6 +498,15 @@ function BrowseCard({
             <span className="text-xs text-muted-foreground">{item.pub_year}</span>
           )}
           {item.genre !== "unknown" && <Badge variant="outline">{genreLabel(item.genre)}</Badge>}
+          {/* Flag out-of-default-scope rows (infantil / juvenil / no ficción) so
+              they're distinguishable at a glance — /browse covers the whole
+              mirror, not just the adult-literary default that search assumes. */}
+          {!inDefaultScope(item.audience, item.literary_form) && (
+            <>
+              <Badge variant="secondary">{audienceLabel(item.audience)}</Badge>
+              <Badge variant="secondary">{formLabel(item.literary_form)}</Badge>
+            </>
+          )}
           {item.available_count > 0 && (
             <Badge variant="available">{item.available_count} disp.</Badge>
           )}
