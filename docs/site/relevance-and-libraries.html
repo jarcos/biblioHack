@@ -84,7 +84,7 @@
 <header class="site">
   <div class="wrap">
     <h1>Relevance &amp; Libraries — milestone plan</h1>
-    <p class="tag">Designed 2026-06-15 · not yet built.</p>
+    <p class="tag">Designed 2026-06-15 · ✓ both milestones shipped (Relevance 2026-06-16, Libraries L0–L4 2026-06-22).</p>
   </div>
 </header>
 
@@ -116,7 +116,14 @@ record) and a <strong>contextual</strong> library scope (per-user, applied at qu
 Sequenced <strong>relevance first</strong> (helps everyone immediately, no geo dependency),
 <strong>libraries second</strong>.</p>
 <blockquote>
-<p>Status: planned (designed 2026-06-15). Nothing here is built yet.
+<p><strong>Status: ✓ SHIPPED.</strong> Relevance (R0–R3) went live 2026-06-16 (43,412 records
+scored, default <code>/browse</code> sort + search filter/tiebreak; nightly recompute on
+the crawl plane). Libraries (L0–L4) went live 2026-06-22 — branch geo/contact
+schema + geocode CLI (571/573 branches), follow-branches API, the «Mis
+bibliotecas» picker on <code>/account</code>, <code>library_scope</code> pre-filter on browse +
+search, and library-aware recommendations. The external canon boost ("R-later")
+also shipped via the separate canon-import pipeline (<code>docs/design/canon-import.md</code>).
+This page is kept as the design record; the build order below is historical.
 Companion HTML: <code>docs/site/relevance-and-libraries.html</code>.</p>
 </blockquote>
 <hr>

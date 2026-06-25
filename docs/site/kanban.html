@@ -103,7 +103,7 @@
 </nav>
 
 <main class="wrap">
-  <p class="intro">Status as of <strong>2026-06-22</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
+  <p class="intro">Status as of <strong>2026-06-25</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
 
   <div class="board">
 
@@ -119,8 +119,8 @@
 
       <div class="card">
         <h3>Demand-driven fetcher — unmatched shelf books</h3>
-        <p>The user-shelf sibling of canon C3: resolve still-unmatched Goodreads/StoryGraph shelf entries against the live OPAC and ingest the ones the RBPA actually holds. <strong>S0</strong> — resolve bookkeeping on <code>shelf_entries</code> (<code>resolve_status</code> · <code>resolve_attempts</code> · <code>last_resolved_at</code> + partial index, migration <code>0020</code>). <strong>S1</strong> — <code>RematchShelf</code> + <code>bibliohack shelf rematch</code> (DB-only): links unmatched entries the worker has since ingested, closing the «re-matches for free as the catalogue grows» gap that previously only fired on re-import. <strong>S2</strong> — <code>ResolveUnmatchedShelf</code> + <code>shelf resolve</code> (on-OPAC): deduped across users by ISBN→title+author, 30-day re-try cooldown, seeds held TITNs into the existing worker; never invents a phantom record. <strong>S3</strong> — crawl-plane <code>shelf_resolve</code> job (rematch→resolve under the shared OPAC lock, <code>40 */6</code>, bounded by <code>SHELF_RESOLVE_MAX</code>). <strong>S4</strong> — Grafana «shelf coverage» row. Gate green: 595 passed · mypy clean · 81.9% coverage. <strong>Deploy pending:</strong> commit/push (auto-deploys backend + migration <code>0020</code>), manual NAS crawler rebuild (the <code>shelf_resolve</code> job), Grafana reload. Full plan: <a href="demand-driven-shelf-fetcher.html">Demand-driven fetcher</a>.</p>
-        <div class="meta"><span class="tag t-done">2026-06-22</span><span class="tag t-todo">DEPLOY PENDING</span></div>
+        <p>The user-shelf sibling of canon C3: resolve still-unmatched Goodreads/StoryGraph shelf entries against the live OPAC and ingest the ones the RBPA actually holds. <strong>S0</strong> — resolve bookkeeping on <code>shelf_entries</code> (<code>resolve_status</code> · <code>resolve_attempts</code> · <code>last_resolved_at</code> + partial index, migration <code>0020</code>). <strong>S1</strong> — <code>RematchShelf</code> + <code>bibliohack shelf rematch</code> (DB-only): links unmatched entries the worker has since ingested, closing the «re-matches for free as the catalogue grows» gap that previously only fired on re-import. <strong>S2</strong> — <code>ResolveUnmatchedShelf</code> + <code>shelf resolve</code> (on-OPAC): deduped across users by ISBN→title+author, 30-day re-try cooldown, seeds held TITNs into the existing worker; never invents a phantom record. <strong>S3</strong> — crawl-plane <code>shelf_resolve</code> job (rematch→resolve under the shared OPAC lock, <code>40 */6</code>, bounded by <code>SHELF_RESOLVE_MAX</code>). <strong>S4</strong> — Grafana «shelf coverage» row. Gate green: 595 passed · mypy clean · 81.9% coverage. <strong>Fully deployed 2026-06-24</strong> (<code>140f3d6</code>): backend + migration <code>0020</code> via CD, manual NAS crawler rebuild landed the <code>shelf_resolve</code> job (<code>40 */6</code>, <code>SHELF_RESOLVE_MAX=100</code>) with supercronic reloading the new schedule cleanly, and the Grafana shelf-coverage row was synced into the monitoring-stack provisioning dir (separate from CD). Full plan: <a href="demand-driven-shelf-fetcher.html">Demand-driven fetcher</a>.</p>
+        <div class="meta"><span class="tag t-done">2026-06-24</span><span class="tag t-done">140f3d6</span></div>
       </div>
 
       <div class="card">
@@ -232,7 +232,7 @@
 
       <div class="card">
         <h3>Catalogue crawl (autonomous)</h3>
-        <p><strong>Novedades 2024+ window is caught up:</strong> ~54,030 records mirrored (2026-06-21) against a ~55–56k result set, so the resumable <code>(@fepu&gt;=2024)</code> cursor has reached the end and the hourly bars are now a near-zero trickle of newly-catalogued arrivals — expected, not a break (a 2026-06-18 "imports stopped" scare turned out to be exactly this). The full ~2.66M TITN space stays the long game (the MARC dump closes it, not crawling). With novedades caught up there's spare OPAC budget, now partly used by the new <code>canon_resolve</code> job. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
+        <p><strong>Novedades 2024+ window is caught up:</strong> ~54,030 records mirrored (2026-06-21) against a ~55–56k result set, so the resumable <code>(@fepu&gt;=2024)</code> cursor has reached the end and the hourly bars are now a near-zero trickle of newly-catalogued arrivals — expected, not a break (a 2026-06-18 "imports stopped" scare turned out to be exactly this). The full ~2.66M TITN space stays the long game (the MARC dump closes it, not crawling). With novedades caught up there's spare OPAC budget, now shared by the <code>canon_resolve</code> (4-hourly) and <code>shelf_resolve</code> (6-hourly) jobs under the single crawl lock. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
         <div class="meta"><span class="tag t-wip">CONTINUOUS</span></div>
       </div>
 
@@ -253,7 +253,7 @@
     <section class="col todo">
       <h2>To do <span class="n">9</span></h2>
 
-      <div class="divider">Next up — prioritised 2026-06-22 (leverage ÷ effort); LLM query rewriting + cold-start shipped to Done 2026-06-23</div>
+      <div class="divider">Next up — prioritised 2026-06-22 (leverage ÷ effort); LLM query rewriting + cold-start shipped 2026-06-23, demand-driven fetcher fully deployed 2026-06-24</div>
 
       <div class="card">
         <h3>1 · MARC-dump request to the Junta (RBPA) — postponed</h3>

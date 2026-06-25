@@ -1,7 +1,7 @@
 ---
 title: "biblioHack — Relevance &amp; Libraries"
 h1: "Relevance &amp; Libraries — milestone plan"
-tagline: "Designed 2026-06-15 · not yet built."
+tagline: "Designed 2026-06-15 · ✓ both milestones shipped (Relevance 2026-06-16, Libraries L0–L4 2026-06-22)."
 ---
 Two coupled features that make the catalogue feel curated and personal:
 
@@ -16,7 +16,14 @@ record) and a **contextual** library scope (per-user, applied at query time).
 Sequenced **relevance first** (helps everyone immediately, no geo dependency),
 **libraries second**.
 
-> Status: planned (designed 2026-06-15). Nothing here is built yet.
+> **Status: ✓ SHIPPED.** Relevance (R0–R3) went live 2026-06-16 (43,412 records
+> scored, default `/browse` sort + search filter/tiebreak; nightly recompute on
+> the crawl plane). Libraries (L0–L4) went live 2026-06-22 — branch geo/contact
+> schema + geocode CLI (571/573 branches), follow-branches API, the «Mis
+> bibliotecas» picker on `/account`, `library_scope` pre-filter on browse +
+> search, and library-aware recommendations. The external canon boost ("R-later")
+> also shipped via the separate canon-import pipeline (`docs/design/canon-import.md`).
+> This page is kept as the design record; the build order below is historical.
 > Companion HTML: `docs/site/relevance-and-libraries.html`.
 
 ---

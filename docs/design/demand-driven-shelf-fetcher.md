@@ -4,14 +4,18 @@ h1: "Demand-driven fetcher — unmatched shelf books"
 tagline: "Draft plan 2026-06-22 · Kanban To-do #2. The user-shelf variant of the canon C3 resolve: resolve unmatched Goodreads/StoryGraph shelf entries against the live OPAC and ingest the ones the RBPA actually holds."
 ---
 
-> **Status: S0–S3 implemented (2026-06-22), pending the gate + NAS rebuild; S4
-> (optional Grafana) still to build.** Kanban card "2 · Demand-driven fetcher
-> (unmatched shelf books)" (MEDIUM, top build). This is the user-shelf sibling of
-> the shipped canon **C3** resolve (`docs/design/canon-import.md`). It reuses the
-> same OPAC resolve machinery, aimed at unmatched `shelf_entries` instead of
-> `canon_seed`.
+> **Status: ✓ FULLY SHIPPED & DEPLOYED — S0–S4 (commit `140f3d6`, 2026-06-24).**
+> Backend + migration `0020` landed via CD; the `shelf_resolve` crawl-plane job
+> landed via the manual NAS crawler rebuild (supercronic reloaded the `40 */6`
+> schedule cleanly); the Grafana shelf-coverage row was synced into the
+> monitoring-stack provisioning dir (separate from CD). This is the user-shelf
+> sibling of the shipped canon **C3** resolve (`docs/design/canon-import.md`). It
+> reuses the same OPAC resolve machinery, aimed at unmatched `shelf_entries`
+> instead of `canon_seed`. The "Open questions for José" at the foot of this page
+> were all resolved as built (30-day cooldown, resolve all three shelves,
+> crawl-plane bracket only, StoryGraph covered for free).
 >
-> **Done so far:**
+> **Shipped:**
 > - **S0** — Alembic `20260622_0020` + the three `shelf_entries` columns
 >   (`resolve_status`, `resolve_attempts`, `last_resolved_at`) + partial index.
 > - **S1** — `RematchShelf` use case, `iter_unmatched` / `link_match` repo
@@ -22,17 +26,15 @@ tagline: "Draft plan 2026-06-22 · Kanban To-do #2. The user-shelf variant of th
 >   `mark_resolve_result` repo methods, `bibliohack shelf resolve` CLI, unit +
 >   integration tests.
 > - **S3** — crawl-plane `shelf_resolve` job (`run-job.sh` rematch→resolve under
->   the shared OPAC lock, `40 */6` crontab tick, `SHELF_RESOLVE_MAX` compose
->   knob). Ships on the next **manual NAS crawler rebuild** (crawler ≠ CD).
->
+>   the shared OPAC lock, `40 */6` crontab tick, `SHELF_RESOLVE_MAX=100` compose
+>   knob). Live on the NAS crawler since the 2026-06-24 rebuild.
 > - **S4** — Grafana "shelf coverage" panels on the crawl dashboard (unmatched
 >   count, matched %, resolve-status breakdown, held/seeded, OPAC attempts),
->   mirroring the canon coverage row.
+>   mirroring the canon coverage row. Synced into the monitoring-stack
+>   provisioning dir and reloaded with no errors.
 >
-> Lint/format/`py_compile` clean in-sandbox; `mypy` + `pytest` (incl. testcontainers
-> integration) **still to run on the Mac** (no Python 3.12 in the sandbox). Once
-> green: NAS crawler rebuild (S3 job) + Grafana reload (S4), then move the kanban
-> card to Done.
+> Gate was green on the Mac (595 passed · mypy clean · 81.9% coverage) before
+> the push.
 
 ## Decisions locked (2026-06-22)
 
