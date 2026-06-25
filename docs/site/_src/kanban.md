@@ -9,7 +9,13 @@ raw_html: true
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">24</span></h2>
+      <h2>Done <span class="n">25</span></h2>
+
+      <div class="card">
+        <h3>Search ⇄ browse cross-links</h3>
+        <p>The navigator's missing connective tissue. A shared <code>@/lib/browse</code> is now the single source of truth for <code>/browse</code> filter state ↔ URL (<code>parseBrowseFilters</code> · <code>browseSearchParams</code> · <code>browseHref</code>). <strong>Deep links:</strong> <code>/browse</code> seeds its filters from the query string and mirrors them back via <code>history.replaceState</code>, so a filtered view is shareable and back/forward-friendly. <strong>Cross-links:</strong> author/genre chips on search results (<code>ResultRow</code> restructured from one big anchor into a card so the chip links don't nest) and on the record page deep-link into a pre-filtered <code>/browse</code>. <strong>Loop closed both ways:</strong> a search box on <code>/browse</code> hands off to full-text search via <code>/?q=</code>, and <code>SearchBox</code> reads <code>?q=</code> on mount (in an effect, to avoid a hydration mismatch on the <code>client:load</code> island). Frontend-only; gate green (format · lint · typecheck · 74/74 vitest incl. 8 new). <strong>Deploy:</strong> commit/push auto-deploys; no Alembic, no crawler rebuild.</p>
+        <div class="meta"><span class="tag t-done">2026-06-25</span><span class="tag t-done">79eac77</span></div>
+      </div>
 
       <div class="card">
         <h3>LLM query rewriting + cold-start classification</h3>
@@ -151,26 +157,26 @@ raw_html: true
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">9</span></h2>
+      <h2>To do <span class="n">8</span></h2>
 
-      <div class="divider">Next up — prioritised 2026-06-22 (leverage ÷ effort); LLM query rewriting + cold-start shipped 2026-06-23, demand-driven fetcher fully deployed 2026-06-24</div>
+      <div class="divider">Next up — re-prioritised 2026-06-25 (José: park MARC, focus on what we control); cross-links shipped 2026-06-25</div>
 
       <div class="card">
-        <h3>1 · MARC-dump request to the Junta (RBPA) — postponed</h3>
-        <p>Email the RBPA coordinator for a periodic MARC-XML dump (Madrid precedent, CC-BY). One «sí» obsoletes ~90% of the crawl — bibliographic data arrives in bulk; only holdings/availability still need probing. Deploy-free, highest long-term leverage and it attacks the binding constraint behind every canon/relevance feature (the corpus being a thin <code>pub_year ≥ 2023</code> slice). <strong>Postponed by José 2026-06-22</strong> — still #1 on merit; pick it back up when ready to send.</p>
-        <div class="meta"><span class="tag t-ops">OPS</span><span class="tag t-todo">QUICK · POSTPONED</span></div>
+        <h3>1 · Audience / form badges + scope toggle on the frontend</h3>
+        <p>The §5.5 backend is done (<code>?scope=</code> on search + browse) but the UI affordance is minimal: out-of-scope rows only get a flagged badge in <code>scope=all</code> mode, and there's no first-class «público/forma» facet surfaced the way género/idioma are. Make audience + literary-form visible and filterable end-to-end. <strong>#1:</strong> small, self-contained, fully in our control — extends the navigator we've been building. No backend or schema work.</p>
+        <div class="meta"><span class="tag t-todo">SMALL</span></div>
       </div>
 
       <div class="card">
-        <h3>2 · Search ⇄ browse cross-links</h3>
-        <p>Natural follow-on to the navigator: clicking an author/genre badge on a search result or record page jumps into <code>/browse</code> pre-filtered; search box on /browse. <strong>#2:</strong> small, cheap, self-contained UX polish.</p>
+        <h3>2 · Always-on cold-start taste chips</h3>
+        <p>The LLM cold-start «detectamos que te gusta…» chips show on a fresh recommendation generation but vanish on a cache hit — the inferred tastes aren't persisted (kept migration-free at the time). Persist them (a <code>recommendations</code> meta column or a small Redis side-key) so the chips are stable across reloads. <strong>#2:</strong> small follow-up that finishes the §8.3 work; no external dependency.</p>
         <div class="meta"><span class="tag t-todo">SMALL</span></div>
       </div>
 
       <div class="card">
         <h3>3 · StoryGraph CSV importer</h3>
         <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof. <strong>#3:</strong> small but demand-gated — let a real request pull it forward. <em>Note: the demand-driven fetcher already covers StoryGraph entries for free once they exist (it resolves from stored title/author/ISBN, nothing Goodreads-specific).</em></p>
-        <div class="meta"><span class="tag t-todo">SMALL</span></div>
+        <div class="meta"><span class="tag t-todo">SMALL · DEMAND-GATED</span></div>
       </div>
 
       <div class="card">
@@ -211,6 +217,14 @@ raw_html: true
         <h3>M8 — Mobile app</h3>
         <p>React Native/Expo over the same API. Parked behind M7.</p>
         <div class="meta"><span class="tag t-todo">PARKED</span></div>
+      </div>
+
+      <div class="divider">Parked — needs a human / external party</div>
+
+      <div class="card">
+        <h3>MARC-dump request to the Junta (RBPA) — parked</h3>
+        <p>Email the RBPA coordinator for a periodic MARC-XML dump (Madrid precedent, CC-BY). One «sí» obsoletes ~90% of the crawl — bibliographic data arrives in bulk; only holdings/availability still need probing. Highest long-term leverage (it attacks the binding constraint behind canon/relevance: the corpus being a thin <code>pub_year ≥ 2023</code> slice) but it's <strong>not something we can ship ourselves</strong> — it depends on an external party and José sending the email. <strong>Parked at the bottom 2026-06-25</strong> to focus on what's in our control; draft stays ready at <code>docs/outreach/marc-dump-request.md</code> — pick it up when there's appetite to send.</p>
+        <div class="meta"><span class="tag t-ops">OPS</span><span class="tag t-todo">PARKED · EXTERNAL DEP</span></div>
       </div>
     </section>
   </div>
