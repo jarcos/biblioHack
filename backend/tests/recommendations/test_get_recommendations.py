@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from bibliohack.recommendations.application.ports import (
+    CachedBatch,
     Candidate,
     CandidateBatch,
     ColdStartProfile,
@@ -83,17 +84,32 @@ class FakeRationales:
 
 
 class FakeRepository:
-    def __init__(self, cached: tuple[Recommendation, ...] | None = None) -> None:
+    def __init__(
+        self,
+        cached: tuple[Recommendation, ...] | None = None,
+        *,
+        cached_tastes: tuple[str, ...] = (),
+    ) -> None:
         self._cached = cached
+        self._cached_tastes = cached_tastes
         self.replaced: tuple[str, tuple[Recommendation, ...]] | None = None
+        self.replaced_tastes: tuple[str, ...] | None = None
 
-    async def get_cached(self, user_id: str, cache_key: str) -> tuple[Recommendation, ...] | None:
-        return self._cached
+    async def get_cached(self, user_id: str, cache_key: str) -> CachedBatch | None:
+        if self._cached is None:
+            return None
+        return CachedBatch(recommendations=self._cached, inferred_tastes=self._cached_tastes)
 
     async def replace(
-        self, user_id: str, cache_key: str, recommendations: Sequence[Recommendation]
+        self,
+        user_id: str,
+        cache_key: str,
+        recommendations: Sequence[Recommendation],
+        *,
+        inferred_tastes: Sequence[str] = (),
     ) -> None:
         self.replaced = (cache_key, tuple(recommendations))
+        self.replaced_tastes = tuple(inferred_tastes)
 
 
 def _batch() -> CandidateBatch:
@@ -249,6 +265,31 @@ async def test_cold_start_infers_and_retrieves_when_nothing_matched() -> None:
     assert retriever.cold_start_calls == 1
     assert retriever.calls == 0  # never used the taste-centroid path
     assert repository.replaced is not None
+    assert repository.replaced_tastes == ("novela histórica",)  # persisted with the batch
+
+
+async def test_cold_start_cache_hit_returns_persisted_tastes() -> None:
+    """A cold-start cache hit re-surfaces the stored chips (no LLM, no retrieval)."""
+    cached = (Recommendation(record_id="rec-7", score=0.74, rationale=None),)
+    retriever = FakeRetriever(_batch(), cold_start_batch=_cold_batch())
+    classifier = FakeClassifier(ColdStartProfile(descriptor="d", tastes=("ignored",)))
+    result = await GetRecommendations(
+        shelf=FakeShelf(None, raw_shelf=("Patria — Aramburu",)),
+        retriever=retriever,
+        rationales=FakeRationales(),
+        repository=FakeRepository(
+            cached=cached, cached_tastes=("novela histórica", "guerra civil")
+        ),
+        classifier=classifier,
+        limit=10,
+    ).execute("u-1")
+
+    assert isinstance(result, Ok)
+    assert result.value.cold_start is True
+    assert result.value.recommendations == cached
+    # The chips come from the persisted batch, not a fresh LLM read.
+    assert result.value.inferred_tastes == ("novela histórica", "guerra civil")
+    assert retriever.cold_start_calls == 0
 
 
 async def test_cold_start_falls_back_to_empty_profile_when_llm_down() -> None:

@@ -21,6 +21,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,6 +45,9 @@ class RecommendationModel(Base):
     score: Mapped[float] = mapped_column(Float, nullable=False)
     rationale: Mapped[str | None] = mapped_column(Text)
     cache_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Cold-start "tastes" chips (§8.3.3), denormalised onto each row of a batch
+    # so a cache hit can still surface them. NULL for taste-centroid batches.
+    inferred_tastes: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

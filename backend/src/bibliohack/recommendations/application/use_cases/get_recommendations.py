@@ -49,8 +49,8 @@ class RecommendationOutcome:
     `recommendations` may be empty (profile exists but nothing retrievable yet).
     `cold_start` is True when the batch came from the LLM cold-start path rather
     than the taste centroid; `inferred_tastes` carries the genre/topic chips for
-    that path (populated on fresh generation, empty on a cache hit — we don't
-    persist them).
+    that path. They're persisted with the batch, so they survive a cache hit
+    (and a reload) for the life of the batch.
     """
 
     recommendations: tuple[Recommendation, ...]
@@ -94,7 +94,7 @@ class GetRecommendations:
 
         cached = await self._repository.get_cached(user_id, cache_key)
         if cached is not None:
-            return Ok(RecommendationOutcome(recommendations=cached))
+            return Ok(RecommendationOutcome(recommendations=cached.recommendations))
 
         batch = await self._retriever.retrieve(
             user_id,
@@ -130,8 +130,14 @@ class GetRecommendations:
         cache_key = _cold_start_cache_key(raw_shelf)
         cached = await self._repository.get_cached(user_id, cache_key)
         if cached is not None:
-            # Tastes aren't persisted; the cold_start flag still drives the UI.
-            return Ok(RecommendationOutcome(recommendations=cached, cold_start=True))
+            # Tastes are persisted with the batch, so the chips survive a reload.
+            return Ok(
+                RecommendationOutcome(
+                    recommendations=cached.recommendations,
+                    cold_start=True,
+                    inferred_tastes=cached.inferred_tastes,
+                )
+            )
 
         batch = await self._retriever.retrieve_cold_start(profile.descriptor, limit=self._limit)
         if not batch.candidates:
@@ -142,7 +148,9 @@ class GetRecommendations:
                 )
             )
 
-        recommendations = await self._decorate_and_store(user_id, cache_key, batch, profile.tastes)
+        recommendations = await self._decorate_and_store(
+            user_id, cache_key, batch, profile.tastes, inferred_tastes=profile.tastes
+        )
         return Ok(
             RecommendationOutcome(
                 recommendations=recommendations,
@@ -157,8 +165,14 @@ class GetRecommendations:
         cache_key: str,
         batch: CandidateBatch,
         liked_books: Sequence[str],
+        *,
+        inferred_tastes: Sequence[str] = (),
     ) -> tuple[Recommendation, ...]:
-        """Add best-effort rationales, persist under `cache_key`, return the batch."""
+        """Add best-effort rationales, persist under `cache_key`, return the batch.
+
+        `inferred_tastes` is stored alongside the batch (cold-start chips) so a
+        later cache hit can surface the same «detectamos que te gusta…» chips.
+        """
         rationale_for = await self._rationales.write(
             liked_books=liked_books, candidates=batch.candidates
         )
@@ -170,7 +184,9 @@ class GetRecommendations:
             )
             for candidate in batch.candidates
         )
-        await self._repository.replace(user_id, cache_key, recommendations)
+        await self._repository.replace(
+            user_id, cache_key, recommendations, inferred_tastes=inferred_tastes
+        )
         return recommendations
 
 

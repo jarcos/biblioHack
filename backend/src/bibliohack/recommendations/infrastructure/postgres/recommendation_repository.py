@@ -30,7 +30,11 @@ from bibliohack.catalog.domain.literary_profile import (
 from bibliohack.catalog.infrastructure.postgres.models import BibliographicRecordModel
 from bibliohack.holdings.infrastructure.postgres.models import CopyModel
 from bibliohack.reading_history.infrastructure.postgres.models import ShelfEntryModel
-from bibliohack.recommendations.application.ports import Candidate, CandidateBatch
+from bibliohack.recommendations.application.ports import (
+    CachedBatch,
+    Candidate,
+    CandidateBatch,
+)
 from bibliohack.recommendations.domain.recommendation import Recommendation
 from bibliohack.recommendations.infrastructure.postgres.models import RecommendationModel
 
@@ -60,7 +64,7 @@ class PostgresRecommendationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_cached(self, user_id: str, cache_key: str) -> tuple[Recommendation, ...] | None:
+    async def get_cached(self, user_id: str, cache_key: str) -> CachedBatch | None:
         rows = (
             (
                 await self._session.execute(
@@ -82,21 +86,32 @@ class PostgresRecommendationRepository:
             # treat zero rows as no-cache; regenerating an empty batch is
             # cheap (the retriever short-circuits), so the ambiguity is fine.
             return None
-        return tuple(
-            Recommendation(
-                record_id=str(row.matched_record_id),
-                score=row.score,
-                rationale=row.rationale,
-            )
-            for row in rows
+        # Tastes are denormalised onto every row of a batch — read one.
+        tastes = tuple(rows[0].inferred_tastes or ())
+        return CachedBatch(
+            recommendations=tuple(
+                Recommendation(
+                    record_id=str(row.matched_record_id),
+                    score=row.score,
+                    rationale=row.rationale,
+                )
+                for row in rows
+            ),
+            inferred_tastes=tastes,
         )
 
     async def replace(
-        self, user_id: str, cache_key: str, recommendations: Sequence[Recommendation]
+        self,
+        user_id: str,
+        cache_key: str,
+        recommendations: Sequence[Recommendation],
+        *,
+        inferred_tastes: Sequence[str] = (),
     ) -> None:
         await self._session.execute(
             delete(RecommendationModel).where(RecommendationModel.user_id == UUID(user_id))
         )
+        tastes = list(inferred_tastes) or None
         for recommendation in recommendations:
             self._session.add(
                 RecommendationModel(
@@ -106,6 +121,7 @@ class PostgresRecommendationRepository:
                     score=recommendation.score,
                     rationale=recommendation.rationale,
                     cache_key=cache_key,
+                    inferred_tastes=tastes,
                 )
             )
         await self._session.flush()

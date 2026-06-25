@@ -36,6 +36,15 @@ class CandidateBatch:
 
 
 @dataclass(frozen=True, slots=True)
+class CachedBatch:
+    """A cache read: the stored recommendations plus the cold-start tastes that
+    produced them (empty for taste-centroid batches, which carry no chips)."""
+
+    recommendations: tuple[Recommendation, ...]
+    inferred_tastes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ColdStartProfile:
     """An LLM read of a brand-new user's shelf when nothing matched yet (§8.3.3).
 
@@ -129,12 +138,17 @@ class RationaleWriter(Protocol):
 class RecommendationRepository(Protocol):
     """Per-user cache of generated recommendations."""
 
-    async def get_cached(self, user_id: str, cache_key: str) -> tuple[Recommendation, ...] | None:
+    async def get_cached(self, user_id: str, cache_key: str) -> CachedBatch | None:
         """The cached batch for this exact shelf state, or None (stale/absent)."""
         ...
 
     async def replace(
-        self, user_id: str, cache_key: str, recommendations: Sequence[Recommendation]
+        self,
+        user_id: str,
+        cache_key: str,
+        recommendations: Sequence[Recommendation],
+        *,
+        inferred_tastes: Sequence[str] = (),
     ) -> None:
-        """Drop the user's previous batch and store this one."""
+        """Drop the user's previous batch and store this one (with its tastes)."""
         ...

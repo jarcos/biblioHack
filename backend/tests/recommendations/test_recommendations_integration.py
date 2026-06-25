@@ -221,15 +221,24 @@ async def test_repository_cache_round_trip_is_keyed_and_per_user(session: AsyncS
     repo = PostgresRecommendationRepository(session)
 
     batch = (Recommendation(record_id=str(near), score=0.91, rationale="Te irá bien."),)
-    await repo.replace(user_id, "fp-1", batch)
+    await repo.replace(user_id, "fp-1", batch, inferred_tastes=("novela negra",))
 
-    assert await repo.get_cached(user_id, "fp-1") == batch
+    hit = await repo.get_cached(user_id, "fp-1")
+    assert hit is not None
+    assert hit.recommendations == batch
+    assert hit.inferred_tastes == ("novela negra",)  # tastes survive the round trip
     assert await repo.get_cached(user_id, "fp-STALE") is None
 
     other = User.register(email=Email("other@example.com"), password_hash=PasswordHash("h"))
     await PostgresUserRepository(session).add(other)
     assert await repo.get_cached(str(other.id), "fp-1") is None  # never another user's batch
 
+    # A taste-centroid batch carries no chips → NULL column → empty tastes.
+    await repo.replace(user_id, "fp-2", batch)
+    centroid_hit = await repo.get_cached(user_id, "fp-2")
+    assert centroid_hit is not None
+    assert centroid_hit.inferred_tastes == ()
+
     # replace drops the old batch wholesale.
-    await repo.replace(user_id, "fp-2", ())
-    assert await repo.get_cached(user_id, "fp-1") is None
+    await repo.replace(user_id, "fp-3", ())
+    assert await repo.get_cached(user_id, "fp-2") is None
