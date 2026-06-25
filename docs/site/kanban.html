@@ -109,7 +109,13 @@
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">25</span></h2>
+      <h2>Done <span class="n">26</span></h2>
+
+      <div class="card">
+        <h3>Audience / form surfaced end-to-end</h3>
+        <p>The §5.5 scope data (público + literary-form) was filterable (browse facets + the search «incluir infantil…» toggle) but barely visible at the row level. Now: <strong>browse cards</strong> flag out-of-default-scope rows (infantil / juvenil / no ficción) with público+forma badges so they're distinguishable in the whole-mirror navigator; the <strong>record page</strong> público/forma badges deep-link into the matching <code>/browse</code> facet; and <strong>flagged search hits</strong> expose público/forma as cross-link chips in the «Explorar» footer (building on the cross-link helper). Frontend-only, gate green (74/74 vitest, +1 regression test on the record-page facet links). <strong>Deploy:</strong> commit/push auto-deploys; no Alembic, no crawler rebuild.</p>
+        <div class="meta"><span class="tag t-done">2026-06-25</span><span class="tag t-done">4eccaea</span></div>
+      </div>
 
       <div class="card">
         <h3>Search ⇄ browse cross-links</h3>
@@ -257,37 +263,31 @@
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">8</span></h2>
+      <h2>To do <span class="n">7</span></h2>
 
-      <div class="divider">Next up — re-prioritised 2026-06-25 (José: park MARC, focus on what we control); cross-links shipped 2026-06-25</div>
+      <div class="divider">Next up — re-prioritised 2026-06-25 (José: park MARC, focus on what we control); cross-links + audience/form surfacing shipped 2026-06-25</div>
 
       <div class="card">
-        <h3>1 · Audience / form badges + scope toggle on the frontend</h3>
-        <p>The §5.5 backend is done (<code>?scope=</code> on search + browse) but the UI affordance is minimal: out-of-scope rows only get a flagged badge in <code>scope=all</code> mode, and there's no first-class «público/forma» facet surfaced the way género/idioma are. Make audience + literary-form visible and filterable end-to-end. <strong>#1:</strong> small, self-contained, fully in our control — extends the navigator we've been building. No backend or schema work.</p>
+        <h3>1 · Always-on cold-start taste chips</h3>
+        <p>The LLM cold-start «detectamos que te gusta…» chips show on a fresh recommendation generation but vanish on a cache hit — the inferred tastes aren't persisted (kept migration-free at the time). Persist them (a <code>recommendations</code> meta column or a small Redis side-key) so the chips are stable across reloads. <strong>#1:</strong> small follow-up that finishes the §8.3 work; no external dependency. <em>Touches the backend (a small migration or Redis key), so it's a step up in blast radius from the recent frontend-only wins.</em></p>
         <div class="meta"><span class="tag t-todo">SMALL</span></div>
       </div>
 
       <div class="card">
-        <h3>2 · Always-on cold-start taste chips</h3>
-        <p>The LLM cold-start «detectamos que te gusta…» chips show on a fresh recommendation generation but vanish on a cache hit — the inferred tastes aren't persisted (kept migration-free at the time). Persist them (a <code>recommendations</code> meta column or a small Redis side-key) so the chips are stable across reloads. <strong>#2:</strong> small follow-up that finishes the §8.3 work; no external dependency.</p>
-        <div class="meta"><span class="tag t-todo">SMALL</span></div>
-      </div>
-
-      <div class="card">
-        <h3>3 · StoryGraph CSV importer</h3>
-        <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof. <strong>#3:</strong> small but demand-gated — let a real request pull it forward. <em>Note: the demand-driven fetcher already covers StoryGraph entries for free once they exist (it resolves from stored title/author/ISBN, nothing Goodreads-specific).</em></p>
+        <h3>2 · StoryGraph CSV importer</h3>
+        <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof. <strong>#2:</strong> small but demand-gated — let a real request pull it forward. <em>Note: the demand-driven fetcher already covers StoryGraph entries for free once they exist (it resolves from stored title/author/ISBN, nothing Goodreads-specific).</em></p>
         <div class="meta"><span class="tag t-todo">SMALL · DEMAND-GATED</span></div>
       </div>
 
       <div class="card">
-        <h3>4 · OTel on the crawl/worker plane</h3>
-        <p>When <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough; <code>scrape_log</code> remains unwired. <strong>#4:</strong> internal observability — defer until the status rows actually fall short.</p>
+        <h3>3 · OTel on the crawl/worker plane</h3>
+        <p>When <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough; <code>scrape_log</code> remains unwired. <strong>#3:</strong> internal observability — defer until the status rows actually fall short.</p>
         <div class="meta"><span class="tag t-todo">MEDIUM</span></div>
       </div>
 
       <div class="card">
-        <h3>5 · Edge rate limiting (Cloudflare WAF)</h3>
-        <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears. <strong>#5:</strong> reactive — only worth doing once abuse shows up.</p>
+        <h3>4 · Edge rate limiting (Cloudflare WAF)</h3>
+        <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears. <strong>#4:</strong> reactive — only worth doing once abuse shows up.</p>
         <div class="meta"><span class="tag t-todo">IF NEEDED</span></div>
       </div>
 
