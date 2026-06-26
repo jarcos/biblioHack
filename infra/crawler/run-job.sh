@@ -11,7 +11,7 @@ set -euo pipefail
 # `bibliohack` resolves regardless of how the scheduler sets PATH.
 export PATH="/app/.venv/bin:${PATH:-/usr/local/bin:/usr/bin:/bin}"
 
-JOB="${1:?usage: run-job.sh discover_worker|refresh|covers|embed|relevance|canon_seed|canon_resolve|shelf_resolve}"
+JOB="${1:?usage: run-job.sh discover_worker|refresh|covers|embed|relevance|canon_seed|canon_resolve|shelf_resolve|backlist}"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # OPAC jobs share one lock (one polite OPAC budget). Cover resolution hits
@@ -95,6 +95,18 @@ case "$JOB" in
     bibliohack shelf rematch
     bibliohack shelf resolve \
       --max "${SHELF_RESOLVE_MAX:-100}" \
+      --rate "${CRAWL_RATE:-1.0}"
+    ;;
+  backlist)
+    # M7 (docs/design/m7-backlist-crawl.md): top up the pre-2024 TITN backlog.
+    # DB-only seeding (idempotent) at a lower priority than novedades, so the
+    # hourly discover_worker drains fresh records first and fills idle capacity
+    # with the backlist. Shares the crawl lock (default below) because the FIRST
+    # run probes the OPAC for the high-water mark; after that it's pure DB.
+    # Top-up mode: seeds only enough to refill the queue to BACKLIST_TARGET_DEPTH.
+    bibliohack catalog backlist \
+      --target-depth "${BACKLIST_TARGET_DEPTH:-100000}" \
+      --chunk "${BACKLIST_CHUNK:-50000}" \
       --rate "${CRAWL_RATE:-1.0}"
     ;;
   *)

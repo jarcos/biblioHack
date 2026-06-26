@@ -42,3 +42,11 @@
 # growth, :30 refresh, :15/:45 off-OPAC jobs, and the :50 canon resolve; bounded
 # by SHELF_RESOLVE_MAX so it never starves novedades growth.
 40 */6 * * * /app/run-job.sh shelf_resolve
+# M7 backlist sweep twice a day at :20 (01:20, 13:20 UTC) — tops up the
+# pre-2024 TITN backlog so the hourly worker fills its idle capacity with it
+# (seeded at a lower priority than novedades, so freshness is never starved).
+# DB-only after the first run; the first run probes the OPAC under the shared
+# crawl lock, so :20 keeps it clear of the :00 growth (done by :30), the :30
+# refresh, the :15/:45 off-OPAC jobs, :50 canon, and :40 shelf. Top-up mode
+# (BACKLIST_TARGET_DEPTH) means most runs seed nothing once the queue is full.
+20 1,13 * * * /app/run-job.sh backlist

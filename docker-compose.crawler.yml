@@ -60,6 +60,14 @@ services:
       # On-OPAC: shares the crawl lock + CRAWL_RATE budget (deduped across users),
       # kept modest so it never starves the hourly novedades growth.
       SHELF_RESOLVE_MAX: "100"   # distinct shelf books resolved per 6-hourly run (on-OPAC, bounded)
+      # M7 backlist sweep (twice daily): top up the pre-2024 TITN backlog so the
+      # hourly worker drains it after novedades. DB-only after the first run (which
+      # probes the high-water mark). TARGET_DEPTH bounds the outstanding `discovered`
+      # backlog so count_by_state + the claim index stay cheap; CHUNK caps how many
+      # TITNs a single run seeds. Drain is worker-bound (WORKER_MAX − novedades), so
+      # to go faster raise WORKER_MAX toward the 1 req/s ceiling — never CRAWL_RATE.
+      BACKLIST_TARGET_DEPTH: "100000" # keep this many backlist TITNs queued as `discovered`
+      BACKLIST_CHUNK: "50000"         # max TITNs seeded per backlist run
       # Resolve covers into the shared store (the api serves them read-only).
       COVERS_STORE_PATH: /covers
       # BGE-M3 embeddings via the HF Inference API (token from .env).
