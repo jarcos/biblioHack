@@ -25,14 +25,14 @@
     {
       "type": "stat",
       "title": "TITN space covered",
-      "description": "scrape_tasks seen vs the probed TITN high-water mark (2,662,739)",
+      "description": "scrape_tasks seen vs the probed TITN high-water mark. Denominator tracks the backlist cursor's probed total (re-probes update it), falling back to the bootstrap figure 2,662,739 until the first M7 sweep runs.",
       "gridPos": { "h": 5, "w": 4, "x": 4, "y": 0 },
       "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
       "targets": [
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT round(100.0 * count(*) / 2662739, 2) AS pct FROM scrape_tasks"
+          "rawSql": "SELECT round(100.0 * count(*) / NULLIF(COALESCE((SELECT total FROM discovery_cursors WHERE expression = '__backlist_titn__'), 2662739), 0), 2) AS pct FROM scrape_tasks"
         }
       ],
       "fieldConfig": { "defaults": { "unit": "percent", "decimals": 2 }, "overrides": [] },
@@ -439,6 +439,69 @@
         }
       ],
       "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Backlist swept %",
+      "description": "M7 backlist sweep: how far the TITN cursor has walked (next_offset / probed high-water mark). 'No data' until the first sweep runs.",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 43 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(100.0 * next_offset / NULLIF(total, 0), 2) AS pct FROM discovery_cursors WHERE expression = '__backlist_titn__'"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 2 }, "overrides": [] },
+      "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Backlist queue depth",
+      "description": "Outstanding backlist rows still 'discovered' at priority 500 — work waiting for the worker. Top-up keeps this near BACKLIST_TARGET_DEPTH while seeding.",
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 43 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) AS depth FROM scrape_tasks WHERE status = 'discovered' AND priority = 500"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Backlist ETA (days, upper bound)",
+      "description": "Rough upper bound: (queued@500 + un-seeded TITNs from the cursor) ÷ 7-day drain rate@500. Overcounts — gaps and already-mirrored TITNs won't all insert. 'No data' until a week of drain exists.",
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 43 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH d AS (SELECT count(*) FILTER (WHERE status = 'discovered') AS queued, count(*) FILTER (WHERE status IN ('parsed','skipped_non_book','not_found') AND last_attempted_at > now() - interval '7 days') AS done_7d FROM scrape_tasks WHERE priority = 500), c AS (SELECT next_offset, total FROM discovery_cursors WHERE expression = '__backlist_titn__') SELECT CASE WHEN d.done_7d > 0 THEN round((d.queued + greatest(coalesce(c.total, 0) - coalesce(c.next_offset, 0), 0)) / (d.done_7d / 7.0)) ELSE NULL END AS eta_days FROM d LEFT JOIN c ON true"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "d" }, "overrides": [] },
+      "options": { "graphMode": "none", "colorMode": "value" }
+    },
+    {
+      "type": "timeseries",
+      "title": "Backlist drained per day",
+      "description": "Backlist rows (priority 500) reaching a terminal state per day — parsed + skipped_non_book + not_found, bucketed by last_attempted_at.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 43 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('day', last_attempted_at) AS \"time\", count(*) AS \"drained\" FROM scrape_tasks WHERE priority = 500 AND status IN ('parsed','skipped_non_book','not_found') AND $__timeFilter(last_attempted_at) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 } }, "overrides": [] }
     }
   ]
 }
