@@ -96,6 +96,7 @@
     <a href="relevance-and-libraries.html">Relevance & Libraries</a>
     <a href="canon-import.html">Canon Import</a>
     <a href="demand-driven-shelf-fetcher.html">Demand-driven Fetcher</a>
+    <a href="m7-backlist-crawl.html">M7 Backlist Crawl</a>
     <a href="pending-and-ops.html">Pending & Operations</a>
     <a href="kanban.html">Kanban</a>
     
@@ -138,7 +139,7 @@
 <tr>
 <td>RBPA collective OPAC</td>
 <td><a href="https://www.juntadeandalucia.es/cultura/absys/abnopac/abnetcl.cgi?ACC=101">https://www.juntadeandalucia.es/cultura/absys/abnopac/abnetcl.cgi?ACC=101</a></td>
-<td>Federated; Huelva-bootstrapped via <code>SUBC</code>. M7 generalises this to all eight provinces (config-driven SUBC set) — the region-wide goal.</td>
+<td>Federated and <strong>network-wide</strong>: searches return records from all eight provinces. <code>SUBC</code> is a <em>display</em> filter (which branch's holdings to foreground), not a search filter, so discovery was never province-scoped. M7's region-wide goal is about <em>crawl coverage</em> (the pre-2024 backlist), not SUBC handling.</td>
 </tr>
 <tr>
 <td>Catálogo Colectivo del Patrimonio Bibliográfico Andaluz</td>
@@ -925,8 +926,8 @@ recommendations (id, user_id, record_id, score, rationale_text, generated_at, mo
 <td>2–3 weekends</td>
 </tr>
 <tr>
-<td><strong>M7 — All-province crawl (region-wide)</strong></td>
-<td><strong>NEXT PRIORITY (re-prioritised 2026-06-25).</strong> Generalise the Huelva-only <code>SUBC</code>/discovery scoping so every Andalusian province is crawled (config-driven province set). This is the prerequisite for publicising the app region-wide: holdings/copies are already stored network-wide, but bibliographic <em>discovery</em> is still Huelva-seeded, so records held only in other provinces aren't mirrored yet. Must respect the §6.3 politeness budget (1 req/s) — expect weeks of polite crawl to broaden coverage; phase province-by-province (Sevilla, Málaga, Cádiz…) and watch the crawl dashboards.</td>
+<td><strong>M7 — Network-wide backlist crawl (region-wide)</strong></td>
+<td><strong>NEXT PRIORITY (re-prioritised 2026-06-25; framing corrected 2026-06-26).</strong> The prerequisite for publicising the app region-wide. <strong>Correction:</strong> discovery is <em>not</em> Huelva-scoped and there is no <code>SUBC</code> filter to "generalise" — the OPAC expert queries (<code>@fepu</code> publication-year slices, TITN enumeration) already return results network-wide, <code>SUBC</code> only scopes <em>display</em> not search (§2.3 / <code>urls.py</code>), and ingest already stores copies for all branches. The real gap is <strong>coverage, not scoping</strong>: today's mirror ≈ the one-time bootstrap TITN sweep range + the ongoing novedades discovery (<code>@fepu&gt;=2024</code>). The <strong>pre-2024 backlist, in every province</strong>, is only as complete as the bootstrap sweep got, so older titles held anywhere in the network aren't mirrored yet. Closing it is <strong>crawl-time-bound</strong> by the §6.3 politeness budget (1 req/s) — weeks of polite crawl — not a config feature; phase by TITN range / publication-year slice (not by province) and watch the crawl dashboards. Crawler-plane change → manual NAS rebuild (crawler ≠ CD).</td>
 <td>several weekends + crawl time</td>
 </tr>
 <tr>

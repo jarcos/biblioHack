@@ -295,11 +295,16 @@ class ScrapeTaskRepository(Protocol):
     LOCKED` so multiple workers can run side-by-side without colliding.
     """
 
-    async def seed_range(self, low: Titn, high: Titn) -> int:
+    async def seed_range(self, low: Titn, high: Titn, *, priority: int = 100) -> int:
         """Insert `discovered` rows for every TITN in [low, high] not yet known.
 
         Returns the number of NEW rows inserted (existing rows are left as-is).
-        Idempotent — safe to re-run with overlapping ranges.
+        Idempotent — safe to re-run with overlapping ranges; an existing row's
+        priority is left untouched.
+
+        `priority` (lower = claimed sooner) lets the backlist sweep seed below
+        the default 100 used by novedades/refresh, so the worker drains fresh
+        work first and fills only its idle capacity with the backlist.
         """
         ...
 
@@ -353,6 +358,15 @@ class ScrapeTaskRepository(Protocol):
 
     async def count_by_state(self) -> StateCounts:
         """Histogram of all `scrape_tasks` by status."""
+        ...
+
+    async def count_discovered_with_priority(self, priority: int) -> int:
+        """Count `discovered` rows at exactly `priority`.
+
+        Powers the backlist sweep's top-up mode: how many backlist rows are
+        still queued (vs already drained by the worker), so a run seeds only
+        enough to refill the queue to its target depth.
+        """
         ...
 
 

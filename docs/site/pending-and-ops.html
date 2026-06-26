@@ -96,6 +96,7 @@
     <a href="relevance-and-libraries.html">Relevance & Libraries</a>
     <a href="canon-import.html">Canon Import</a>
     <a href="demand-driven-shelf-fetcher.html">Demand-driven Fetcher</a>
+    <a href="m7-backlist-crawl.html">M7 Backlist Crawl</a>
     <span class="here">Pending & Operations</span>
     <a href="kanban.html">Kanban</a>
     
@@ -124,8 +125,8 @@
 
   <h2>Direction — region-wide / library-agnostic (decided 2026-06-25)</h2>
   <div class="panel">
-    <p>The product targets <strong>all eight RBPA provinces</strong>, not just Huelva; every user picks their own library of reference. The Libraries milestone already made branch-following region-wide (571/573 branches geocoded + followable, scope «mis bibliotecas → mi provincia → todo»), so the gating piece is the <strong>catalogue crawl</strong>: bibliographic discovery is still Huelva-seeded via <code>SUBC</code>, so records held only in other provinces aren't mirrored yet (holdings/copies <em>are</em> stored network-wide). Two pieces close the gap:</p>
-    <p><strong>M7 — all-province crawl (NEXT PRIORITY).</strong> Generalise the Huelva-only discovery scoping to a config-driven province set; crawl Sevilla, Málaga, Cádiz… within the 1 req/s politeness budget (so expect weeks of polite crawl — phase province-by-province). Crawler-plane change → manual NAS rebuild. This is the prerequisite for publicising region-wide.</p>
+    <p>The product targets <strong>all eight RBPA provinces</strong>, not just Huelva; every user picks their own library of reference. The Libraries milestone already made branch-following region-wide (571/573 branches geocoded + followable, scope «mis bibliotecas → mi provincia → todo»), so the gating piece is the <strong>catalogue crawl coverage</strong>: discovery already runs network-wide (the OPAC search isn't province-scoped — <code>SUBC</code> only affects display — and copies are stored for every branch), but the crawl has so far covered the bootstrap TITN range + novedades (<code>@fepu&gt;=2024</code>), so the <strong>pre-2024 backlist in any province</strong> isn't mirrored yet. Two pieces close the gap:</p>
+    <p><strong>M7 — network-wide backlist crawl (NEXT PRIORITY).</strong> Not a scoping change — a <strong>coverage</strong> one: run the exhaustive TITN sweep / pre-2024 year slices to completion within the 1 req/s politeness budget (so expect weeks of polite crawl — phase by TITN range / year slice). Crawler-plane change → manual NAS rebuild. This is the prerequisite for publicising region-wide.</p>
     <p><strong>L5 — library at registration (optional).</strong> Add the existing «Mis bibliotecas» multi-branch picker to signup, skippable; stored as followed branches, editable later on <code>/account</code>. Reuses <code>user_followed_branches</code>; no schema change.</p>
   </div>
 
@@ -152,7 +153,7 @@
     <tr><td>Frontend audience/literary-form badge + scope toggle</td><td>§5.5 backend is done (<code>?scope=</code>); the UI affordance is still minimal</td></tr>
     <tr><td>Edge rate limiting (Cloudflare WAF rules)</td><td>App-level limits shipped in Phase 5; add edge rules if abuse appears</td></tr>
     <tr><td>Qdrant migration</td><td>Only if pgvector query p95 &gt; 250 ms in production — acceptance criterion fixed in §12.7</td></tr>
-    <tr><td><strong>M7</strong> Other provinces (Sevilla, Cádiz…)</td><td>Generalise SUBC handling by config; copies are already stored network-wide, so it's mostly scoping + crawl budget</td></tr>
+    <tr><td><strong>M7</strong> Other provinces (Sevilla, Cádiz…)</td><td>Not SUBC handling — discovery + copies are already network-wide. It's a <strong>coverage</strong> job: crawl the pre-2024 backlist (exhaustive TITN sweep / year slices) to completion within the 1 req/s budget</td></tr>
     <tr><td><strong>M8</strong> Mobile app</td><td>React Native/Expo over the same API; out of scope for now</td></tr>
     <tr><td>Request a MARC dump from the Junta <em>(email drafted 2026-06-13)</em></td><td>A periodic MARC-XML dump (Madrid precedent) would obsolete most of the scraper and close the full ~2.66M gap that crawling never will. Draft ready at <code>docs/outreach/marc-dump-request.md</code> — pending José to pick a channel and send</td></tr>
   </table>
@@ -175,7 +176,7 @@
     <li><strong>Virtual copies ("ejemplares virtuales")</strong> — zero-copy records confirmed real; double-check we aren't silently dropping digital-loan copies.</li>
     <li><strong>Subjects parser confidence</strong> — the exact <code>js-</code> class for <em>materias</em> is still unconfirmed against a record that actually exposes them.</li>
     <li><strong>Google Books cover ToS</strong> — display-time hotlink only, never stored; per-cover <code>license</code>/<code>source</code> tracked so a source can be purged. Re-read terms if cover usage grows.</li>
-    <li><strong>Huelva-only vs network-wide copies</strong> — currently storing all-province copies and filtering at query time; the cheap path to M7, but re-validate the storage cost as the mirror grows.</li>
+    <li><strong>All-province copies storage cost</strong> — already storing copies for every branch network-wide and filtering at query time (no SUBC filter at ingest); re-validate the storage cost as the backlist crawl (M7) grows the mirror.</li>
   </ul>
 
   <footer>Generated by <code>tools/build_docs.py</code> from the canonical Markdown in <code>docs/</code> — do not edit the HTML by hand. · <a href="index.html">Overview</a> · Información obtenida del Portal de la Junta de Andalucía.</footer>

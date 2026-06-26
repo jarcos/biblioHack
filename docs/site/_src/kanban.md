@@ -171,11 +171,11 @@ raw_html: true
     <section class="col todo">
       <h2>To do <span class="n">7</span></h2>
 
-      <div class="divider">Next up — re-prioritised 2026-06-25 (José: go region-wide / library-agnostic — the app targets all eight RBPA provinces, not just Huelva). The catalogue crawl is the gating piece, so M7 leads.</div>
+      <div class="divider">Next up — re-prioritised 2026-06-25 (José: go region-wide / library-agnostic — the app targets all eight RBPA provinces, not just Huelva). The catalogue crawl coverage is the gating piece, so M7 leads.</div>
 
       <div class="card">
-        <h3>1 · M7 — All-province crawl (region-wide)</h3>
-        <p>The prerequisite for publicising the app region-wide. Generalise the Huelva-seeded <code>SUBC</code>/discovery scoping so every Andalusian province is crawled (config-driven province set). Holdings/copies are <em>already</em> stored network-wide and all 571/573 branches are geocoded + followable — but bibliographic <strong>discovery</strong> is still Huelva-driven, so records held only in Sevilla/Málaga/… aren't mirrored yet. <strong>#1:</strong> the big one — bounded by the §6.3 politeness budget (1 req/s), so expect weeks of polite crawl; phase province-by-province and watch the crawl dashboards. Crawler-plane change → <strong>manual NAS rebuild</strong> (crawler ≠ CD). Full framing: <a href="architecture.html">Architecture</a> M7.</p>
+        <h3>1 · M7 — Network-wide backlist crawl (region-wide)</h3>
+        <p>The prerequisite for publicising the app region-wide. <strong>Framing corrected 2026-06-26:</strong> discovery is <em>already</em> network-wide — the OPAC expert queries (<code>@fepu</code> year slices, TITN enumeration) return all eight provinces, <code>SUBC</code> only scopes <em>display</em> not search, and ingest already stores copies for every branch. So there is no Huelva/<code>SUBC</code> scoping to "generalise"; the gap is <strong>coverage, not scoping</strong>. Today's mirror ≈ the one-time bootstrap TITN sweep + ongoing novedades (<code>@fepu&gt;=2024</code>); the <strong>pre-2024 backlist (any province)</strong> is only as complete as the bootstrap got. <strong>#1:</strong> the big one — crawl-time-bound by the §6.3 politeness budget (1 req/s), so expect weeks of polite crawl; phase by TITN range / year slice and watch the crawl dashboards. Crawler-plane change → <strong>manual NAS rebuild</strong> (crawler ≠ CD). Full framing: <a href="architecture.html">Architecture</a> M7; build plan: <a href="m7-backlist-crawl.html">M7 Backlist Crawl</a> spec.</p>
         <div class="meta"><span class="tag t-todo">MILESTONE · crawl time</span></div>
       </div>
 

@@ -47,6 +47,11 @@ from bibliohack.catalog.application.use_cases.scrape_one_task import (
     ScrapeStepOutcome,
     ScrapeStepResult,
 )
+from bibliohack.catalog.application.use_cases.seed_backlist_chunk import (
+    BACKLIST_CURSOR_KEY,
+    BACKLIST_PRIORITY,
+    SeedBacklistChunk,
+)
 from bibliohack.catalog.application.use_cases.seed_discovered_tasks import (
     SeedDiscoveredTasks,
 )
@@ -89,7 +94,7 @@ from bibliohack.shared.infrastructure import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from bibliohack.catalog.application.ports import FetchResult
+    from bibliohack.catalog.application.ports import DiscoveryCursor, FetchResult
 
 log = logging.getLogger(__name__)
 
@@ -312,6 +317,146 @@ async def _run_discover(
         else f"  cursor:        {result.start_offset:,} → {result.next_offset:,}"
     )
     typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+
+
+@catalog_app.command("backlist")
+def backlist(
+    chunk: int = typer.Option(
+        50_000,
+        "--chunk",
+        help="Max TITNs to seed this run (the cursor advances by what's seeded).",
+    ),
+    target_depth: int | None = typer.Option(
+        None,
+        "--target-depth",
+        help=(
+            "Top-up mode: seed only enough to refill the outstanding backlist "
+            "queue to this many `discovered` rows. Omit for fixed-chunk seeding."
+        ),
+    ),
+    reset: bool = typer.Option(
+        False,
+        "--reset",
+        help="Re-probe the high-water mark and restart the sweep from TITN 1.",
+    ),
+    status_only: bool = typer.Option(
+        False,
+        "--status",
+        help="Print the backlist cursor + queue depth and exit (seeds nothing).",
+    ),
+    rate_per_second: float = typer.Option(
+        1.0, "--rate", help="Polite per-second request rate for the range probe."
+    ),
+) -> None:
+    """Seed the pre-2024 backlist by walking the whole TITN space (M7).
+
+    Resumable: a persisted cursor (`discovery_cursors`, key
+    `__backlist_titn__`) records the next TITN to seed and the probed
+    high-water mark, so each run advances `--chunk` deeper. Rows are seeded
+    as `discovered` at a lower priority than novedades, so the existing
+    `catalog worker` drains fresh records first and fills idle capacity with
+    the backlist. The seeder is DB-only (plus one polite probe on the first
+    run / `--reset`); the OPAC budget is spent by the worker draining the queue.
+
+    Usage:
+
+        bibliohack catalog backlist --status                  # inspect, seed nothing
+        bibliohack catalog backlist --target-depth 100000     # top-up (crawler cron)
+        bibliohack catalog backlist --chunk 50000             # fixed chunk
+        bibliohack catalog backlist --reset                   # re-probe + restart
+
+    Requires the scraper extra (see `worker`) only when a probe runs.
+    """
+    asyncio.run(_run_backlist(chunk, target_depth, rate_per_second, reset, status_only))
+
+
+class _NoProbe:
+    """Placeholder probe for runs where the high-water mark is already known."""
+
+    async def execute(self) -> object:  # pragma: no cover - never invoked
+        msg = "backlist probe invoked unexpectedly (cursor total missing)"
+        raise RuntimeError(msg)
+
+
+async def _run_backlist(
+    chunk: int,
+    target_depth: int | None,
+    rate_per_second: float,
+    reset: bool,
+    status_only: bool,
+) -> None:
+    async with transactional_session() as session:
+        tasks = PostgresScrapeTaskRepository(session)
+        cursors = PostgresDiscoveryCursorRepository(session)
+
+        if status_only:
+            cursor = await cursors.get(BACKLIST_CURSOR_KEY)
+            depth = await tasks.count_discovered_with_priority(BACKLIST_PRIORITY)
+            _print_backlist_status(cursor, depth)
+            return
+
+        existing = None if reset else await cursors.get(BACKLIST_CURSOR_KEY)
+        needs_probe = reset or existing is None or existing.total is None
+
+        typer.echo(
+            f"Backlist sweep — chunk={chunk:,}, target_depth={target_depth or '∞'}, reset={reset}"
+        )
+        try:
+            if needs_probe:
+                settings = get_settings()
+                gateway = ScraplingOpacGateway(
+                    GatewayConfig(
+                        user_agent=settings.scraper_user_agent,
+                        rate_per_second=rate_per_second,
+                    )
+                )
+                typer.echo("First run / --reset: probing the TITN high-water mark…")
+                async with gateway:
+                    use_case = SeedBacklistChunk(
+                        probe=ProbeTitnRange(gateway), tasks=tasks, cursors=cursors
+                    )
+                    result = await use_case.execute(
+                        chunk_size=chunk, target_depth=target_depth, reset=reset
+                    )
+            else:
+                use_case = SeedBacklistChunk(
+                    probe=_NoProbe(),  # type: ignore[arg-type]
+                    tasks=tasks,
+                    cursors=cursors,
+                )
+                result = await use_case.execute(
+                    chunk_size=chunk, target_depth=target_depth, reset=reset
+                )
+        except Exception as exc:
+            typer.echo(typer.style(f"Backlist seed failed: {exc}", fg=typer.colors.RED), err=True)
+            raise typer.Exit(code=1) from exc
+
+    pct = f"{100 * result.next_offset / result.total:.2f}%" if result.total else "?"
+    typer.echo()
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+    typer.echo(typer.style("Backlist seed complete.", fg=typer.colors.GREEN, bold=True))
+    if result.range_low is not None:
+        typer.echo(
+            f"  seeded this run: {typer.style(f'{result.seeded:,}', bold=True)}"
+            f"  (TITN {result.range_low:,}..{result.range_high:,})"
+        )
+    else:
+        typer.echo("  seeded this run: 0 (nothing to do — queue full or sweep complete)")
+    typer.echo(f"  cursor:          next TITN {result.next_offset:,} of {result.total:,} ({pct})")
+    typer.echo(f"  queue depth:     {result.queue_depth:,} backlist rows discovered")
+    if result.done:
+        typer.echo(typer.style("  ✓ whole TITN space seeded — sweep done.", fg=typer.colors.GREEN))
+    typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+
+
+def _print_backlist_status(cursor: DiscoveryCursor | None, depth: int) -> None:
+    typer.echo(typer.style("Backlist sweep status", fg=typer.colors.BLUE, bold=True))
+    if cursor is None or cursor.total is None:
+        typer.echo("  cursor:      not started (no high-water mark probed yet)")
+    else:
+        pct = f"{100 * cursor.next_offset / cursor.total:.2f}%" if cursor.total else "?"
+        typer.echo(f"  cursor:      next TITN {cursor.next_offset:,} of {cursor.total:,} ({pct})")
+    typer.echo(f"  queue depth: {depth:,} backlist rows currently `discovered`")
 
 
 @catalog_app.command("worker")

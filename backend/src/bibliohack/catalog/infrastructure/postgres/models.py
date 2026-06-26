@@ -226,6 +226,10 @@ class ScrapeTaskModel(Base):
         Index("ix_scrape_tasks_status", "status"),
         Index("ix_scrape_tasks_next_retry_at", "next_retry_at"),
         Index("ix_scrape_tasks_refresh_due_at", "refresh_due_at"),
+        # Serves the worker's claim: WHERE status=… ORDER BY priority, titn.
+        # Load-bearing once the M7 backlist sweep seeds millions of `discovered`
+        # rows. See migration 20260626_0022.
+        Index("ix_scrape_tasks_status_priority_titn", "status", "priority", "titn"),
     )
 
 

@@ -40,7 +40,7 @@ raw_html: true
     <tr><td><strong>Relevance</strong> milestone</td><td><code>relevance_score</code> (demand + holdings + recency + completeness) → default browse sort + search tiebreak; nightly recompute. (<a href="relevance-and-libraries.html">plan</a>)</td><td><span class="badge b-done">SHIPPED 2026-06-16</span></td></tr>
     <tr><td><strong>Canon import</strong></td><td>Classics seeded from Wikidata/awards (CC0) → matcher → positive-only relevance boost → polite OPAC resolve + Open Library ratings. C0–C4 + crawl-plane scheduling. (<a href="canon-import.html">plan</a>)</td><td><span class="badge b-done">LIVE 2026-06-21</span></td></tr>
     <tr><td><strong>Libraries</strong> milestone</td><td>Follow branches by proximity; hard-filter browse/search/recs to "my libraries → province → full". (<a href="relevance-and-libraries.html">plan</a>)</td><td><span class="badge b-pending">PLANNED</span></td></tr>
-    <tr><td><strong>M7</strong> Other provinces</td><td>Generalised SUBC handling, Sevilla + Cádiz</td><td><span class="badge b-defer">ROADMAP</span></td></tr>
+    <tr><td><strong>M7</strong> Network-wide backlist crawl</td><td>Coverage, not scoping — discovery is already network-wide; crawl the pre-2024 backlist to completion</td><td><span class="badge b-defer">ROADMAP</span></td></tr>
     <tr><td><strong>M8</strong> Mobile app</td><td>React Native / Expo client over the same API</td><td><span class="badge b-defer">ROADMAP</span></td></tr>
   </table>
 

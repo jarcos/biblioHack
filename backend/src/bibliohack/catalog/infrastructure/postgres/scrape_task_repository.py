@@ -47,8 +47,13 @@ class PostgresScrapeTaskRepository:
     # Seeding
     # ───────────────────────────────────────────────────────────
 
-    async def seed_range(self, low: Titn, high: Titn) -> int:
-        """Bulk-insert `discovered` rows for [low, high]; idempotent."""
+    async def seed_range(self, low: Titn, high: Titn, *, priority: int = 100) -> int:
+        """Bulk-insert `discovered` rows for [low, high]; idempotent.
+
+        `priority` is applied only to newly-inserted rows; an existing row keeps
+        its current priority (`on_conflict_do_nothing`). The backlist sweep
+        passes a higher number (lower precedence) than novedades.
+        """
         if int(low) > int(high):
             msg = f"low ({low}) must be <= high ({high})"
             raise ValueError(msg)
@@ -60,7 +65,11 @@ class PostgresScrapeTaskRepository:
                 pg_insert(ScrapeTaskModel)
                 .values(
                     [
-                        {"titn": t, "status": TaskState.DISCOVERED.value}
+                        {
+                            "titn": t,
+                            "status": TaskState.DISCOVERED.value,
+                            "priority": priority,
+                        }
                         for t in range(chunk_start, chunk_end + 1)
                     ]
                 )
@@ -206,6 +215,14 @@ class PostgresScrapeTaskRepository:
                 counts.setdefault(TaskState.TOMBSTONED, 0)
                 counts[TaskState.TOMBSTONED] += int(n)
         return StateCounts(counts=counts)
+
+    async def count_discovered_with_priority(self, priority: int) -> int:
+        stmt = (
+            select(func.count(ScrapeTaskModel.titn))
+            .where(ScrapeTaskModel.status == TaskState.DISCOVERED.value)
+            .where(ScrapeTaskModel.priority == priority)
+        )
+        return int((await self._session.execute(stmt)).scalar_one())
 
 
 # ─── helpers ───────────────────────────────────────────────────
