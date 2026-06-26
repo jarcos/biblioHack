@@ -103,14 +103,16 @@
 </nav>
 
 <main class="wrap">
-<p>A reverse catalog and AI-driven book recommender for the Andalusian public-library network, bootstrapped from the <strong>Biblioteca Provincial de Huelva</strong>.</p>
+<p>A reverse catalog and AI-driven book recommender for the <strong>whole</strong> Andalusian public-library network (RBPA). Library-agnostic by design: any reader in Andalucía picks their own library (or libraries) of reference and gets a catalogue, search and recommendations scoped to what they can borrow nearby. Huelva was the <strong>bootstrap</strong> province, not the product's boundary.</p>
 <blockquote>
 <p>Status: research and design draft, May 2026. No code written yet — this document is the contract we agree on before scaffolding the repo. Items marked <strong>OPEN</strong> require a decision or further verification.</p>
+<p><strong>Direction update 2026-06-25 — region-wide, library-agnostic.</strong> The product is no longer "the Huelva app"; it targets all eight RBPA provinces. Two consequences supersede the original Huelva-only framing throughout this doc: (1) <strong>M7 (all-province crawl) is promoted from late roadmap to the next priority</strong> — it's the prerequisite for publicising region-wide, so a reader in Sevilla finds Sevilla-only titles, not just Huelva's. (2) <strong>Registration captures the user's library/libraries</strong> via the existing «Mis bibliotecas» multi-branch picker, <strong>optional, not required</strong> — a reader can sign up without choosing and set it later. Decided with José; see the kanban for sequencing.</p>
 </blockquote>
 <hr>
 <h2 id="1-project-goals-and-constraints">1. Project goals and constraints</h2>
 <ul>
-<li><strong>Mirror</strong> the bibliographic catalog of the Red de Bibliotecas Públicas de Andalucía (RBPA), starting with Huelva, into a database we own.</li>
+<li><strong>Mirror</strong> the bibliographic catalog of the Red de Bibliotecas Públicas de Andalucía (RBPA) — <strong>all eight provinces</strong> — into a database we own. Huelva was the bootstrap subset; the target is the full network (see M7, now the next priority).</li>
+<li><strong>Library-agnostic:</strong> the user chooses their library/libraries of reference (optionally at registration, editable later); the catalogue, search and recommender are scoped to «mis bibliotecas → mi provincia → todo». No province is hard-coded into the product.</li>
 <li>Track <strong>historical availability</strong> per copy (loaned vs. on shelf) so we can analyse loan patterns over time.</li>
 <li>Allow the user to <strong>import their reading history</strong> from Goodreads (and later StoryGraph, Hardcover, BookWyrm) to feed an AI recommender.</li>
 <li>Provide a <strong>semantic-first search</strong> experience and an <strong>AI-driven recommender</strong> that considers what the user has read and what is currently available at their preferred branch.</li>
@@ -136,7 +138,7 @@
 <tr>
 <td>RBPA collective OPAC</td>
 <td><a href="https://www.juntadeandalucia.es/cultura/absys/abnopac/abnetcl.cgi?ACC=101">https://www.juntadeandalucia.es/cultura/absys/abnopac/abnetcl.cgi?ACC=101</a></td>
-<td>Federated; we filter to Huelva via <code>SUBC</code></td>
+<td>Federated; Huelva-bootstrapped via <code>SUBC</code>. M7 generalises this to all eight provinces (config-driven SUBC set) — the region-wide goal.</td>
 </tr>
 <tr>
 <td>Catálogo Colectivo del Patrimonio Bibliográfico Andaluz</td>
@@ -919,12 +921,17 @@ recommendations (id, user_id, record_id, score, rationale_text, generated_at, mo
 </tr>
 <tr>
 <td><strong>Libraries milestone</strong></td>
-<td>Promote <code>Branch</code> to a user-facing entity (geo/address/url), users follow multiple branches by geolocation proximity, hard-filter browse + search to "my libraries → my province → full", library-aware recommendations. Ships after the Relevance milestone.</td>
+<td>Promote <code>Branch</code> to a user-facing entity (geo/address/url), users follow multiple branches by geolocation proximity, hard-filter browse + search to "my libraries → my province → full", library-aware recommendations. <strong>Shipped 2026-06-22 (L0–L4).</strong></td>
 <td>2–3 weekends</td>
 </tr>
 <tr>
-<td><strong>M7 — Expand to other provinces</strong></td>
-<td>Generalise the SUBC handling so each Andalusian province can be enabled by config; first add Sevilla + Cádiz; same crawl, no new code.</td>
+<td><strong>M7 — All-province crawl (region-wide)</strong></td>
+<td><strong>NEXT PRIORITY (re-prioritised 2026-06-25).</strong> Generalise the Huelva-only <code>SUBC</code>/discovery scoping so every Andalusian province is crawled (config-driven province set). This is the prerequisite for publicising the app region-wide: holdings/copies are already stored network-wide, but bibliographic <em>discovery</em> is still Huelva-seeded, so records held only in other provinces aren't mirrored yet. Must respect the §6.3 politeness budget (1 req/s) — expect weeks of polite crawl to broaden coverage; phase province-by-province (Sevilla, Málaga, Cádiz…) and watch the crawl dashboards.</td>
+<td>several weekends + crawl time</td>
+</tr>
+<tr>
+<td><strong>L5 — Library at registration</strong></td>
+<td>Add the existing «Mis bibliotecas» multi-branch picker to the signup flow, <strong>optional (skippable)</strong>. A new user can pick their library/libraries up front (stored as followed branches) or sign up and set them later on <code>/account</code>. Small frontend + register-endpoint change; no schema work (reuses <code>user_followed_branches</code>).</td>
 <td>1 weekend</td>
 </tr>
 <tr>

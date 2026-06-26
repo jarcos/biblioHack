@@ -25,6 +25,14 @@ Sequenced **relevance first** (helps everyone immediately, no geo dependency),
 > also shipped via the separate canon-import pipeline (`docs/design/canon-import.md`).
 > This page is kept as the design record; the build order below is historical.
 > Companion HTML: `docs/site/relevance-and-libraries.html`.
+>
+> **Region-wide follow-ons (2026-06-25).** The Libraries machinery (follow any RBPA
+> branch, scope mine/province/full) already generalises beyond Huelva. Two pieces
+> complete the library-agnostic, region-wide product: **M7** — crawl all eight
+> provinces so the *catalogue* matches the branch coverage (the next priority;
+> see `architecture.md` M7) — and **L5** — surface the existing «Mis bibliotecas»
+> picker at registration, optional. L5 reuses `user_followed_branches`; no schema
+> change.
 
 ---
 

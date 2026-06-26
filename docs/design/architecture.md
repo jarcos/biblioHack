@@ -3,15 +3,18 @@ title: "biblioHack — Architecture"
 h1: "Architecture"
 tagline: "Full design &amp; research doc — the master reference."
 ---
-A reverse catalog and AI-driven book recommender for the Andalusian public-library network, bootstrapped from the **Biblioteca Provincial de Huelva**.
+A reverse catalog and AI-driven book recommender for the **whole** Andalusian public-library network (RBPA). Library-agnostic by design: any reader in Andalucía picks their own library (or libraries) of reference and gets a catalogue, search and recommendations scoped to what they can borrow nearby. Huelva was the **bootstrap** province, not the product's boundary.
 
 > Status: research and design draft, May 2026. No code written yet — this document is the contract we agree on before scaffolding the repo. Items marked **OPEN** require a decision or further verification.
+>
+> **Direction update 2026-06-25 — region-wide, library-agnostic.** The product is no longer "the Huelva app"; it targets all eight RBPA provinces. Two consequences supersede the original Huelva-only framing throughout this doc: (1) **M7 (all-province crawl) is promoted from late roadmap to the next priority** — it's the prerequisite for publicising region-wide, so a reader in Sevilla finds Sevilla-only titles, not just Huelva's. (2) **Registration captures the user's library/libraries** via the existing «Mis bibliotecas» multi-branch picker, **optional, not required** — a reader can sign up without choosing and set it later. Decided with José; see the kanban for sequencing.
 
 ---
 
 ## 1. Project goals and constraints
 
-- **Mirror** the bibliographic catalog of the Red de Bibliotecas Públicas de Andalucía (RBPA), starting with Huelva, into a database we own.
+- **Mirror** the bibliographic catalog of the Red de Bibliotecas Públicas de Andalucía (RBPA) — **all eight provinces** — into a database we own. Huelva was the bootstrap subset; the target is the full network (see M7, now the next priority).
+- **Library-agnostic:** the user chooses their library/libraries of reference (optionally at registration, editable later); the catalogue, search and recommender are scoped to «mis bibliotecas → mi provincia → todo». No province is hard-coded into the product.
 - Track **historical availability** per copy (loaned vs. on shelf) so we can analyse loan patterns over time.
 - Allow the user to **import their reading history** from Goodreads (and later StoryGraph, Hardcover, BookWyrm) to feed an AI recommender.
 - Provide a **semantic-first search** experience and an **AI-driven recommender** that considers what the user has read and what is currently available at their preferred branch.
@@ -33,7 +36,7 @@ Relevant entry points:
 
 | Catalog | URL | Notes |
 | --- | --- | --- |
-| RBPA collective OPAC | <https://www.juntadeandalucia.es/cultura/absys/abnopac/abnetcl.cgi?ACC=101> | Federated; we filter to Huelva via `SUBC` |
+| RBPA collective OPAC | <https://www.juntadeandalucia.es/cultura/absys/abnopac/abnetcl.cgi?ACC=101> | Federated; Huelva-bootstrapped via `SUBC`. M7 generalises this to all eight provinces (config-driven SUBC set) — the region-wide goal. |
 | Catálogo Colectivo del Patrimonio Bibliográfico Andaluz | <https://www.juntadeandalucia.es/cultura/absys/ccpba/abnetcl.cgi?FORM=2> | Heritage subset |
 | National Collective Catalog (CCBIP) | <https://catalogos.cultura.gob.es/CCBIP/ccbipopac/> | Wraps all autonomous regions, also AbsysNet |
 | Biblioteca Provincial de Huelva landing page | <https://www.bibliotecasdeandalucia.es/web/biblioteca-del-estado-publica-provincial-de-huelva/catalogos/catalogo-de-la-biblioteca> | UI for end-users |
@@ -690,8 +693,9 @@ deploy:
 | **M6 — Polish + public deploy** | Caddy/Cloudflare Tunnel, rate limiting, error pages, backups. **(Deploy done 2026-05-30 — see §10.)** | 1 weekend |
 | **M6.5 — CI/CD auto-deploy** | Green push to `main` → auto-deploy to the NAS (Tailscale GitHub Action → SSH; build-and-push to GHCR → `compose pull`), gated on all CI passing, with a post-deploy health gate + rollback. Never deploys on a red pipeline. (Design: §10.1.) | 1 weekend |
 | **Relevance milestone** | Stored `relevance_score` (demand from the availability series + holdings breadth + recency + completeness), nightly recompute on the crawl plane, `RELEVANCE` becomes the default `/browse` sort + search tiebreak. External canon boost deferred to the back-catalogue. (Full plan: `docs/design/relevance-and-libraries.md`.) | 2 weekends |
-| **Libraries milestone** | Promote `Branch` to a user-facing entity (geo/address/url), users follow multiple branches by geolocation proximity, hard-filter browse + search to "my libraries → my province → full", library-aware recommendations. Ships after the Relevance milestone. | 2–3 weekends |
-| **M7 — Expand to other provinces** | Generalise the SUBC handling so each Andalusian province can be enabled by config; first add Sevilla + Cádiz; same crawl, no new code. | 1 weekend |
+| **Libraries milestone** | Promote `Branch` to a user-facing entity (geo/address/url), users follow multiple branches by geolocation proximity, hard-filter browse + search to "my libraries → my province → full", library-aware recommendations. **Shipped 2026-06-22 (L0–L4).** | 2–3 weekends |
+| **M7 — All-province crawl (region-wide)** | **NEXT PRIORITY (re-prioritised 2026-06-25).** Generalise the Huelva-only `SUBC`/discovery scoping so every Andalusian province is crawled (config-driven province set). This is the prerequisite for publicising the app region-wide: holdings/copies are already stored network-wide, but bibliographic *discovery* is still Huelva-seeded, so records held only in other provinces aren't mirrored yet. Must respect the §6.3 politeness budget (1 req/s) — expect weeks of polite crawl to broaden coverage; phase province-by-province (Sevilla, Málaga, Cádiz…) and watch the crawl dashboards. | several weekends + crawl time |
+| **L5 — Library at registration** | Add the existing «Mis bibliotecas» multi-branch picker to the signup flow, **optional (skippable)**. A new user can pick their library/libraries up front (stored as followed branches) or sign up and set them later on `/account`. Small frontend + register-endpoint change; no schema work (reuses `user_followed_branches`). | 1 weekend |
 | **M8 — Mobile app** | React Native or Expo client reusing the API. Out of scope for the doc. | — |
 
 Total to M6: ~12–15 weekends if everything is fun. Realistic with life-in-the-loop: 4–6 months.

@@ -103,7 +103,7 @@
 </nav>
 
 <main class="wrap">
-  <p class="intro">Status as of <strong>2026-06-25</strong>. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
+  <p class="intro">Status as of <strong>2026-06-25</strong>. <strong>Direction:</strong> going region-wide / library-agnostic — the app targets all eight RBPA provinces (Huelva was just the bootstrap), with the user picking their own library of reference. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
 
   <div class="board">
 
@@ -269,25 +269,37 @@
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">6</span></h2>
+      <h2>To do <span class="n">7</span></h2>
 
-      <div class="divider">Next up — re-prioritised 2026-06-25 (José: park MARC, focus on what we control); cross-links + audience/form + cold-start chips shipped 2026-06-25</div>
+      <div class="divider">Next up — re-prioritised 2026-06-25 (José: go region-wide / library-agnostic — the app targets all eight RBPA provinces, not just Huelva). The catalogue crawl is the gating piece, so M7 leads.</div>
 
       <div class="card">
-        <h3>1 · StoryGraph CSV importer</h3>
-        <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof. <strong>#1:</strong> small but demand-gated — let a real request pull it forward. <em>Note: the demand-driven fetcher already covers StoryGraph entries for free once they exist (it resolves from stored title/author/ISBN, nothing Goodreads-specific).</em></p>
+        <h3>1 · M7 — All-province crawl (region-wide)</h3>
+        <p>The prerequisite for publicising the app region-wide. Generalise the Huelva-seeded <code>SUBC</code>/discovery scoping so every Andalusian province is crawled (config-driven province set). Holdings/copies are <em>already</em> stored network-wide and all 571/573 branches are geocoded + followable — but bibliographic <strong>discovery</strong> is still Huelva-driven, so records held only in Sevilla/Málaga/… aren't mirrored yet. <strong>#1:</strong> the big one — bounded by the §6.3 politeness budget (1 req/s), so expect weeks of polite crawl; phase province-by-province and watch the crawl dashboards. Crawler-plane change → <strong>manual NAS rebuild</strong> (crawler ≠ CD). Full framing: <a href="architecture.html">Architecture</a> M7.</p>
+        <div class="meta"><span class="tag t-todo">MILESTONE · crawl time</span></div>
+      </div>
+
+      <div class="card">
+        <h3>2 · L5 — Library picker at registration (optional)</h3>
+        <p>Surface the existing «Mis bibliotecas» multi-branch picker in the signup flow, <strong>optional / skippable</strong>: a new user can pick their library(ies) of reference up front (stored as followed branches, scope «mis bibliotecas») or sign up and set them later on <code>/account</code>. Reuses <code>user_followed_branches</code> + <code>/api/me/branches</code> — frontend + a tweak to the register flow, <strong>no schema change</strong>. <strong>#2:</strong> small; pairs naturally with the region-wide framing (and is most useful once M7 broadens coverage). Full plan: <a href="relevance-and-libraries.html">Relevance &amp; Libraries</a>.</p>
+        <div class="meta"><span class="tag t-todo">SMALL</span></div>
+      </div>
+
+      <div class="card">
+        <h3>3 · StoryGraph CSV importer</h3>
+        <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof. <strong>#3:</strong> small but demand-gated — let a real request pull it forward. <em>Note: the demand-driven fetcher already covers StoryGraph entries for free once they exist (it resolves from stored title/author/ISBN, nothing Goodreads-specific).</em></p>
         <div class="meta"><span class="tag t-todo">SMALL · DEMAND-GATED</span></div>
       </div>
 
       <div class="card">
-        <h3>2 · OTel on the crawl/worker plane</h3>
-        <p>When <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough; <code>scrape_log</code> remains unwired. <strong>#2:</strong> internal observability — defer until the status rows actually fall short.</p>
+        <h3>4 · OTel on the crawl/worker plane</h3>
+        <p>When <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough; <code>scrape_log</code> remains unwired. <strong>#4:</strong> internal observability — defer until the status rows actually fall short. <em>(M7's wider crawl may make this worth pulling forward.)</em></p>
         <div class="meta"><span class="tag t-todo">MEDIUM</span></div>
       </div>
 
       <div class="card">
-        <h3>3 · Edge rate limiting (Cloudflare WAF)</h3>
-        <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears. <strong>#3:</strong> reactive — only worth doing once abuse shows up.</p>
+        <h3>5 · Edge rate limiting (Cloudflare WAF)</h3>
+        <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears. <strong>#5:</strong> reactive — only worth doing once abuse shows up.</p>
         <div class="meta"><span class="tag t-todo">IF NEEDED</span></div>
       </div>
 
@@ -300,12 +312,6 @@
       </div>
 
       <div class="divider">Roadmap (bigger bets)</div>
-
-      <div class="card">
-        <h3>M7 — Other provinces (Sevilla, Cádiz…)</h3>
-        <p>Config-driven SUBC scoping + crawl budget; copies are already stored network-wide. The natural next big milestone now that the app is multi-user.</p>
-        <div class="meta"><span class="tag t-todo">MILESTONE</span></div>
-      </div>
 
       <div class="card">
         <h3>Navigator Tier C — author country</h3>

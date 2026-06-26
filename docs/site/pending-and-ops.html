@@ -122,6 +122,13 @@
     <p><strong>Carries an OPS dependency:</strong> the nightly relevance recompute and the canon jobs ship in the crawler image, so they need the <span class="badge b-ops">OPS</span> manual NAS rebuild (crawler ≠ CD), and every new frontend-called endpoint must live under <code>/api/*</code> (tunnel routing).</p>
   </div>
 
+  <h2>Direction — region-wide / library-agnostic (decided 2026-06-25)</h2>
+  <div class="panel">
+    <p>The product targets <strong>all eight RBPA provinces</strong>, not just Huelva; every user picks their own library of reference. The Libraries milestone already made branch-following region-wide (571/573 branches geocoded + followable, scope «mis bibliotecas → mi provincia → todo»), so the gating piece is the <strong>catalogue crawl</strong>: bibliographic discovery is still Huelva-seeded via <code>SUBC</code>, so records held only in other provinces aren't mirrored yet (holdings/copies <em>are</em> stored network-wide). Two pieces close the gap:</p>
+    <p><strong>M7 — all-province crawl (NEXT PRIORITY).</strong> Generalise the Huelva-only discovery scoping to a config-driven province set; crawl Sevilla, Málaga, Cádiz… within the 1 req/s politeness budget (so expect weeks of polite crawl — phase province-by-province). Crawler-plane change → manual NAS rebuild. This is the prerequisite for publicising region-wide.</p>
+    <p><strong>L5 — library at registration (optional).</strong> Add the existing «Mis bibliotecas» multi-branch picker to signup, skippable; stored as followed branches, editable later on <code>/account</code>. Reuses <code>user_followed_branches</code>; no schema change.</p>
+  </div>
+
   <h2>Near-term follow-ups</h2>
   <table>
     <tr><th>Task</th><th>Detail</th><th>Type</th></tr>

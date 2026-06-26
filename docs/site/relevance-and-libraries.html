@@ -125,6 +125,13 @@ search, and library-aware recommendations. The external canon boost ("R-later")
 also shipped via the separate canon-import pipeline (<code>docs/design/canon-import.md</code>).
 This page is kept as the design record; the build order below is historical.
 Companion HTML: <code>docs/site/relevance-and-libraries.html</code>.</p>
+<p><strong>Region-wide follow-ons (2026-06-25).</strong> The Libraries machinery (follow any RBPA
+branch, scope mine/province/full) already generalises beyond Huelva. Two pieces
+complete the library-agnostic, region-wide product: <strong>M7</strong> — crawl all eight
+provinces so the <em>catalogue</em> matches the branch coverage (the next priority;
+see <code>architecture.md</code> M7) — and <strong>L5</strong> — surface the existing «Mis bibliotecas»
+picker at registration, optional. L5 reuses <code>user_followed_branches</code>; no schema
+change.</p>
 </blockquote>
 <hr>
 <h2 id="current-state-verified-in-code-prod-2026-06-15">Current state (verified in code + prod, 2026-06-15)</h2>
