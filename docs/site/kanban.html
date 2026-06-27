@@ -282,8 +282,8 @@
 
       <div class="card">
         <h3>2 · L5 — Library picker at registration (optional)</h3>
-        <p>Surface the existing «Mis bibliotecas» multi-branch picker in the signup flow, <strong>optional / skippable</strong>: a new user can pick their library(ies) of reference up front (stored as followed branches, scope «mis bibliotecas») or sign up and set them later on <code>/account</code>. Reuses <code>user_followed_branches</code> + <code>/api/me/branches</code> — frontend + a tweak to the register flow, <strong>no schema change</strong>. <strong>#2:</strong> small; pairs naturally with the region-wide framing (and is most useful once M7 broadens coverage). Full plan: <a href="relevance-and-libraries.html">Relevance &amp; Libraries</a>.</p>
-        <div class="meta"><span class="tag t-todo">SMALL</span></div>
+        <p>Surface the existing «Mis bibliotecas» multi-branch picker in the signup flow, <strong>optional / skippable</strong>: a new user can pick their library(ies) of reference up front (stored as followed branches, scope «mis bibliotecas») or sign up and set them later on <code>/account</code>. Reuses <code>user_followed_branches</code> — frontend + a tweak to the register flow, <strong>no schema change</strong>. Full plan: <a href="relevance-and-libraries.html">Relevance &amp; Libraries</a>. <strong>Shipped 2026-06-26</strong> (commit 5bdb6d6, via CD): optional <code>branch_codes</code> on <code>/api/auth/register</code> (validated up front, written in the new user's transaction); a shared <code>BranchSelect</code> core reused by the account picker and a collapsible «Elige tus bibliotecas (opcional)» section at signup.</p>
+        <div class="meta"><span class="tag t-done">SHIPPED 2026-06-26</span></div>
       </div>
 
       <div class="card">
