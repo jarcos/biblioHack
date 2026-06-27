@@ -3,13 +3,19 @@ title: "biblioHack — Kanban"
 h1: "Kanban — project status"
 raw_html: true
 ---
-  <p class="intro">Status as of <strong>2026-06-25</strong>. <strong>Direction:</strong> going region-wide / library-agnostic — the app targets all eight RBPA provinces (Huelva was just the bootstrap), with the user picking their own library of reference. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
+  <p class="intro">Status as of <strong>2026-06-27</strong>. <strong>Direction:</strong> going region-wide / library-agnostic — the app targets all eight RBPA provinces (Huelva was just the bootstrap), with the user picking their own library of reference. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale).</p>
 
   <div class="board">
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">27</span></h2>
+      <h2>Done <span class="n">29</span></h2>
+
+      <div class="card">
+        <h3>L5 — Library picker at registration (optional)</h3>
+        <p>Signup can pre-follow RBPA branches («Mis bibliotecas» at registration), <strong>optional / skippable</strong> — pick up front or set later on <code>/account</code>. <strong>No schema change</strong> (reuses <code>user_followed_branches</code>): optional <code>branch_codes</code> on <code>/api/auth/register</code>, validated up front (unknown → 422 before any account or verification mail) and written in the new user's transaction via an injectable <code>RegisterBranchFollows</code> port. Frontend: extracted a shared <code>BranchSelect</code> core (the <code>/account</code> picker now reuses it) plus a collapsible «Elige tus bibliotecas (opcional)» section at signup. Gate green (ruff·mypy, pytest 638, frontend lint/typecheck/vitest 78); deployed via CD.</p>
+        <div class="meta"><span class="tag t-done">2026-06-26</span><span class="tag t-done">5bdb6d6</span></div>
+      </div>
 
       <div class="card">
         <h3>Cold-start taste chips persisted</h3>
@@ -146,7 +152,13 @@ raw_html: true
 
     <!-- ── IN PROGRESS ───────────────────────────────────── -->
     <section class="col wip">
-      <h2>In progress <span class="n">3</span></h2>
+      <h2>In progress <span class="n">4</span></h2>
+
+      <div class="card">
+        <h3>M7 — Network-wide backlist crawl (operating)</h3>
+        <p>Region-wide coverage of the <strong>pre-2024 backlist</strong> across all eight provinces — a <em>coverage</em> job, not a scoping one (discovery was already network-wide; <code>SUBC</code> only scopes display, and copies are stored for every branch). Shipped + live 2026-06-26: <code>SeedBacklistChunk</code> + the <code>catalog backlist</code> CLI, the <code>(status, priority, titn)</code> claim index (migration 0022), and a twice-daily crawler-plane <code>backlist</code> job (<code>20 1,13 * * *</code> UTC) that tops the queue up at priority 500 so the worker drains it after novedades. First sweep probed the high-water mark <strong>2,666,936</strong> and seeded TITN 1–50k. Now crawl-time-bound (weeks at 1 req/s); watch swept % + failure-rate on the <a href="https://grafana.josearcos.me/d/bibliohack-crawl">crawl dashboard</a> (four backlist panels), optionally raise <code>WORKER_MAX</code> (never <code>CRAWL_RATE</code>). Build plan: <a href="m7-backlist-crawl.html">M7 Backlist Crawl</a>.</p>
+        <div class="meta"><span class="tag t-wip">CONTINUOUS · OPERATING</span></div>
+      </div>
 
       <div class="card">
         <h3>Catalogue crawl (autonomous)</h3>
@@ -170,36 +182,26 @@ raw_html: true
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
       <h2>To do <span class="n">7</span></h2>
+      <!-- count = all cards in this column (3 active next-up + won't-do/roadmap/parked) -->
 
-      <div class="divider">Next up — re-prioritised 2026-06-25 (José: go region-wide / library-agnostic — the app targets all eight RBPA provinces, not just Huelva). The catalogue crawl coverage is the gating piece, so M7 leads.</div>
 
-      <div class="card">
-        <h3>1 · M7 — Network-wide backlist crawl (region-wide)</h3>
-        <p>The prerequisite for publicising the app region-wide. <strong>Framing corrected 2026-06-26:</strong> discovery is <em>already</em> network-wide — the OPAC expert queries (<code>@fepu</code> year slices, TITN enumeration) return all eight provinces, <code>SUBC</code> only scopes <em>display</em> not search, and ingest already stores copies for every branch. So there is no Huelva/<code>SUBC</code> scoping to "generalise"; the gap is <strong>coverage, not scoping</strong>. Today's mirror ≈ the one-time bootstrap TITN sweep + ongoing novedades (<code>@fepu&gt;=2024</code>); the <strong>pre-2024 backlist (any province)</strong> is only as complete as the bootstrap got. <strong>#1:</strong> the big one — crawl-time-bound by the §6.3 politeness budget (1 req/s), so expect weeks of polite crawl; phase by TITN range / year slice and watch the crawl dashboards. Crawler-plane change → <strong>manual NAS rebuild</strong> (crawler ≠ CD). Full framing: <a href="architecture.html">Architecture</a> M7; build plan: <a href="m7-backlist-crawl.html">M7 Backlist Crawl</a> spec. <strong>Shipped + live 2026-06-26:</strong> backend slice (<code>SeedBacklistChunk</code> + <code>catalog backlist</code> CLI + <code>seed_range</code> priority + the <code>(status, priority, titn)</code> index, migration 0022); crawler-plane <code>backlist</code> job (<code>run-job.sh</code> + crontab <code>20 1,13 * * *</code> UTC + compose env, NAS rebuilt); four crawl-dashboard panels (swept %, queue depth, drained/day, ETA). First sweep ran 13:20 UTC — probed high-water mark <strong>2,666,936</strong>, seeded TITN 1–50k at priority 500; worker drains it after novedades. <strong>Now operating:</strong> weeks of polite crawl; watch swept % + failure-rate, optionally raise <code>WORKER_MAX</code> (never <code>CRAWL_RATE</code>) to go faster.</p>
-        <div class="meta"><span class="tag t-wip">MILESTONE · OPERATING · crawl time</span></div>
-      </div>
+      <div class="divider">Next up — re-prioritised 2026-06-27. The region-wide push shipped: <strong>M7</strong> (backlist crawl) is now operating and <strong>L5</strong> (library picker at signup) is done. What remains is demand-gated or reactive — let real usage pull it forward.</div>
 
       <div class="card">
-        <h3>2 · L5 — Library picker at registration (optional)</h3>
-        <p>Surface the existing «Mis bibliotecas» multi-branch picker in the signup flow, <strong>optional / skippable</strong>: a new user can pick their library(ies) of reference up front (stored as followed branches, scope «mis bibliotecas») or sign up and set them later on <code>/account</code>. Reuses <code>user_followed_branches</code> — frontend + a tweak to the register flow, <strong>no schema change</strong>. Full plan: <a href="relevance-and-libraries.html">Relevance &amp; Libraries</a>. <strong>Shipped 2026-06-26</strong> (commit 5bdb6d6, via CD): optional <code>branch_codes</code> on <code>/api/auth/register</code> (validated up front, written in the new user's transaction); a shared <code>BranchSelect</code> core reused by the account picker and a collapsible «Elige tus bibliotecas (opcional)» section at signup.</p>
-        <div class="meta"><span class="tag t-done">SHIPPED 2026-06-26</span></div>
-      </div>
-
-      <div class="card">
-        <h3>3 · StoryGraph CSV importer</h3>
-        <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof. <strong>#3:</strong> small but demand-gated — let a real request pull it forward. <em>Note: the demand-driven fetcher already covers StoryGraph entries for free once they exist (it resolves from stored title/author/ISBN, nothing Goodreads-specific).</em></p>
+        <h3>1 · StoryGraph CSV importer</h3>
+        <p>Second <code>Importer</code> adapter; CSV shape close to Goodreads. Wait for a real user asking, or do it as the second-source proof. <strong>#1:</strong> small but demand-gated — let a real request pull it forward. <em>Note: the demand-driven fetcher already covers StoryGraph entries for free once they exist (it resolves from stored title/author/ISBN, nothing Goodreads-specific).</em></p>
         <div class="meta"><span class="tag t-todo">SMALL · DEMAND-GATED</span></div>
       </div>
 
       <div class="card">
-        <h3>4 · OTel on the crawl/worker plane</h3>
-        <p>When <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough; <code>scrape_log</code> remains unwired. <strong>#4:</strong> internal observability — defer until the status rows actually fall short. <em>(M7's wider crawl may make this worth pulling forward.)</em></p>
+        <h3>2 · OTel on the crawl/worker plane</h3>
+        <p>When <code>scrape_tasks</code>/<code>import_jobs</code> status rows stop being enough; <code>scrape_log</code> remains unwired. <strong>#2:</strong> internal observability — defer until the status rows actually fall short. <em>(M7's wider backlist crawl may make this worth pulling forward.)</em></p>
         <div class="meta"><span class="tag t-todo">MEDIUM</span></div>
       </div>
 
       <div class="card">
-        <h3>5 · Edge rate limiting (Cloudflare WAF)</h3>
-        <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears. <strong>#5:</strong> reactive — only worth doing once abuse shows up.</p>
+        <h3>3 · Edge rate limiting (Cloudflare WAF)</h3>
+        <p>App-level limits shipped in Phase 5; add edge rules if abuse actually appears. <strong>#3:</strong> reactive — only worth doing once abuse shows up.</p>
         <div class="meta"><span class="tag t-todo">IF NEEDED</span></div>
       </div>
 
