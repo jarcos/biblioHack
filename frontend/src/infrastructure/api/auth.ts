@@ -56,6 +56,8 @@ export interface RegisterParams {
   // `| undefined` spelled out: tsconfig has exactOptionalPropertyTypes on.
   displayName?: string | undefined;
   turnstileToken?: string | undefined;
+  // L5: optional «Mis bibliotecas» picked at signup; empty/omitted = none.
+  branchCodes?: string[] | undefined;
 }
 
 /** `POST /api/auth/register` — creates an unverified account and mails the link. */
@@ -65,6 +67,7 @@ export async function register(apiBaseUrl: string, params: RegisterParams): Prom
     password: params.password,
     display_name: params.displayName ?? null,
     turnstile_token: params.turnstileToken ?? null,
+    branch_codes: params.branchCodes ?? [],
   });
 }
 

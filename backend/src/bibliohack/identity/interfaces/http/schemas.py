@@ -18,6 +18,15 @@ class RegisterRequestSchema(BaseModel):
     turnstile_token: str | None = Field(
         None, description="Cloudflare Turnstile response token; required when enabled."
     )
+    branch_codes: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description=(
+            "Optional RBPA branch codes to follow from the start (L5 — the «Mis "
+            "bibliotecas» picker at signup). Empty = none chosen; editable later "
+            "on /account. Unknown codes are rejected (422)."
+        ),
+    )
 
 
 class LoginRequestSchema(BaseModel):

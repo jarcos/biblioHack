@@ -73,6 +73,36 @@ describe("auth client", () => {
     );
   });
 
+  it("register sends branch_codes (L5) — picked codes, else empty array", async () => {
+    mockFetch().mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({}) });
+    await register("http://api.test", {
+      email: "jose@example.com",
+      password: "long-enough-pass",
+      branchCodes: ["HU0001", "SE0001"],
+    });
+    expect(mockFetch()).toHaveBeenCalledWith(
+      "http://api.test/api/auth/register",
+      expect.objectContaining({
+        body: JSON.stringify({
+          email: "jose@example.com",
+          password: "long-enough-pass",
+          display_name: null,
+          turnstile_token: null,
+          branch_codes: ["HU0001", "SE0001"],
+        }),
+      }),
+    );
+
+    mockFetch().mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({}) });
+    await register("http://api.test", { email: "x@x.es", password: "long-enough-pass" });
+    expect(mockFetch()).toHaveBeenLastCalledWith(
+      "http://api.test/api/auth/register",
+      expect.objectContaining({
+        body: expect.stringContaining('"branch_codes":[]'),
+      }),
+    );
+  });
+
   it("register surfaces the backend error code via AuthApiError", async () => {
     mockFetch().mockResolvedValueOnce({
       ok: false,

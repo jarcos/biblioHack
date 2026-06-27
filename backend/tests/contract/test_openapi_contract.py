@@ -30,6 +30,7 @@ from bibliohack.identity.interfaces.http.dependencies import (
     get_token_service,
     get_user_repository,
 )
+from bibliohack.identity.interfaces.http.router import get_register_branch_follows
 from bibliohack.interfaces.http.app import create_app
 from bibliohack.interfaces.http.dependencies import get_rate_limiter
 from tests.identity.fakes import (
@@ -76,7 +77,19 @@ def _app():
     app.dependency_overrides[get_password_hasher] = FakePasswordHasher
     app.dependency_overrides[get_captcha_verifier] = AlwaysPassCaptcha
     app.dependency_overrides[get_rate_limiter] = AllowAllRateLimiter
+    # L5: register now takes a branch-follow writer (default → DB). Swap in a
+    # no-DB fake so fuzzed branch_codes are rejected cleanly (422), never 5xx.
+    app.dependency_overrides[get_register_branch_follows] = _NoDbFollows
     return app
+
+
+class _NoDbFollows:
+    """No-DB branch-follow writer for the contract fuzzing (no code is 'known')."""
+
+    async def existing_codes(self, codes: object) -> set[str]:
+        return set()
+
+    async def set_followed(self, user_id: str, codes: object) -> None: ...
 
 
 schema = schemathesis.openapi.from_asgi("/openapi.json", _app()).include(

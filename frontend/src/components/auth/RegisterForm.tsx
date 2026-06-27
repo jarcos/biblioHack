@@ -1,9 +1,11 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 
+import { BranchSelect } from "@/components/BranchSelect";
 import { TurnstileWidget } from "@/components/auth/TurnstileWidget";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuthApiError, register } from "@infrastructure/api/auth";
+import { fetchBranches, type Branch } from "@infrastructure/api/branches";
 
 /**
  * RegisterForm — public sign-up. On success it switches to a
@@ -35,6 +37,30 @@ export function RegisterForm({ apiBaseUrl, turnstileSiteKey = "" }: Props): Reac
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
+  // L5: optional «Mis bibliotecas» picker, collapsed by default (skippable).
+  const [showLibraries, setShowLibraries] = useState(false);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
+  const [branchesError, setBranchesError] = useState<string | null>(null);
+
+  // Load the branch list lazily — only when the user opens the section, so
+  // anyone who skips never pays the request.
+  useEffect(() => {
+    if (!showLibraries || branches.length > 0) return;
+    const controller = new AbortController();
+    fetchBranches(apiBaseUrl, controller.signal).then(
+      (all) => setBranches(all),
+      () => setBranchesError("No se pudieron cargar las bibliotecas."),
+    );
+    return () => controller.abort();
+  }, [showLibraries, branches.length, apiBaseUrl]);
+
+  function toggleBranch(code: string): void {
+    setSelectedBranches((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
+  }
+
   async function onSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
     setError(null);
@@ -53,6 +79,7 @@ export function RegisterForm({ apiBaseUrl, turnstileSiteKey = "" }: Props): Reac
         password,
         displayName: displayName.trim() || undefined,
         turnstileToken: turnstileToken || undefined,
+        branchCodes: selectedBranches.length > 0 ? selectedBranches : undefined,
       });
       setDone(true);
     } catch (err) {
@@ -133,6 +160,42 @@ export function RegisterForm({ apiBaseUrl, turnstileSiteKey = "" }: Props): Reac
           value={passwordRepeat}
           onChange={(e) => setPasswordRepeat(e.target.value)}
         />
+      </div>
+
+      <div className="space-y-3 rounded-md border border-border p-3">
+        <button
+          type="button"
+          onClick={() => setShowLibraries((v) => !v)}
+          aria-expanded={showLibraries}
+          className="flex w-full items-center justify-between text-left text-sm font-medium"
+        >
+          <span>
+            Elige tus bibliotecas <span className="text-muted-foreground">(opcional)</span>
+            {selectedBranches.length > 0 && (
+              <span className="text-muted-foreground"> · {selectedBranches.length} elegida(s)</span>
+            )}
+          </span>
+          <span aria-hidden="true">{showLibraries ? "−" : "+"}</span>
+        </button>
+        {showLibraries && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Sigue las bibliotecas donde sueles coger libros para priorizar lo que tienes
+              disponible cerca. Puedes omitirlo y configurarlo más tarde en tu cuenta.
+            </p>
+            {branchesError ? (
+              <p className="text-sm text-destructive">✗ {branchesError}</p>
+            ) : branches.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Cargando bibliotecas…</p>
+            ) : (
+              <BranchSelect
+                branches={branches}
+                selected={selectedBranches}
+                onToggle={toggleBranch}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       <label className="flex items-start gap-2 text-sm text-muted-foreground">

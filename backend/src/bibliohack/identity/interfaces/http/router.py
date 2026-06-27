@@ -12,10 +12,15 @@ names so tests can override them.
 
 from __future__ import annotations
 
-from typing import Annotated
+from collections.abc import Sequence  # noqa: TC003 — used in a runtime Protocol body
+from typing import Annotated, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — FastAPI resolves at runtime
 
+from bibliohack.holdings.infrastructure.postgres.branch_repository import (
+    PostgresBranchRepository,
+)
 from bibliohack.identity.application.errors import LoginError, RegisterError
 
 # Runtime imports (not TYPE_CHECKING): FastAPI evaluates endpoint signatures at
@@ -52,11 +57,33 @@ from bibliohack.identity.interfaces.http.schemas import (
     UserSchema,
     VerifyEmailRequestSchema,
 )
-from bibliohack.interfaces.http.dependencies import rate_limit
+from bibliohack.interfaces.http.dependencies import get_tx_session, rate_limit
 from bibliohack.shared.application.result import Err
 from bibliohack.shared.infrastructure.settings import Settings, get_settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+class RegisterBranchFollows(Protocol):
+    """The slice of the branches repo the register endpoint needs (L5).
+
+    Kept as a port so the in-memory HTTP tests can substitute a fake and never
+    open a DB session — the real provider binds a Postgres repo to the request
+    transaction.
+    """
+
+    async def existing_codes(self, codes: Sequence[str]) -> set[str]: ...
+
+    async def set_followed(self, user_id: str, codes: Sequence[str]) -> None: ...
+
+
+def get_register_branch_follows(
+    session: Annotated[AsyncSession, Depends(get_tx_session)],
+) -> RegisterBranchFollows:
+    """Branch-follow writer bound to the request transaction (same session the
+    new user is created in, so the follow rows commit atomically with it)."""
+    return PostgresBranchRepository(session)
+
 
 # Module-level so tests can disable them via dependency_overrides.
 register_rate_limit = rate_limit("auth-register", limit=5, window_seconds=3600)
@@ -114,9 +141,29 @@ async def register(
     tokens: Annotated[TokenService, Depends(get_token_service)],
     mailer: Annotated[Mailer, Depends(get_mailer)],
     captcha: Annotated[CaptchaVerifier, Depends(get_captcha_verifier)],
+    follows: Annotated[RegisterBranchFollows, Depends(get_register_branch_follows)],
 ) -> DetailSchema:
-    """Create an account (unverified) and send the verification mail."""
+    """Create an account (unverified) and send the verification mail.
+
+    L5: an optional «Mis bibliotecas» picker at signup may pass `branch_codes`
+    to follow from the start. They're validated *before* the account is created
+    (so a bad code never triggers a verification mail) and persisted in the same
+    request transaction as the new user — no session of its own, no schema change.
+    """
     await _check_captcha(captcha, payload.turnstile_token, request)
+
+    # Validate branch codes up front: rejecting after RegisterUser would leave a
+    # verification mail already sent for a request we then 422. The follow set is
+    # only written after the user exists, in the same request transaction.
+    if payload.branch_codes:
+        valid = await follows.existing_codes(payload.branch_codes)
+        unknown = [c for c in payload.branch_codes if c not in valid]
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"unknown branch codes: {', '.join(sorted(set(unknown)))}",
+            )
+
     result = await RegisterUser(
         users=users,
         hasher=hasher,
@@ -134,6 +181,10 @@ async def register(
             status_code=_REGISTER_STATUS_FOR_ERROR[result.error],
             detail=result.error.value,
         )
+
+    if payload.branch_codes:
+        await follows.set_followed(result.value, payload.branch_codes)
+
     return DetailSchema(detail="account created — check your email to verify it")
 
 

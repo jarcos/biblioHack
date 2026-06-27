@@ -19,6 +19,7 @@ from bibliohack.identity.interfaces.http.dependencies import (
     get_token_service,
     get_user_repository,
 )
+from bibliohack.identity.interfaces.http.router import get_register_branch_follows
 from bibliohack.interfaces.http.app import create_app
 from bibliohack.interfaces.http.dependencies import get_rate_limiter
 from bibliohack.shared.infrastructure.settings import get_settings
@@ -39,13 +40,32 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
 
+class FakeBranchFollows:
+    """In-memory stand-in for the register endpoint's branch-follow writer (L5)."""
+
+    def __init__(self, known: tuple[str, ...] = ("HU0001", "SE0001")) -> None:
+        self.known = set(known)
+        self.saved: dict[str, list[str]] = {}
+
+    async def existing_codes(self, codes: object) -> set[str]:
+        return {c for c in codes if c in self.known}  # type: ignore[union-attr]
+
+    async def set_followed(self, user_id: str, codes: object) -> None:
+        self.saved[user_id] = list(codes)  # type: ignore[arg-type]
+
+
 @pytest.fixture
 def mailer() -> RecordingMailer:
     return RecordingMailer()
 
 
 @pytest.fixture
-def auth_app(mailer: RecordingMailer) -> FastAPI:
+def follows() -> FakeBranchFollows:
+    return FakeBranchFollows()
+
+
+@pytest.fixture
+def auth_app(mailer: RecordingMailer, follows: FakeBranchFollows) -> FastAPI:
     app = create_app()
     users = InMemoryUserRepository()
     sessions = InMemorySessionStore()
@@ -57,6 +77,7 @@ def auth_app(mailer: RecordingMailer) -> FastAPI:
     app.dependency_overrides[get_password_hasher] = FakePasswordHasher
     app.dependency_overrides[get_captcha_verifier] = AlwaysPassCaptcha
     app.dependency_overrides[get_rate_limiter] = AllowAllRateLimiter
+    app.dependency_overrides[get_register_branch_follows] = lambda: follows
     return app
 
 
@@ -135,6 +156,54 @@ def test_register_validation_and_conflicts(client: TestClient) -> None:
     # Short password is caught by the schema before the use case runs.
     weak = client.post("/api/auth/register", json={"email": "b@example.com", "password": "short"})
     assert weak.status_code == 422
+
+
+def test_register_with_branch_codes_follows_them(
+    client: TestClient, follows: FakeBranchFollows
+) -> None:
+    """L5: valid picked libraries are followed for the new account."""
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "email": "picker@example.com",
+            "password": "long-enough-pass",
+            "branch_codes": ["HU0001", "SE0001"],
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert list(follows.saved.values()) == [["HU0001", "SE0001"]]
+
+
+def test_register_without_branch_codes_sets_no_follows(
+    client: TestClient, follows: FakeBranchFollows
+) -> None:
+    """Omitting the picker (the skip path) follows nothing."""
+    _register(client)
+    assert follows.saved == {}
+
+
+def test_register_with_unknown_branch_code_is_422_before_any_account(
+    client: TestClient, mailer: RecordingMailer, follows: FakeBranchFollows
+) -> None:
+    """An unknown code is rejected up front — no follow set, no account, no mail."""
+    bad = client.post(
+        "/api/auth/register",
+        json={
+            "email": "picker@example.com",
+            "password": "long-enough-pass",
+            "branch_codes": ["HU0001", "NOPE9999"],
+        },
+    )
+    assert bad.status_code == 422
+    assert "NOPE9999" in bad.json()["detail"]
+    assert follows.saved == {}
+    assert mailer.sent == []  # validated before RegisterUser, so no verification mail
+    # And the email is still free — the account was never created.
+    ok = client.post(
+        "/api/auth/register",
+        json={"email": "picker@example.com", "password": "long-enough-pass"},
+    )
+    assert ok.status_code == 201
 
 
 def test_login_with_bad_credentials_is_401(client: TestClient, mailer: RecordingMailer) -> None:
