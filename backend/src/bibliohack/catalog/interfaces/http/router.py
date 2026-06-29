@@ -107,6 +107,20 @@ async def _resolve_library_codes(
     return await PostgresBranchRepository(session).scope_branch_codes(str(user.id), level.value)
 
 
+async def _resolve_primary_branch(session: AsyncSession, user: User | None) -> str | None:
+    """The reader's *primary* branch = their first followed branch.
+
+    Deliberately independent of `library_scope` (D-B): the availability badge
+    always reflects the reader's own library, even when they widen the record
+    filter to «Mi provincia» or «Todo el catálogo». None for anonymous /
+    no-follow users, who get GPS-anchored (client-side) or network-wide badges.
+    """
+    if user is None:
+        return None
+    codes = await PostgresBranchRepository(session).followed_codes(str(user.id))
+    return codes[0] if codes else None
+
+
 @router.get(
     "/records/{titn}",
     response_model=CatalogRecordSchema,
@@ -191,7 +205,8 @@ async def search_catalog(
     `scope` defaults to `literary` (hides confidently children's/youth or
     non-fiction); pass `scope=all` for the whole mirror.
     """
-    repo = PostgresCatalogReadRepository(session)
+    primary_branch = await _resolve_primary_branch(session, user)
+    repo = PostgresCatalogReadRepository(session, primary_branch_code=primary_branch)
     library_codes = await _resolve_library_codes(session, user, library_scope)
 
     # Rewrite path (§8.3.1): interpret a natural-language query and, when it
@@ -273,7 +288,8 @@ async def browse_catalog(
     availability badge, and the `available` flag is the "available now" quick
     filter (latest snapshot == available on any branch).
     """
-    repo = PostgresCatalogReadRepository(session)
+    primary_branch = await _resolve_primary_branch(session, user)
+    repo = PostgresCatalogReadRepository(session, primary_branch_code=primary_branch)
     library_codes = await _resolve_library_codes(session, user, library_scope)
     page = await repo.browse(
         author=author,
@@ -406,6 +422,8 @@ def _summary_to_schema(summary: CatalogRecordSummary) -> CatalogRecordSummarySch
         audience=summary.audience,
         literary_form=summary.literary_form,
         available_count=summary.available_count,
+        available_branch_codes=list(summary.available_branch_codes),
+        available_at_primary=summary.available_at_primary,
         cover=_cover_to_schema(summary.cover),
         relevance_score=summary.relevance_score,
     )

@@ -59,14 +59,29 @@ _COVER_URL = "/catalog/covers/{}.webp"
 # literal here to avoid importing the covers domain enum into this read model).
 _COVER_RESOLVED = "resolved"
 
+# A copy is "optimistically available" (D-G) unless its latest snapshot says it
+# is out of circulation: loaned, reserved, or otherwise unavailable. Unknown and
+# never-observed copies count as available — partial crawl coverage shouldn't
+# make every card look empty. NOT IN this set ⇒ available.
+_BLOCKING_STATUSES = (
+    AvailabilityStatus.LOANED.value,
+    AvailabilityStatus.RESERVED.value,
+    AvailabilityStatus.UNAVAILABLE.value,
+)
+
 _SelectT = TypeVar("_SelectT", bound=Select)  # type: ignore[type-arg]
 
 
 class PostgresCatalogReadRepository:
     """Concrete `CatalogReadRepository` backed by SQLAlchemy."""
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, *, primary_branch_code: str | None = None) -> None:
         self._session = session
+        # The signed-in reader's primary branch (their first followed branch),
+        # resolved by the router independently of `library_scope`. Drives
+        # `available_at_primary` on summaries and the "available at my library"
+        # meaning of the browse `available_only` filter. None for anon/no-follow.
+        self._primary_branch_code = primary_branch_code
 
     async def find_by_titn(self, titn: Titn) -> CatalogRecordView | None:
         stmt = (
@@ -309,6 +324,11 @@ class PostgresCatalogReadRepository:
             # to every dimension's counts too (no `exclude` carve-out).
             stmt = self._apply_library_scope(stmt, library_branch_codes)
             if available_only:
+                # "Solo disponibles ahora" (D-I): redefined to optimistic
+                # availability, and — when the reader has a primary branch —
+                # scoped to "available at MY library". Anon/no-follow keeps the
+                # network-wide meaning. Server-side EXISTS so pagination stays
+                # exact (distance/radius never enter here; that's client-side).
                 latest = (
                     select(
                         AvailabilitySnapshotModel.copy_id.label("copy_id"),
@@ -321,15 +341,22 @@ class PostgresCatalogReadRepository:
                     )
                     .subquery()
                 )
-                stmt = stmt.where(
+                avail_exists = (
                     select(CopyModel.id)
-                    .join(latest, latest.c.copy_id == CopyModel.id)
+                    .outerjoin(latest, latest.c.copy_id == CopyModel.id)
                     .where(
                         CopyModel.record_id == BibliographicRecordModel.id,
-                        latest.c.status == AvailabilityStatus.AVAILABLE.value,
+                        CopyModel.is_active.is_(True),
+                        func.coalesce(latest.c.status, AvailabilityStatus.UNKNOWN.value).notin_(
+                            _BLOCKING_STATUSES
+                        ),
                     )
-                    .exists()
                 )
+                if self._primary_branch_code is not None:
+                    avail_exists = avail_exists.where(
+                        CopyModel.branch_code == self._primary_branch_code
+                    )
+                stmt = stmt.where(avail_exists.exists())
             return stmt
 
         base_q = filtered()
@@ -599,9 +626,12 @@ class PostgresCatalogReadRepository:
             rid: int(n) for rid, n in (await self._session.execute(counts_stmt)).all()
         }
 
-        # How many copies are *available right now* per record: take each
-        # copy's latest snapshot (DISTINCT ON), keep the 'available' ones,
-        # count per record. Bounded to the page's copies via the subquery WHERE.
+        # Optimistically-available copies per record (D-G): take each copy's
+        # latest snapshot (DISTINCT ON), then keep copies whose latest status is
+        # NOT loaned/reserved/unavailable. A LEFT JOIN keeps never-observed
+        # copies (NULL status), which COALESCE folds into "unknown" → available.
+        # We pull (record_id, branch_code) per available copy so one pass yields
+        # both the copy count and the distinct available-branch set.
         record_copy_ids = select(CopyModel.id).where(CopyModel.record_id.in_(ids))
         latest_status = (
             select(
@@ -617,34 +647,44 @@ class PostgresCatalogReadRepository:
             .subquery()
         )
         avail_stmt = (
-            select(CopyModel.record_id, func.count())
-            .join(latest_status, latest_status.c.copy_id == CopyModel.id)
+            select(CopyModel.record_id, CopyModel.branch_code)
+            .outerjoin(latest_status, latest_status.c.copy_id == CopyModel.id)
             .where(
                 CopyModel.record_id.in_(ids),
-                latest_status.c.status == AvailabilityStatus.AVAILABLE.value,
+                CopyModel.is_active.is_(True),
+                func.coalesce(latest_status.c.status, AvailabilityStatus.UNKNOWN.value).notin_(
+                    _BLOCKING_STATUSES
+                ),
             )
-            .group_by(CopyModel.record_id)
         )
-        available_count_by_id = {
-            rid: int(n) for rid, n in (await self._session.execute(avail_stmt)).all()
-        }
+        available_count_by_id: dict[object, int] = {}
+        available_branches_by_id: dict[object, set[str]] = {}
+        for rid, branch_code in (await self._session.execute(avail_stmt)).all():
+            available_count_by_id[rid] = available_count_by_id.get(rid, 0) + 1
+            available_branches_by_id.setdefault(rid, set()).add(branch_code)
 
         covers_by_id = await self._covers_by_record(ids)
 
-        return tuple(
-            CatalogRecordSummary(
-                titn=r.titn,
-                title=r.title,
-                authors=tuple(c.name for c in r.contributors if c.role == "author"),
-                publisher=r.publisher,
-                pub_year=r.pub_year,
-                copies_count=copies_count_by_id.get(r.id, 0),
-                audience=r.audience,
-                literary_form=r.literary_form,
-                genre=r.genre,
-                available_count=available_count_by_id.get(r.id, 0),
-                cover=covers_by_id.get(r.id),
-                relevance_score=r.relevance_score,
+        primary = self._primary_branch_code
+        summaries: list[CatalogRecordSummary] = []
+        for r in rows:
+            branches = available_branches_by_id.get(r.id, set())
+            summaries.append(
+                CatalogRecordSummary(
+                    titn=r.titn,
+                    title=r.title,
+                    authors=tuple(c.name for c in r.contributors if c.role == "author"),
+                    publisher=r.publisher,
+                    pub_year=r.pub_year,
+                    copies_count=copies_count_by_id.get(r.id, 0),
+                    audience=r.audience,
+                    literary_form=r.literary_form,
+                    genre=r.genre,
+                    available_count=available_count_by_id.get(r.id, 0),
+                    available_branch_codes=tuple(sorted(branches)),
+                    available_at_primary=(primary in branches) if primary is not None else None,
+                    cover=covers_by_id.get(r.id),
+                    relevance_score=r.relevance_score,
+                )
             )
-            for r in rows
-        )
+        return tuple(summaries)

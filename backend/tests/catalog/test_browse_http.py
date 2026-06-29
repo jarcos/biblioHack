@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -29,10 +30,40 @@ from bibliohack.catalog.infrastructure.absysnet.parser import ParsedCopy, Parsed
 from bibliohack.catalog.infrastructure.postgres.catalog_ingest_repository import (
     PostgresCatalogIngestRepository,
 )
+from bibliohack.holdings.infrastructure.postgres.branch_repository import PostgresBranchRepository
+from bibliohack.identity.domain.user import Email, PasswordHash, User, UserId
+from bibliohack.identity.infrastructure.postgres.models import UserModel
+from bibliohack.identity.interfaces.http.dependencies import get_optional_user
 from bibliohack.interfaces.http.app import create_app
 from bibliohack.interfaces.http.dependencies import get_session
 
 pytestmark = pytest.mark.integration
+
+# Records that ALSO hold a Sevilla copy, so availability can differ by branch
+# (lets us tell "available at my library" apart from "available somewhere").
+_EXTRA_SE01 = {1, 5}
+
+
+def _copies_for(titn: int, signature: str | None) -> list[ParsedCopy]:
+    """Copies to seed for a record: everyone at Huelva, a couple also at Sevilla."""
+    copies = [
+        ParsedCopy(
+            branch_code="HU01",
+            branch_name="Biblioteca Provincial de Huelva",
+            signature=signature,
+            barcode=f"BC{titn}",
+        )
+    ]
+    if titn in _EXTRA_SE01:
+        copies.append(
+            ParsedCopy(
+                branch_code="SE01",
+                branch_name="Biblioteca Provincial de Sevilla",
+                signature=signature,
+                barcode=f"BC{titn}-SE",
+            )
+        )
+    return copies
 
 
 @pytest_asyncio.fixture(scope="module")
@@ -140,26 +171,38 @@ async def seeded(applied_db: str) -> AsyncIterator[str]:
                     record_type="a",
                     bibliographic_level="m",
                 ),
-                copies=[
-                    ParsedCopy(
-                        branch_code="HU01",
-                        branch_name="Biblioteca Provincial de Huelva",
-                        signature=signature,
-                        barcode=f"BC{titn}",
-                    )
-                ],
+                copies=_copies_for(titn, signature),
                 source_url=f"https://example.test/?TITN={titn}",
                 source_hash=bytes([titn]) * 32,
             )
-    # One record gets an 'available' snapshot so the availability filter bites.
+    # Seed snapshots to exercise optimistic availability (D-G):
+    #   r1 HU01+SE01 available · r2 HU01 loaned · r5 HU01 loaned, SE01 available
+    #   r3/r4/r6 HU01 left unobserved (no snapshot → optimistically available).
     async with factory() as s:
-        await s.execute(
-            text(
-                "INSERT INTO availability_snapshots (copy_id, observed_at, status) "
-                "SELECT c.id, now(), 'available' FROM copies c "
-                "JOIN bibliographic_records r ON r.id = c.record_id WHERE r.titn = 1"
+        rows = (
+            await s.execute(
+                text(
+                    "SELECT r.titn, c.branch_code, c.id FROM copies c "
+                    "JOIN bibliographic_records r ON r.id = c.record_id"
+                )
             )
-        )
+        ).all()
+        copy_id = {(titn, branch): cid for titn, branch, cid in rows}
+        snapshots = [
+            (copy_id[(1, "HU01")], "available"),
+            (copy_id[(1, "SE01")], "available"),
+            (copy_id[(2, "HU01")], "loaned"),
+            (copy_id[(5, "HU01")], "loaned"),
+            (copy_id[(5, "SE01")], "available"),
+        ]
+        for cid, st in snapshots:
+            await s.execute(
+                text(
+                    "INSERT INTO availability_snapshots (copy_id, observed_at, status) "
+                    "VALUES (:c, now(), :s)"
+                ),
+                {"c": cid, "s": st},
+            )
         await s.commit()
     yield applied_db
     await engine.dispose()
@@ -264,13 +307,58 @@ async def test_browse_by_author_and_title_sort(client: AsyncClient) -> None:
     assert titles == sorted(titles)
 
 
-async def test_browse_available_only(client: AsyncClient) -> None:
-    r = await client.get("/catalog/browse", params={"available": "true"})
+async def test_browse_available_only_is_optimistic(client: AsyncClient) -> None:
+    """Anonymous «solo disponibles» is now *optimistic* and network-wide (D-G/D-I):
+    a record passes if any copy's latest status is available/unknown OR the copy
+    has never been observed. Only the loaned-everywhere record (2) drops out."""
+    r = await client.get("/catalog/browse", params={"available": "true", "limit": "100"})
     assert r.status_code == 200
     body = r.json()
-    assert body["total"] == 1
-    assert body["items"][0]["titn"] == 1
-    assert body["items"][0]["available_count"] == 1
+    titns = {item["titn"] for item in body["items"]}
+    # 1 available, 3/4/6 unobserved, 5 available at Sevilla → all included.
+    # 2 (sole copy loaned) is excluded.
+    assert titns == {1, 3, 4, 5, 6}
+    assert body["total"] == 5
+
+
+async def test_browse_exposes_optimistic_availability_fields(client: AsyncClient) -> None:
+    """available_branch_codes / available_count reflect optimistic availability;
+    available_at_primary is null for an anonymous caller (no primary branch)."""
+    r = await client.get("/catalog/browse", params={"sort": "newest", "limit": "100"})
+    assert r.status_code == 200
+    items = {it["titn"]: it for it in r.json()["items"]}
+    # Distinct optimistically-available branches, sorted.
+    assert items[1]["available_branch_codes"] == ["HU01", "SE01"]
+    assert items[2]["available_branch_codes"] == []  # sole copy loaned
+    assert items[3]["available_branch_codes"] == ["HU01"]  # unobserved → optimistic
+    assert items[5]["available_branch_codes"] == ["SE01"]  # HU01 loaned, SE01 available
+    # available_count counts optimistic copies (not branches).
+    assert items[1]["available_count"] == 2
+    assert items[2]["available_count"] == 0
+    assert items[3]["available_count"] == 1
+    # No primary for an anonymous user.
+    assert items[1]["available_at_primary"] is None
+
+
+async def test_browse_available_at_primary_and_primary_scoped_filter(
+    authed_client: AsyncClient,
+) -> None:
+    """For a signed-in reader whose primary branch is Huelva (HU01):
+    available_at_primary tracks HU01 only, and «solo disponibles» means
+    "available at MY library" — record 5 (available only at Sevilla) drops out
+    even though it's available somewhere."""
+    r = await authed_client.get("/catalog/browse", params={"sort": "newest", "limit": "100"})
+    assert r.status_code == 200
+    items = {it["titn"]: it for it in r.json()["items"]}
+    assert items[1]["available_at_primary"] is True  # HU01 available
+    assert items[2]["available_at_primary"] is False  # HU01 loaned
+    assert items[3]["available_at_primary"] is True  # HU01 unobserved (optimistic)
+    assert items[5]["available_at_primary"] is False  # HU01 loaned (SE01 doesn't count)
+
+    r2 = await authed_client.get("/catalog/browse", params={"available": "true", "limit": "100"})
+    titns = {it["titn"] for it in r2.json()["items"]}
+    # Scoped to the primary branch: excludes 2 and 5 (both HU01-loaned).
+    assert titns == {1, 3, 4, 6}
 
 
 async def test_browse_rejects_unknown_genre(client: AsyncClient) -> None:
@@ -289,3 +377,56 @@ async def test_authors_directory_and_search(client: AsyncClient) -> None:
     r = await client.get("/catalog/authors", params={"q": "lorca"})
     names = [a["name"] for a in r.json()["items"]]
     assert names == ["García Lorca, Federico"]
+
+
+@pytest_asyncio.fixture
+async def authed_client(seeded: str) -> AsyncIterator[AsyncClient]:
+    """A client signed in as a reader who follows Huelva (HU01) as primary.
+
+    Seeds a real user + follow row (FK-backed), then overrides `get_optional_user`
+    with a matching stub so the catalog router resolves HU01 as the primary
+    branch. Cleans up the user/follow afterwards so the module fixture stays
+    reusable across tests.
+    """
+    engine = create_async_engine(seeded, future=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    user_uuid = uuid4()
+    async with factory() as s:
+        s.add(
+            UserModel(
+                id=user_uuid,
+                email=f"reader-{user_uuid}@example.test",
+                password_hash="x",
+                email_verified=True,
+            )
+        )
+        await s.flush()
+        await PostgresBranchRepository(s).set_followed(str(user_uuid), ["HU01"])
+        await s.commit()
+
+    stub = User(
+        user_id=UserId(value=user_uuid),
+        email=Email("reader@example.test"),
+        password_hash=PasswordHash("x"),
+        email_verified=True,
+    )
+
+    app = create_app()
+
+    async def _override_get_session() -> AsyncIterator[AsyncSession]:
+        async with factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = _override_get_session
+    app.dependency_overrides[get_optional_user] = lambda: stub
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        yield ac
+    app.dependency_overrides.clear()
+    async with factory() as s:
+        await s.execute(
+            text("DELETE FROM user_followed_branches WHERE user_id = :u"), {"u": user_uuid}
+        )
+        await s.execute(text("DELETE FROM users WHERE id = :u"), {"u": user_uuid})
+        await s.commit()
+    await engine.dispose()

@@ -81,8 +81,18 @@ class CatalogRecordSummary:
     audience: str = "unknown"
     literary_form: str = "unknown"
     genre: str = "unknown"
-    # How many copies are on the shelf right now (latest snapshot == available).
+    # Copies *optimistically* available now (D-G): latest snapshot is available
+    # or unknown, or the copy has never been observed. Drives the no-anchor
+    # "N disp." fallback badge.
     available_count: int = 0
+    # Distinct branch codes holding an optimistically-available copy right now.
+    # The browser intersects these with the within-radius branch set to get
+    # "N nearby" — all distance math stays client-side (D11 preserved).
+    available_branch_codes: tuple[str, ...] = ()
+    # Whether the signed-in user's primary branch (first follow) has an
+    # optimistically-available copy. None when there is no primary (anon /
+    # no-follow); the frontend then derives the badge from GPS + the codes.
+    available_at_primary: bool | None = None
     cover: CoverView | None = None
     # Precomputed catalogue relevance ∈ [0,1] (Phase R). Drives the default
     # /browse ordering and breaks near-ties in search; 0.0 until first scored.

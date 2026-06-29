@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { availabilityLabel, availabilityVariant } from "@/lib/availability";
 import { browseHref } from "@/lib/browse";
 import { audienceLabel, formLabel, genreLabel, inDefaultScope } from "@/lib/literary";
+import { useAvailabilityContext, type AvailabilityContext } from "@/lib/useAvailability";
+import { haversineKm } from "@infrastructure/api/branches";
 import {
   CatalogApiError,
   fetchRecord,
@@ -90,7 +92,11 @@ function RecordBody({
     record.document_type ?? null,
   ].filter((part): part is string => part !== null);
 
-  const branches = groupByBranch(record);
+  // Anchor (primary library coords, or GPS) to highlight the reader's branch
+  // and order the rest by proximity. No auto-prompt here.
+  const availability = useAvailabilityContext(apiBaseUrl);
+  const primaryCode = availability.anchor?.kind === "primary" ? availability.anchor.code : null;
+  const branches = sortByProximity(groupByBranch(record), availability, primaryCode);
   const totalAvailable = branches.reduce((sum, b) => sum + b.available, 0);
   const branchesWithAvailable = branches.filter((b) => b.available > 0).length;
   const hasAvailabilityData = record.copies.some((c) => c.status !== "unknown");
@@ -204,6 +210,11 @@ function RecordBody({
                   >
                     <span className="text-foreground">
                       {branch.name}
+                      {branch.code === primaryCode && (
+                        <Badge variant="secondary" className="ml-2 align-middle">
+                          tu biblioteca
+                        </Badge>
+                      )}
                       <span className="text-muted-foreground">
                         {" · "}
                         {branch.count} ejemplar{branch.count === 1 ? "" : "es"}
@@ -390,6 +401,33 @@ function rank(status: string): number {
 
 function betterStatus(a: string, b: string): string {
   return rank(b) < rank(a) ? b : a;
+}
+
+/**
+ * Order branches for the copies list: the reader's primary library first, then
+ * the rest by distance from the anchor (primary coords or GPS), falling back to
+ * alphabetical when there's no anchor or a branch isn't geocoded.
+ */
+function sortByProximity(
+  groups: BranchGroup[],
+  availability: AvailabilityContext,
+  primaryCode: string | null,
+): BranchGroup[] {
+  const { anchor, branches } = availability;
+  const distanceKm = (code: string): number => {
+    if (anchor === null) return Number.POSITIVE_INFINITY;
+    const coord = branches.get(code);
+    if (!coord || coord.lat === null || coord.lng === null) return Number.POSITIVE_INFINITY;
+    return haversineKm({ lat: anchor.lat, lng: anchor.lng }, { lat: coord.lat, lng: coord.lng });
+  };
+  return [...groups].sort((a, b) => {
+    if (a.code === primaryCode) return -1;
+    if (b.code === primaryCode) return 1;
+    const da = distanceKm(a.code);
+    const db = distanceKm(b.code);
+    if (da !== db) return da - db;
+    return a.name.localeCompare(b.name, "es");
+  });
 }
 
 function groupByBranch(record: CatalogRecord): BranchGroup[] {

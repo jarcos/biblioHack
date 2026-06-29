@@ -35,6 +35,7 @@ PAGES: list[tuple[pathlib.Path, str, str, bool]] = [
     (DESIGN / "canon-import.md", "canon-import.html", "Canon Import", False),
     (DESIGN / "demand-driven-shelf-fetcher.md", "demand-driven-shelf-fetcher.html", "Demand-driven Fetcher", False),
     (DESIGN / "m7-backlist-crawl.md", "m7-backlist-crawl.html", "M7 Backlist Crawl", False),
+    (DESIGN / "library-aware-availability.md", "library-aware-availability.html", "Library-aware Availability", False),
     (SRC / "pending-and-ops.md", "pending-and-ops.html", "Pending & Operations", False),
     (SRC / "kanban.md", "kanban.html", "Kanban", True),
 ]

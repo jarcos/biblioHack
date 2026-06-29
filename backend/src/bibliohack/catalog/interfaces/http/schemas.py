@@ -71,7 +71,25 @@ class CatalogRecordSummarySchema(BaseModel):
     genre: str = Field(
         "unknown", description="narrative | poetry | drama | essay | comic | unknown."
     )
-    available_count: int = Field(0, ge=0, description="Copies on the shelf right now.")
+    available_count: int = Field(
+        0,
+        ge=0,
+        description="Copies optimistically available now (latest available/unknown or unobserved).",
+    )
+    available_branch_codes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Branch codes with an optimistically-available copy now; the client "
+            "intersects these with the within-radius branches to count 'N nearby'."
+        ),
+    )
+    available_at_primary: bool | None = Field(
+        None,
+        description=(
+            "Whether the signed-in user's primary (first-followed) branch has an "
+            "optimistically-available copy. Null for anonymous / no-follow users."
+        ),
+    )
     cover: CoverSchema | None = None
     relevance_score: float = Field(
         0.0,

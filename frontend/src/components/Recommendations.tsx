@@ -1,6 +1,9 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState, type ReactElement } from "react";
 
+import { AvailabilityBadge } from "@/components/AvailabilityBadge";
 import { Badge } from "@/components/ui/badge";
+import { useAvailabilityContext, type AvailabilityContext } from "@/lib/useAvailability";
 import { fetchMyBranches } from "@infrastructure/api/branches";
 import { fetchRecommendations, type RecommendationItem } from "@infrastructure/api/recommendations";
 
@@ -18,7 +21,24 @@ interface Props {
   apiBaseUrl: string;
 }
 
+// Own QueryClient so the availability hook (react-query) works inside this
+// island, which otherwise manages its own fetch state.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 30_000, retry: false, refetchOnWindowFocus: false },
+  },
+});
+
 export function Recommendations({ apiBaseUrl }: Props): ReactElement {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <RecommendationsInner apiBaseUrl={apiBaseUrl} />
+    </QueryClientProvider>
+  );
+}
+
+function RecommendationsInner({ apiBaseUrl }: Props): ReactElement {
+  const availability = useAvailabilityContext(apiBaseUrl);
   const [items, setItems] = useState<RecommendationItem[] | null>(null);
   const [reason, setReason] = useState<"ok" | "empty_profile">("ok");
   const [coldStart, setColdStart] = useState(false);
@@ -111,7 +131,7 @@ export function Recommendations({ apiBaseUrl }: Props): ReactElement {
       <ul className="grid gap-4 sm:grid-cols-2">
         {items.map((item) => (
           <li key={item.record.titn}>
-            <RecommendationCard item={item} apiBaseUrl={apiBaseUrl} />
+            <RecommendationCard item={item} apiBaseUrl={apiBaseUrl} availability={availability} />
           </li>
         ))}
       </ul>
@@ -149,9 +169,11 @@ function ColdStartBanner({ tastes }: { tastes: readonly string[] }): ReactElemen
 function RecommendationCard({
   item,
   apiBaseUrl,
+  availability,
 }: {
   item: RecommendationItem;
   apiBaseUrl: string;
+  availability: AvailabilityContext;
 }): ReactElement {
   const { record } = item;
   const coverSrc = record.cover?.url ? `${apiBaseUrl}${record.cover.url}` : null;
@@ -186,9 +208,14 @@ function RecommendationCard({
         {item.rationale != null && (
           <p className="line-clamp-3 text-sm italic text-muted-foreground">«{item.rationale}»</p>
         )}
-        <div className="flex flex-wrap gap-1.5 pt-1">
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
           {record.available_count > 0 ? (
-            <Badge variant="available">{record.available_count} disp.</Badge>
+            <AvailabilityBadge
+              item={record}
+              anchor={availability.anchor}
+              branches={availability.branches}
+              radiusKm={availability.radiusKm}
+            />
           ) : (
             <Badge variant="outline">en catálogo</Badge>
           )}

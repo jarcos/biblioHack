@@ -105,6 +105,14 @@ export const CatalogRecordSummarySchema = z.object({
   literary_form: LiteraryFormSchema,
   genre: GenreSchema,
   available_count: z.number().int().nonnegative().catch(0),
+  // Branches with an optimistically-available copy now. The client intersects
+  // these with the within-radius branch set to compute "N nearby". `.catch([])`
+  // tolerates an older backend that doesn't yet send the field.
+  available_branch_codes: z.array(z.string()).catch([]),
+  // Whether the reader's primary (first-followed) branch has an available copy;
+  // null for anonymous / no-follow callers (the client then derives it from the
+  // codes above + the known primary, or from GPS).
+  available_at_primary: z.boolean().nullable().catch(null),
   cover: CoverSchema.nullable().optional().catch(null),
 });
 export type CatalogRecordSummary = z.infer<typeof CatalogRecordSummarySchema>;

@@ -137,5 +137,7 @@ def _summary_to_schema(summary: CatalogRecordSummary) -> CatalogRecordSummarySch
         audience=summary.audience,
         literary_form=summary.literary_form,
         available_count=summary.available_count,
+        available_branch_codes=list(summary.available_branch_codes),
+        available_at_primary=summary.available_at_primary,
         cover=cover,
     )

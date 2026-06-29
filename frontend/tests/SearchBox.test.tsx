@@ -85,12 +85,20 @@ describe("SearchBox", () => {
 
   it("renders the error state when the backend returns non-2xx", async () => {
     const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 503,
-      statusText: "Service Unavailable",
-      json: async () => ({ detail: "Database down" }),
-    });
+    // URL-aware: 503 for the search, benign for the availability hook's branch
+    // fetches (which fire on mount), so call ordering doesn't matter.
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).includes("/catalog/search")
+          ? {
+              ok: false,
+              status: 503,
+              statusText: "Service Unavailable",
+              json: async () => ({ detail: "Database down" }),
+            }
+          : { ok: true, status: 200, json: async () => ({ branches: [], codes: [] }) },
+      ),
+    );
 
     const user = userEvent.setup();
     render(<SearchBox apiBaseUrl="http://api.test" />);
@@ -123,8 +131,10 @@ describe("SearchBox", () => {
     await waitFor(() => {
       const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
       expect(mockFetch).toHaveBeenCalled();
-      const calledUrl = mockFetch.mock.calls.at(-1)?.[0] as string;
-      expect(calledUrl).toContain("scope=all");
+      // The availability hook also fetches branches, so assert *some* call is
+      // the scoped search rather than assuming it's the most recent one.
+      const calledScopeAll = mockFetch.mock.calls.some((c) => String(c[0]).includes("scope=all"));
+      expect(calledScopeAll).toBe(true);
     });
   });
 
@@ -154,7 +164,7 @@ describe("SearchBox", () => {
     await user.click(screen.getByRole("button", { name: /buscar/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("2 disp. ahora")).toBeInTheDocument();
+      expect(screen.getByText("2 disp.")).toBeInTheDocument();
     });
   });
 });

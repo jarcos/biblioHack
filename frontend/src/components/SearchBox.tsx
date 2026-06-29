@@ -1,12 +1,14 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 
+import { AvailabilityBadge } from "@/components/AvailabilityBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { browseHref } from "@/lib/browse";
 import { audienceLabel, formLabel, genreLabel, inDefaultScope } from "@/lib/literary";
+import { useAvailabilityContext, type AvailabilityContext } from "@/lib/useAvailability";
 import {
   CatalogApiError,
   searchCatalog,
@@ -73,6 +75,10 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
   // literalmente" link on the rewrite chip flips this for the current query;
   // a fresh submit resets it.
   const [forceLiteral, setForceLiteral] = useState(false);
+
+  // Library-aware availability for result badges. No auto-prompt here — search
+  // uses the reader's primary library or a GPS fix already granted on /browse.
+  const availability = useAvailabilityContext(apiBaseUrl);
 
   // Pick up a `?q=` deep link (the browse → search half of the cross-link
   // loop). Done in an effect, not the initial state, to avoid a hydration
@@ -206,6 +212,7 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
           results={isSuccess ? data.items : null}
           total={isSuccess ? data.total : 0}
           apiBaseUrl={apiBaseUrl}
+          availability={availability}
         />
       </CardContent>
     </Card>
@@ -268,6 +275,7 @@ function SearchState({
   results,
   total,
   apiBaseUrl,
+  availability,
 }: {
   isLoading: boolean;
   error: unknown;
@@ -275,6 +283,7 @@ function SearchState({
   results: readonly CatalogRecordSummary[] | null;
   total: number;
   apiBaseUrl: string;
+  availability: AvailabilityContext;
 }): ReactElement | null {
   if (submittedQuery.length === 0) {
     return (
@@ -323,7 +332,7 @@ function SearchState({
         <ul className="space-y-3">
           {results.map((record) => (
             <li key={record.titn}>
-              <ResultRow record={record} apiBaseUrl={apiBaseUrl} />
+              <ResultRow record={record} apiBaseUrl={apiBaseUrl} availability={availability} />
             </li>
           ))}
         </ul>
@@ -336,9 +345,11 @@ function SearchState({
 function ResultRow({
   record,
   apiBaseUrl,
+  availability,
 }: {
   record: CatalogRecordSummary;
   apiBaseUrl: string;
+  availability: AvailabilityContext;
 }): ReactElement {
   const subtitleParts = [
     record.authors.join(", ") || null,
@@ -388,9 +399,12 @@ function ResultRow({
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          {record.available_count > 0 && (
-            <Badge variant="available">{record.available_count} disp. ahora</Badge>
-          )}
+          <AvailabilityBadge
+            item={record}
+            anchor={availability.anchor}
+            branches={availability.branches}
+            radiusKm={availability.radiusKm}
+          />
           <Badge variant="outline">
             {record.copies_count} ejemplar{record.copies_count === 1 ? "" : "es"}
           </Badge>

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 
+import { AvailabilityBadge } from "@/components/AvailabilityBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +12,11 @@ import {
   type BrowseFilters as Filters,
 } from "@/lib/browse";
 import { audienceLabel, formLabel, genreLabel, inDefaultScope } from "@/lib/literary";
+import {
+  RADIUS_OPTIONS,
+  useAvailabilityContext,
+  type AvailabilityContext,
+} from "@/lib/useAvailability";
 import { fetchMyBranches } from "@infrastructure/api/branches";
 import {
   browseCatalog,
@@ -83,6 +89,11 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
       : parseBrowseFilters(window.location.search),
   );
   const [page, setPage] = useState(0);
+
+  // Library-aware availability: resolves the reader's anchor (primary library
+  // coords, or device GPS), the branch directory, and the radius. Auto-prompts
+  // GPS on first visit for anchor-less readers (D-C).
+  const availability = useAvailabilityContext(apiBaseUrl, { autoLocate: true });
 
   // Mirror the active filters back into the URL (replace, not push — filter
   // tweaks shouldn't pile up in history) so the page is shareable and the
@@ -233,6 +244,29 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
             </p>
           </section>
         )}
+
+        {availability.anchor !== null && (
+          <section className="space-y-2">
+            <h3 className="font-serif text-sm font-semibold">Distancia</h3>
+            <select
+              value={availability.radiusKm}
+              onChange={(e) => availability.setRadiusKm(Number(e.target.value))}
+              aria-label="Radio de cercanía"
+              className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+            >
+              {RADIUS_OPTIONS.map((km) => (
+                <option key={km} value={km}>
+                  {km} km
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {availability.anchor.kind === "primary"
+                ? "Cuenta como «cercana» una biblioteca a esta distancia de la tuya."
+                : "Cuenta como «cercana» una biblioteca a esta distancia de tu ubicación."}
+            </p>
+          </section>
+        )}
       </aside>
 
       <section className="space-y-6">
@@ -260,7 +294,7 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
               <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
                 {data.items.map((item) => (
                   <li key={item.titn}>
-                    <BrowseCard item={item} apiBaseUrl={apiBaseUrl} />
+                    <BrowseCard item={item} apiBaseUrl={apiBaseUrl} availability={availability} />
                   </li>
                 ))}
               </ul>
@@ -463,9 +497,11 @@ function AuthorFacet({
 function BrowseCard({
   item,
   apiBaseUrl,
+  availability,
 }: {
   item: CatalogRecordSummary;
   apiBaseUrl: string;
+  availability: AvailabilityContext;
 }): ReactElement {
   const coverSrc = item.cover?.url ? `${apiBaseUrl}${item.cover.url}` : null;
   return (
@@ -507,9 +543,15 @@ function BrowseCard({
               <Badge variant="secondary">{formLabel(item.literary_form)}</Badge>
             </>
           )}
-          {item.available_count > 0 && (
-            <Badge variant="available">{item.available_count} disp.</Badge>
-          )}
+          <AvailabilityBadge
+            item={item}
+            anchor={availability.anchor}
+            branches={availability.branches}
+            radiusKm={availability.radiusKm}
+            onLocate={availability.locate}
+            canLocate={availability.canLocate}
+            locating={availability.locating}
+          />
         </div>
       </div>
     </a>
