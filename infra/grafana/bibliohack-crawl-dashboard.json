@@ -502,6 +502,53 @@
         }
       ],
       "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 } }, "overrides": [] }
+    },
+    {
+      "type": "gauge",
+      "title": "Whole-catalog coverage (RBPA network)",
+      "description": "Records in mirror ÷ the network catalogue's total title count. The denominator is the same probed TITN high-water mark 'TITN space covered' uses (discovery_cursors.total for expression '__backlist_titn__', falling back to the bootstrap figure 2,662,739 until the M7 sweep re-probes it) — i.e. the actual AbsysNET record-ID space for the whole Red de Bibliotecas Públicas de Andalucía network biblioHack crawls, not a national/regional 'volumes' statistic (published figures like the Ministerio de Cultura / Junta de Andalucía 'fondos' count mix in duplicate physical copies and non-book formats across ~800 branches, so they overstate distinct titles and aren't a clean denominator here). Differs from 'TITN space covered', which counts scrape_tasks attempted (including not-found/failed/skipped) rather than confirmed titles actually in the mirror — this panel is the honest 'how much of the whole catalog do we actually have' number.",
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 51 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(100.0 * (SELECT count(*) FROM bibliographic_records) / NULLIF(COALESCE((SELECT total FROM discovery_cursors WHERE expression = '__backlist_titn__'), 2662739), 0), 2) AS pct"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "green", "value": 40 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Network catalog size (denominator)",
+      "description": "The probed TITN high-water mark used as the whole-catalog denominator above — discovery_cursors.total for '__backlist_titn__', falling back to the bootstrap figure 2,662,739 until the M7 sweep re-probes it live from the OPAC.",
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 51 },
+      "datasource": { "type": "postgres", "uid": "bibliohack-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT COALESCE((SELECT total FROM discovery_cursors WHERE expression = '__backlist_titn__'), 2662739) AS titn_high_water_mark"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "graphMode": "none", "colorMode": "value" }
     }
   ]
 }
