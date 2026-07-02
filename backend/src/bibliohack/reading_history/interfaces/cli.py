@@ -162,6 +162,7 @@ async def _run_resolve(
         GatewayConfig(
             user_agent=settings.scraper_user_agent,
             rate_per_second=rate_per_second,
+            http_first=settings.scraper_http_first,
         )
     )
     typer.echo(

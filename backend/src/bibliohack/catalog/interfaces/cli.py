@@ -131,6 +131,7 @@ def probe_titn_range(
         # Probing is one-off — bumping bursts/jitter doesn't help.
         burst=1,
         jitter_seconds=0.5,
+        http_first=settings.scraper_http_first,
     )
     gateway = ScraplingOpacGateway(cfg)
 
@@ -285,6 +286,7 @@ async def _run_discover(
         GatewayConfig(
             user_agent=settings.scraper_user_agent,
             rate_per_second=rate_per_second,
+            http_first=settings.scraper_http_first,
         )
     )
     typer.echo(f"Discovering via expert query: {expression}  (max_results={max_results})")
@@ -408,6 +410,7 @@ async def _run_backlist(
                     GatewayConfig(
                         user_agent=settings.scraper_user_agent,
                         rate_per_second=rate_per_second,
+                        http_first=settings.scraper_http_first,
                     )
                 )
                 typer.echo("First run / --reset: probing the TITN high-water mark…")
@@ -525,6 +528,7 @@ async def _run_worker(
         GatewayConfig(
             user_agent=settings.scraper_user_agent,
             rate_per_second=rate_per_second,
+            http_first=settings.scraper_http_first,
         )
     )
 
@@ -626,6 +630,7 @@ async def _run_refresh(max_tasks: int | None, idle_giveup: int, rate_per_second:
         GatewayConfig(
             user_agent=settings.scraper_user_agent,
             rate_per_second=rate_per_second,
+            http_first=settings.scraper_http_first,
         )
     )
 
@@ -984,6 +989,7 @@ async def _run_canon_resolve(max_rows: int | None, rate_per_second: float, batch
         GatewayConfig(
             user_agent=settings.scraper_user_agent,
             rate_per_second=rate_per_second,
+            http_first=settings.scraper_http_first,
         )
     )
     typer.echo(

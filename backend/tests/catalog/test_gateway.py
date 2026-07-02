@@ -11,9 +11,10 @@ and are skipped by default.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
+import httpx
 import pytest
 
 from bibliohack.catalog.application.ports import FetchOutcome, OpacUnavailableError
@@ -421,3 +422,183 @@ async def test_close_session_without_open_is_noop(
 ) -> None:
     # Closing a gateway that never opened a session must not raise.
     await ScraplingOpacGateway(fast_config).close_session()
+
+
+# ───────────────────────────────────────────────────────────────
+# HTTP-first record fetch — plain httpx before the Camoufox render.
+# Wire shape (verified live 2026-07-02): the canonical `?TITN=N` URL serves a
+# meta-refresh page pointing at `/abnetcl.cgi/{TOKEN}?ACC=161`; that URL
+# serves the record view; the token can then be reused as
+# `/abnetcl.cgi/{TOKEN}?TITN=M` — one request per record.
+# ───────────────────────────────────────────────────────────────
+
+_TOKEN_PATH = "/cultura/absys/abnopac/abnetcl.cgi/FAKETOKEN123"
+_REFRESH_PAGE = (
+    '<html><head><meta charset="iso-8859-1">'
+    f'<meta http-equiv="Refresh" content="0; URL={_TOKEN_PATH}?ACC=161" />'
+    "</head></html>"
+)
+
+
+def _record_page(titn: int) -> str:
+    return f'<html><body><span class="js-TITN">{titn}</span></body></html>'
+
+
+_NOT_FOUND_PAGE = "<html><body><p>Esta consulta NO recupera resultados (0 docs.)</p></body></html>"
+
+
+class HttpScript:
+    """Scripted httpx.MockTransport handler that records every request URL."""
+
+    def __init__(self, *, not_found: bool = False) -> None:
+        self.calls: list[str] = []
+        self.expired_tokens: tuple[str, ...] = ()
+        self._not_found = not_found
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        self.calls.append(url)
+        titn = request.url.params.get("TITN")
+        if request.url.path.endswith("FAKETOKEN123") and titn is not None:
+            # Token-reuse fetch.
+            if url in self.expired_tokens:
+                return httpx.Response(200, text=_REFRESH_PAGE)
+            if self._not_found:
+                return httpx.Response(200, text=_NOT_FOUND_PAGE)
+            return httpx.Response(200, text=_record_page(int(titn)))
+        if request.url.path.endswith("FAKETOKEN123"):
+            # ACC=161 render after the meta-refresh hop; the TITN being viewed
+            # is the one from the immediately-preceding canonical request.
+            if self._not_found:
+                return httpx.Response(200, text=_NOT_FOUND_PAGE)
+            return httpx.Response(200, text=_record_page(int(self.calls[-2].split("TITN=")[1])))
+        # Canonical ?TITN=N bootstrap URL → meta-refresh page.
+        return httpx.Response(200, text=_REFRESH_PAGE)
+
+
+def _http_first_gateway(fast_config: GatewayConfig, handler) -> ScraplingOpacGateway:
+    return ScraplingOpacGateway(
+        replace(fast_config, http_first=True),
+        http_transport=httpx.MockTransport(handler),
+    )
+
+
+async def test_http_first_bootstraps_then_reuses_token(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    # A FakeFetcher with no scripted responses raises if the browser path is
+    # ever touched — the sentinel that HTTP handled everything.
+    install_fake_fetcher(FakeFetcher([]))
+    handler = HttpScript()
+    gateway = _http_first_gateway(fast_config, handler)
+
+    first = await gateway.fetch_record(Titn(68990))
+    second = await gateway.fetch_record(Titn(68998))
+
+    assert first.outcome is FetchOutcome.OK
+    assert 'class="js-TITN">68990' in first.html
+    assert second.outcome is FetchOutcome.OK
+    assert 'class="js-TITN">68998' in second.html
+    # Bootstrap = 2 requests (canonical + refresh); reuse = 1 request.
+    assert len(handler.calls) == 3
+    assert handler.calls[2].endswith("FAKETOKEN123?TITN=68998")
+
+
+async def test_http_first_not_found_detected_without_browser(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    install_fake_fetcher(FakeFetcher([]))
+    gateway = _http_first_gateway(fast_config, HttpScript(not_found=True))
+
+    result = await gateway.fetch_record(Titn(50000))
+    assert result.outcome is FetchOutcome.NOT_FOUND
+
+
+async def test_http_first_expired_token_rebootstraps(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    install_fake_fetcher(FakeFetcher([]))
+    handler = HttpScript()
+    gateway = _http_first_gateway(fast_config, handler)
+    await gateway.fetch_record(Titn(1))  # mints the token (2 requests)
+
+    # Expire the token for the next reuse URL only.
+    handler.expired_tokens = (f"https://www.juntadeandalucia.es{_TOKEN_PATH}?TITN=2",)
+    result = await gateway.fetch_record(Titn(2))
+
+    assert result.outcome is FetchOutcome.OK
+    # reuse-miss (1) + fresh bootstrap (2) on top of the initial 2.
+    assert len(handler.calls) == 5
+
+
+async def test_http_first_unknown_shape_falls_back_to_browser(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    class WeirdPages:
+        calls: ClassVar[list[str]] = []
+
+        def __call__(self, request: httpx.Request) -> httpx.Response:
+            self.calls.append(str(request.url))
+            return httpx.Response(200, text="<html>maintenance page</html>")
+
+    fake = FakeFetcher([FakePage(status=200, html_content="<html>real record</html>")])
+    install_fake_fetcher(fake)
+    gateway = _http_first_gateway(fast_config, WeirdPages())
+
+    result = await gateway.fetch_record(Titn(7))
+
+    assert result.outcome is FetchOutcome.OK
+    assert result.html == "<html>real record</html>"
+    assert len(fake.calls) == 1  # browser fallback used
+
+
+async def test_http_first_transport_error_falls_back_to_browser(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    def boom(request: httpx.Request) -> httpx.Response:
+        msg = "simulated network failure"
+        raise httpx.ConnectError(msg, request=request)
+
+    fake = FakeFetcher([FakePage(status=200, html_content="<html>real record</html>")])
+    install_fake_fetcher(fake)
+    gateway = _http_first_gateway(fast_config, boom)
+
+    result = await gateway.fetch_record(Titn(7))
+    assert result.outcome is FetchOutcome.OK
+    assert len(fake.calls) == 1
+
+
+async def test_http_first_decodes_utf8_despite_latin1_declaration(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    """Raw UTF-8 bytes must decode correctly — no mojibake, no _repair_charset."""
+    original = "Cartografía peninsular / Ignasi M. Colomer"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = (
+            '<html><head><meta charset="iso-8859-1"></head>'
+            f'<body><span class="js-TITN">9</span><span>{original}</span></body></html>'
+        ).encode()
+        return httpx.Response(
+            200, content=body, headers={"Content-Type": "text/html; charset=iso-8859-1"}
+        )
+
+    install_fake_fetcher(FakeFetcher([]))
+    gateway = _http_first_gateway(fast_config, handler)
+
+    result = await gateway.fetch_record(Titn(9))
+    assert result.outcome is FetchOutcome.OK
+    assert original in result.html
+    assert "Ã" not in result.html
+
+
+async def test_http_first_off_by_default_uses_browser(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    """Direct GatewayConfig construction (tests, probes) keeps browser-only."""
+    fake = FakeFetcher([FakePage(status=200, html_content="<html>real record</html>")])
+    install_fake_fetcher(fake)
+
+    result = await ScraplingOpacGateway(fast_config).fetch_record(Titn(1))
+    assert result.outcome is FetchOutcome.OK
+    assert len(fake.calls) == 1

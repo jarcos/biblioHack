@@ -32,6 +32,13 @@ services:
       DATABASE_URL_SYNC: postgresql+psycopg://${POSTGRES_USER:-bibliohack}:${POSTGRES_PASSWORD}@bibliohack-postgres:5432/${POSTGRES_DB:-bibliohack}
       # Be a good citizen to the public OPAC.
       SCRAPER_USER_AGENT: "bibliohack/0.1 (+https://biblio.josearcos.me)"
+      # Plain-HTTP record fetches with automatic browser fallback (2026-07-02):
+      # the OPAC serves full record HTML without JS (meta-refresh → tokenised
+      # session URL, then one GET per record), so the 2.5-4.5s/task Camoufox
+      # render tax is gone (~1.1s/task, throttle-bound). Politeness unchanged —
+      # every HTTP request goes through the same CRAWL_RATE token bucket. Kill
+      # switch: "false" forces the old browser-only fetches.
+      SCRAPER_HTTP_FIRST: "true"
       # Crawl budget + nightly bounds (consumed by run-job.sh). Tune here.
       CRAWL_RATE: "1.0"          # requests/sec to the OPAC (polite; don't raise casually)
       DISCOVER_YEAR_FROM: "2024" # novedades window (publication year >=)
@@ -46,8 +53,13 @@ services:
       # CRAWL_RATE stays at 1.0 — that is the politeness/compliance gate, not this.
       DISCOVER_MAX: "400"        # TITNs discovered per hourly run (= the daily rate ×24)
       # Must stay >= DISCOVER_MAX with margin so a run always clears the hour's
-      # discovery plus any residual backlog; a cap, rarely reached.
-      WORKER_MAX: "1000"         # records ingested per hourly run (cap; rarely reached)
+      # discovery plus the backlist top-up. Raised 1000→2000 on 2026-07-02
+      # alongside SCRAPER_HTTP_FIRST (per-task ~1.1s instead of 2.5-4.5s — 2000
+      # tasks fit in ~40 min) and the run-job.sh lock-wait fix (an overrun no
+      # longer forfeits the next hour). M7 drain is worker-bound, so this is
+      # the pace lever: push toward 3000 once failure-rate + run-duration stay
+      # green — never CRAWL_RATE, which is the politeness/compliance gate.
+      WORKER_MAX: "2000"         # records ingested per hourly run (cap)
       REFRESH_MAX: "300"         # records re-probed per 6-hourly run
       COVERS_MAX: "100"          # cover ISBNs resolved per 2-hourly run (off-OPAC)
       EMBED_MAX: "200"           # records embedded per 3-hourly run (off-OPAC, via HF)

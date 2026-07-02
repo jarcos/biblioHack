@@ -1,9 +1,23 @@
-"""Scrapling-backed `OpacGateway` implementation.
+"""Scrapling-backed `OpacGateway` implementation, with an HTTP-first fast path.
 
-The AbsysNET OPAC is a JavaScript-rendered SPA, so a plain `httpx` call would
-return a boilerplate document with no useful content. We use Scrapling's
-`StealthyFetcher` (Camoufox under the hood) which executes JS and gives us
-the rendered HTML.
+Record pages are NOT JavaScript-rendered — verified against the live OPAC on
+2026-07-02: the canonical `?TITN=N` URL serves a tiny `<meta http-equiv=
+"Refresh">` page pointing at a session-tokenised URL, and *that* URL serves the
+full record HTML (including the `js-TITN`/`T245` fields our parser reads)
+without executing any JS. Once a session token is minted it can be reused for
+subsequent `?TITN=N` requests directly — one request per record.
+
+So `fetch_record` tries plain `httpx` first (when `GatewayConfig.http_first`
+is on): ~0.3s per fetch instead of the 2.5-4.5s a Camoufox render costs,
+which lets the worker actually reach the 1 req/s politeness ceiling instead
+of idling under it. Any unexpected page shape or transport error falls back
+to the original Scrapling browser path for that record, so upstream changes
+degrade to the old (slow, working) behaviour rather than failing. The same
+`TokenBucket` gates every HTTP request — this is a latency win, never a
+request-rate increase.
+
+The browser path also remains for discovery pagination (untouched) and as
+the fallback fetcher.
 
 This adapter:
 - enforces the politeness budget via a `TokenBucket`,
@@ -27,6 +41,8 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
+
+import httpx
 
 from bibliohack.catalog.application.ports import (
     DiscoverySlice,
@@ -82,6 +98,11 @@ class GatewayConfig:
     backoff_base_seconds: float = 30.0
     backoff_cap_seconds: float = 1800.0
     endpoints: AbsysnetEndpoints = DEFAULT_ENDPOINTS
+    # Try plain HTTP before the Camoufox render for record fetches (see module
+    # docstring). Off by default so direct constructions (tests, one-off
+    # probes) keep the original behaviour; the CLI wires it from
+    # `Settings.scraper_http_first` (default on, kill switch SCRAPER_HTTP_FIRST).
+    http_first: bool = False
 
 
 class ScraplingOpacGateway:
@@ -92,7 +113,7 @@ class ScraplingOpacGateway:
     extra) don't drag in Camoufox / Playwright at import time.
     """
 
-    def __init__(self, config: GatewayConfig) -> None:
+    def __init__(self, config: GatewayConfig, *, http_transport: Any = None) -> None:
         self._config = config
         self._throttle = TokenBucket(
             rate_per_second=config.rate_per_second,
@@ -103,6 +124,13 @@ class ScraplingOpacGateway:
         # fetch in a crawl run (see `open_session`). Default off so a one-shot
         # fetch (probe / test) still works exactly as before.
         self._session: Any = None
+        # HTTP-first plumbing: a lazy httpx client (cookies persist across the
+        # run) and the session-tokenised base URL minted by the first record's
+        # meta-refresh hop, reused for one-request-per-record fetches after.
+        # `http_transport` lets tests inject an httpx.MockTransport.
+        self._http_transport = http_transport
+        self._http_client: httpx.AsyncClient | None = None
+        self._http_base: str | None = None
 
     # ── Pooled-session lifecycle ──────────────────────────────────
     # Launching Camoufox is by far the most expensive part of a fetch — far
@@ -136,11 +164,16 @@ class ScraplingOpacGateway:
         self._session = session
 
     async def close_session(self) -> None:
-        """Close the pooled session if one is open. Idempotent."""
+        """Close the pooled session (and HTTP client) if open. Idempotent."""
         session = self._session
         self._session = None
         if session is not None:
             await session.close()
+        client = self._http_client
+        self._http_client = None
+        self._http_base = None
+        if client is not None:
+            await client.aclose()
 
     async def __aenter__(self) -> ScraplingOpacGateway:
         await self.open_session()
@@ -196,7 +229,102 @@ class ScraplingOpacGateway:
             extra_headers={"User-Agent": self._config.user_agent},
         )
 
+    # ── HTTP-first record fetch ───────────────────────────────────
+    # See module docstring. Every GET goes through the same TokenBucket as the
+    # browser path (the bootstrap hop costs two tokens, steady state one), so
+    # the OPAC never sees more than the configured request rate.
+
+    def _ensure_http_client(self) -> httpx.AsyncClient:
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(
+                headers={"User-Agent": self._config.user_agent},
+                timeout=self._config.fetch_timeout_seconds,
+                follow_redirects=True,
+                transport=self._http_transport,
+            )
+        return self._http_client
+
+    async def _http_get(self, url: str) -> tuple[int, str, str]:
+        """One throttled GET → (status, body, final_url).
+
+        Bytes are decoded as UTF-8 directly (the server sends UTF-8 despite
+        declaring iso-8859-1), so — unlike the browser path — no mojibake
+        repair is needed or applied.
+        """
+        await self._throttle.acquire()
+        resp = await self._ensure_http_client().get(url)
+        return resp.status_code, _decode_http_body(resp), str(resp.url)
+
+    def _classify_http(
+        self, titn: Titn, status: int, body: str, final_url: str, started: float
+    ) -> FetchResult | None:
+        """Map an HTTP response onto a FetchResult, or None → browser fallback."""
+        if status != 200:
+            return None
+        if _looks_like_not_found(body):
+            outcome = FetchOutcome.NOT_FOUND
+        elif _RECORD_VIEW_MARKER in body:
+            outcome = FetchOutcome.OK
+        else:
+            # Meta-refresh page (stale session token) or an unknown shape.
+            return None
+        return FetchResult(
+            titn=titn,
+            outcome=outcome,
+            url=build_record_url(titn, endpoints=self._config.endpoints),
+            final_url=final_url,
+            status_code=status,
+            html=body,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            bytes_in=len(body.encode("utf-8")),
+        )
+
+    async def _http_fetch_record(self, titn: Titn) -> FetchResult | None:
+        """Fetch a record over plain HTTP. Returns None → fall back to browser."""
+        started = time.monotonic()
+
+        # Fast path: reuse the session token minted by a previous bootstrap.
+        if self._http_base is not None:
+            status, body, final_url = await self._http_get(f"{self._http_base}?TITN={int(titn)}")
+            result = self._classify_http(titn, status, body, final_url, started)
+            if result is not None:
+                return result
+            # Session expired (server answered with a fresh meta-refresh page)
+            # or unexpected shape — drop the token and bootstrap again.
+            self._http_base = None
+            log.info("absysnet.http.session_expired titn=%d — re-bootstrapping", int(titn))
+
+        # Bootstrap: canonical TITN URL → meta refresh → session-tokenised URL.
+        url = build_record_url(titn, endpoints=self._config.endpoints)
+        status, body, final_url = await self._http_get(url)
+        if status != 200:
+            return None
+        match = _META_REFRESH.search(body)
+        if match:
+            refresh_url = urljoin(final_url, match.group(1))
+            status, body, final_url = await self._http_get(refresh_url)
+            if status == 200:
+                self._http_base = refresh_url.split("?", 1)[0]
+        return self._classify_http(titn, status, body, final_url, started)
+
     async def fetch_record(self, titn: Titn) -> FetchResult:
+        if self._config.http_first:
+            try:
+                result = await self._http_fetch_record(titn)
+            except httpx.HTTPError as exc:
+                log.warning(
+                    "absysnet.http.error titn=%d error=%s: %s — falling back to browser",
+                    int(titn),
+                    type(exc).__name__,
+                    exc,
+                )
+                result = None
+            if result is not None:
+                return result
+            log.info("absysnet.http.fallback titn=%d — using browser fetch", int(titn))
+        return await self._browser_fetch_record(titn)
+
+    async def _browser_fetch_record(self, titn: Titn) -> FetchResult:
         url = build_record_url(titn, endpoints=self._config.endpoints)
 
         await self._throttle.acquire()
@@ -401,6 +529,35 @@ class ScraplingOpacGateway:
         )
         log.info("absysnet.fetch.backoff", extra={"attempt": attempt, "wait_seconds": wait})
         await asyncio.sleep(wait)
+
+
+# A real record view carries the `js-TITN` field element our parser reads
+# (`<span class="js-TITN">N</span>`); the meta-refresh bootstrap page and the
+# not-found pane don't. Verified against the live OPAC 2026-07-02.
+_RECORD_VIEW_MARKER = "js-TITN"
+
+# The canonical `?TITN=N` URL answers with a client-side redirect:
+#   <meta http-equiv="Refresh" content="0; URL=/…/abnetcl.cgi/{TOKEN}?ACC=161" />
+# httpx doesn't follow meta refreshes (only real 3xx), so we parse it out.
+_META_REFRESH = re.compile(
+    r'http-equiv=["\']?refresh["\']?[^>]*?url=([^"\'>\s]+)',
+    re.IGNORECASE,
+)
+
+
+def _decode_http_body(resp: httpx.Response) -> str:
+    """Decode an OPAC response body from raw bytes.
+
+    The server declares iso-8859-1 but actually serves UTF-8 (the same lie
+    that forces `_repair_charset` on the browser path). Over plain HTTP we
+    control decoding, so: try strict UTF-8 first (the truth), fall back to
+    Latin-1 (which cannot fail — every byte maps) for a genuinely legacy page.
+    """
+    raw = resp.content
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
 
 
 def _looks_like_not_found(html: str) -> bool:

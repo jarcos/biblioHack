@@ -28,7 +28,20 @@ case "$JOB" in
   *) LOCK="/tmp/bibliohack-crawl.lock" ;;
 esac
 exec 9>"$LOCK"
-if ! flock -n 9; then
+if [ "$JOB" = "discover_worker" ]; then
+  # The hourly growth job is the throughput engine — skipping it because a
+  # 6-hourly job briefly held the lock costs a full hour of crawl capacity
+  # (observed 2026-07-02: the 12:40 shelf_resolve held the lock through 13:00
+  # and the whole 13:00-14:00 hour was lost). So it WAITS, bounded to stay
+  # clear of its own next tick; supercronic won't start a second instance of
+  # the same job meanwhile, so waiters never pile up.
+  if ! flock -w "${LOCK_WAIT_SECONDS:-3300}" 9; then
+    echo "[$(ts)] $JOB skipped — crawl lock still held after ${LOCK_WAIT_SECONDS:-3300}s"
+    exit 0
+  fi
+elif ! flock -n 9; then
+  # Everything else keeps skip-if-busy: those jobs re-fire soon enough, and
+  # letting them queue behind the (long) hourly growth run would starve it.
   echo "[$(ts)] $JOB skipped — another crawl job is still running"
   exit 0
 fi

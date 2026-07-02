@@ -40,9 +40,17 @@ class Settings(BaseSettings):
 
     # ───── Scraper ─────
     scraper_user_agent: str = "bibliohack/0.1 (+https://github.com/your-user/biblioHack)"
+    # Fetch record pages over plain HTTP before falling back to the Camoufox
+    # render (see absysnet/gateway.py module docstring). Kill switch: set
+    # SCRAPER_HTTP_FIRST=false to force the old browser-only behaviour.
+    scraper_http_first: bool = True
     scraper_min_interval_seconds: float = 1.0
     scraper_max_interval_seconds: float = 1.8
-    scraper_daily_request_cap: int = 30_000
+    # Declared daily budget (NOT enforced in code yet — the real gate is the
+    # 1 req/s TokenBucket, ceiling 86.4k/day). Raised 30k→60k on 2026-07-02
+    # when the HTTP-first fetcher + WORKER_MAX=2000 lifted steady state to
+    # ~50k requests/day; keep this ≥ actual usage so it stays honest.
+    scraper_daily_request_cap: int = 60_000
 
     # ───── OpenRouter ─────
     openrouter_api_key: str = ""
