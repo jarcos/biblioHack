@@ -57,7 +57,8 @@ describe("SearchBox", () => {
     await user.click(screen.getByRole("button", { name: /buscar/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("Cien años de soledad")).toBeInTheDocument();
+      // Heading role: the title also appears on the procedural Cover jacket.
+      expect(screen.getByRole("heading", { name: "Cien años de soledad" })).toBeInTheDocument();
     });
     expect(screen.getByText(/3 ejemplares/i)).toBeInTheDocument();
     expect(screen.getByText(/1 resultado para/i)).toBeInTheDocument();

@@ -33,9 +33,11 @@ export function ThemeToggle(): ReactElement {
   return (
     <Button
       type="button"
-      variant="ghost"
+      variant="outline"
       size="icon"
+      className="h-9 w-9 rounded-lg border-input bg-card text-muted-foreground"
       aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+      title="Cambiar tema"
       onClick={flip}
     >
       {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}

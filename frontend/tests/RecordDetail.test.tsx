@@ -52,7 +52,8 @@ describe("RecordDetail", () => {
     render(<RecordDetail apiBaseUrl="http://api.test" />);
 
     await waitFor(() => {
-      expect(screen.getByText("Trilogía de Nueva York")).toBeInTheDocument();
+      // Heading role: the title also appears on the procedural Cover jacket.
+      expect(screen.getByRole("heading", { name: "Trilogía de Nueva York" })).toBeInTheDocument();
     });
     expect(screen.getByText("Adultos")).toBeInTheDocument();
     expect(screen.getByText("Literatura")).toBeInTheDocument();
@@ -123,7 +124,8 @@ describe("RecordDetail", () => {
     render(<RecordDetail apiBaseUrl="http://api.test" />);
 
     await waitFor(() => {
-      expect(screen.getByText("Con disponibilidad")).toBeInTheDocument();
+      // Heading role: the title also appears on the procedural Cover jacket.
+      expect(screen.getByRole("heading", { name: "Con disponibilidad" })).toBeInTheDocument();
     });
     // Overall "on shelf now" summary + Huelva shows 1 available, Sevilla loaned.
     expect(screen.getByText("Disponible ahora")).toBeInTheDocument();

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 
 import { AvailabilityBadge } from "@/components/AvailabilityBadge";
+import { Cover } from "@/components/Cover";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -150,8 +151,8 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
   const totalPages = isSuccess ? Math.ceil(data.total / PAGE_SIZE) : 0;
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[260px_1fr]">
-      <aside className="space-y-6">
+    <div className="grid items-start gap-10 lg:grid-cols-[262px_1fr]">
+      <aside className="space-y-6 self-start lg:sticky lg:top-24">
         <CatalogSearchBox />
 
         <AuthorFacet
@@ -172,8 +173,8 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
             />
           ))}
 
-        <section className="space-y-2">
-          <h3 className="font-serif text-sm font-semibold">Año de publicación</h3>
+        <section className="space-y-2.5">
+          <h3 className="eyebrow m-0 font-normal">Año de publicación</h3>
           <div className="flex items-center gap-2">
             <Input
               type="number"
@@ -208,8 +209,8 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
           Solo disponibles ahora
         </label>
 
-        <section className="space-y-2">
-          <h3 className="font-serif text-sm font-semibold">Ordenar por</h3>
+        <section className="space-y-2.5">
+          <h3 className="eyebrow m-0 font-normal">Ordenar por</h3>
           <select
             value={filters.sort}
             onChange={(e) => update({ sort: e.target.value as Filters["sort"] })}
@@ -223,8 +224,8 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
         </section>
 
         {followsBranches && (
-          <section className="space-y-2">
-            <h3 className="font-serif text-sm font-semibold">Bibliotecas</h3>
+          <section className="space-y-2.5">
+            <h3 className="eyebrow m-0 font-normal">Bibliotecas</h3>
             <select
               value={filters.libraryScope}
               onChange={(e) => update({ libraryScope: e.target.value as Filters["libraryScope"] })}
@@ -246,8 +247,8 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
         )}
 
         {availability.anchor !== null && (
-          <section className="space-y-2">
-            <h3 className="font-serif text-sm font-semibold">Distancia</h3>
+          <section className="space-y-2.5">
+            <h3 className="eyebrow m-0 font-normal">Distancia</h3>
             <select
               value={availability.radiusKm}
               onChange={(e) => availability.setRadiusKm(Number(e.target.value))}
@@ -283,15 +284,19 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
         )}
         {isSuccess && (
           <>
-            <p className="text-sm text-muted-foreground" role="status">
-              {data.total.toLocaleString("es-ES")} obras en el espejo con estos filtros
-            </p>
+            <div className="flex flex-wrap items-center gap-3 border-b border-border pb-4">
+              <span role="status" className="font-mono text-sm text-foreground">
+                <strong>{data.total.toLocaleString("es-ES")}</strong>{" "}
+                <span className="text-faint">obras en el espejo</span>
+              </span>
+              <ActiveFilterChips filters={filters} onClear={update} />
+            </div>
             {data.items.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Nada por aquí todavía — el catálogo crece cada hora; prueba a quitar algún filtro.
               </p>
             ) : (
-              <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+              <ul className="grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 xl:grid-cols-4">
                 {data.items.map((item) => (
                   <li key={item.titn}>
                     <BrowseCard item={item} apiBaseUrl={apiBaseUrl} availability={availability} />
@@ -300,25 +305,27 @@ function BrowseInner({ apiBaseUrl }: Props): ReactElement {
               </ul>
             )}
             {totalPages > 1 && (
-              <nav className="flex items-center justify-between" aria-label="Paginación">
+              <nav className="flex items-center justify-center gap-4 pt-4" aria-label="Paginación">
                 <Button
                   variant="outline"
                   size="sm"
+                  className="rounded-lg"
                   disabled={page === 0}
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                 >
-                  ← Anterior
+                  ←
                 </Button>
-                <span className="text-sm text-muted-foreground">
-                  Página {page + 1} de {totalPages}
+                <span className="font-mono text-sm text-muted-foreground">
+                  Página {page + 1} de {totalPages.toLocaleString("es-ES")}
                 </span>
                 <Button
                   variant="outline"
                   size="sm"
+                  className="rounded-lg"
                   disabled={!data.has_more}
                   onClick={() => setPage((p) => p + 1)}
                 >
-                  Siguiente →
+                  →
                 </Button>
               </nav>
             )}
@@ -343,21 +350,92 @@ function CatalogSearchBox(): ReactElement {
   };
 
   return (
-    <section className="space-y-2">
-      <h3 className="font-serif text-sm font-semibold">Buscar</h3>
-      <form onSubmit={onSubmit} className="flex gap-1">
-        <Input
+    <section>
+      <form
+        onSubmit={onSubmit}
+        className="flex items-center gap-2 rounded-lg border-[1.5px] border-input bg-muted px-3"
+      >
+        <span aria-hidden="true" className="text-faint">
+          ⌕
+        </span>
+        <input
           type="search"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Buscar en el catálogo…"
           aria-label="Buscar en el catálogo"
+          className="w-full border-none bg-transparent py-2.5 text-sm text-foreground outline-none placeholder:text-faint"
         />
-        <Button type="submit" variant="outline" size="sm">
-          Ir
-        </Button>
       </form>
     </section>
+  );
+}
+
+/**
+ * ActiveFilterChips — the "Género: Narrativa ✕" pills next to the result
+ * count (design: verde-suave pills; clicking one clears that filter).
+ */
+function ActiveFilterChips({
+  filters,
+  onClear,
+}: {
+  filters: Filters;
+  onClear: (partial: Partial<Filters>) => void;
+}): ReactElement | null {
+  const chips: { key: string; label: string; clear: Partial<Filters> }[] = [];
+  if (filters.author !== undefined)
+    chips.push({ key: "author", label: `Autor: ${filters.author}`, clear: { author: undefined } });
+  if (filters.genre !== undefined)
+    chips.push({
+      key: "genre",
+      label: `Género: ${genreLabel(filters.genre)}`,
+      clear: { genre: undefined },
+    });
+  if (filters.language !== undefined)
+    chips.push({
+      key: "language",
+      label: `Idioma: ${filters.language}`,
+      clear: { language: undefined },
+    });
+  if (filters.audience !== undefined)
+    chips.push({
+      key: "audience",
+      label: `Público: ${audienceLabel(filters.audience)}`,
+      clear: { audience: undefined },
+    });
+  if (filters.literaryForm !== undefined)
+    chips.push({
+      key: "literaryForm",
+      label: `Forma: ${formLabel(filters.literaryForm)}`,
+      clear: { literaryForm: undefined },
+    });
+  if (filters.yearFrom !== undefined || filters.yearTo !== undefined)
+    chips.push({
+      key: "years",
+      label: `Años: ${filters.yearFrom ?? "…"}–${filters.yearTo ?? "…"}`,
+      clear: { yearFrom: undefined, yearTo: undefined },
+    });
+  if (filters.available)
+    chips.push({ key: "available", label: "Disponible ahora", clear: { available: false } });
+
+  if (chips.length === 0) return null;
+  return (
+    <>
+      {chips.map(({ key, label, clear }) => (
+        <button
+          key={key}
+          type="button"
+          onClick={() => onClear(clear)}
+          title="Quitar filtro"
+          className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft py-1 pl-3 pr-2.5 text-[0.82rem] font-medium text-brand-soft-foreground transition-opacity hover:opacity-80"
+        >
+          <span className="max-w-[24ch] truncate">{label}</span>
+          <span aria-hidden="true" className="opacity-70">
+            ✕
+          </span>
+        </button>
+      ))}
+    </>
   );
 }
 
@@ -396,23 +474,23 @@ function FacetGroup({
 }): ReactElement | null {
   if (counts.length === 0) return null;
   return (
-    <section className="space-y-2">
-      <h3 className="font-serif text-sm font-semibold">{title}</h3>
-      <ul className="space-y-1">
+    <section className="space-y-2.5 border-t border-border pt-6">
+      <h3 className="eyebrow m-0 font-normal">{title}</h3>
+      <ul className="space-y-0.5">
         {counts.map(({ value, count }) => (
           <li key={value}>
             <button
               type="button"
               aria-pressed={selected === value}
               onClick={() => onToggle(value)}
-              className={`flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm transition-colors ${
+              className={`flex w-full items-center justify-between gap-2 rounded-[7px] px-2.5 py-1.5 text-left text-sm transition-colors ${
                 selected === value
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-brand-soft font-semibold text-brand-soft-foreground"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
               }`}
             >
-              <span>{labelFor(value)}</span>
-              <span className="text-xs tabular-nums opacity-70">
+              <span className="truncate">{labelFor(value)}</span>
+              <span className="shrink-0 font-mono text-xs tabular-nums opacity-80">
                 {count.toLocaleString("es-ES")}
               </span>
             </button>
@@ -446,45 +524,50 @@ function AuthorFacet({
   };
 
   return (
-    <section className="space-y-2">
-      <h3 className="font-serif text-sm font-semibold">Autor</h3>
+    <section className="space-y-2.5 border-t border-border pt-6">
+      <h3 className="eyebrow m-0 font-normal">Autor</h3>
       {selected !== undefined && (
         <button
           type="button"
           onClick={() => onSelect(selected)}
-          className="flex w-full items-center justify-between rounded bg-primary px-2 py-1 text-left text-sm text-primary-foreground"
+          className="flex w-full items-center justify-between gap-2 rounded-[7px] bg-brand-soft px-2.5 py-1.5 text-left text-sm font-semibold text-brand-soft-foreground"
         >
           <span className="truncate">{selected}</span>
-          <span aria-hidden="true">×</span>
+          <span aria-hidden="true" className="opacity-70">
+            ✕
+          </span>
         </button>
       )}
-      <form onSubmit={onSubmit} className="flex gap-1">
+      <form onSubmit={onSubmit} className="flex gap-1.5">
         <Input
           type="search"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Buscar autor…"
           aria-label="Buscar autor"
+          className="h-9 rounded-lg bg-muted"
         />
-        <Button type="submit" variant="outline" size="sm">
+        <Button type="submit" variant="outline" size="sm" className="rounded-lg">
           Ir
         </Button>
       </form>
       {data !== undefined && data.items.length > 0 && (
-        <ul className="max-h-56 space-y-1 overflow-y-auto">
+        <ul className="max-h-56 space-y-0.5 overflow-y-auto">
           {data.items.map(({ name, records }) => (
             <li key={name}>
               <button
                 type="button"
                 onClick={() => onSelect(name)}
-                className={`flex w-full items-center justify-between rounded px-2 py-1 text-left text-sm transition-colors ${
+                className={`flex w-full items-center justify-between gap-2 rounded-[7px] px-2.5 py-1.5 text-left text-sm transition-colors ${
                   selected === name
-                    ? "bg-primary text-primary-foreground"
+                    ? "bg-brand-soft font-semibold text-brand-soft-foreground"
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                 }`}
               >
                 <span className="truncate">{name}</span>
-                <span className="text-xs tabular-nums opacity-70">{records}</span>
+                <span className="shrink-0 font-mono text-xs tabular-nums opacity-80">
+                  {records}
+                </span>
               </button>
             </li>
           ))}
@@ -507,52 +590,50 @@ function BrowseCard({
   return (
     <a
       href={`/record?titn=${item.titn}`}
-      className="flex h-full flex-col gap-2 rounded-md border border-border bg-card p-3 transition-colors hover:border-foreground/30 hover:bg-muted/40"
+      className="group flex h-full flex-col gap-3 no-underline transition-transform hover:-translate-y-0.5"
     >
-      {coverSrc !== null ? (
-        <img
-          src={coverSrc}
-          alt=""
-          loading="lazy"
-          className="h-36 w-auto self-center rounded border border-border object-cover"
-        />
-      ) : (
-        <div
-          aria-hidden="true"
-          className="flex h-36 items-center justify-center rounded border border-dashed border-border bg-muted/50 text-muted-foreground"
-        >
-          <span className="text-2xl">📚</span>
-        </div>
-      )}
-      <div className="min-w-0 space-y-1">
-        <h3 className="line-clamp-2 font-serif text-sm font-semibold leading-snug">{item.title}</h3>
-        {item.authors.length > 0 && (
-          <p className="truncate text-xs text-muted-foreground">{item.authors.join(" · ")}</p>
+      <div className="overflow-hidden rounded-md shadow-cover">
+        {coverSrc !== null ? (
+          <img src={coverSrc} alt="" loading="lazy" className="aspect-[0.66] w-full object-cover" />
+        ) : (
+          <Cover title={item.title} author={item.authors[0]} />
         )}
-        <div className="flex flex-wrap items-center gap-1.5 pt-1">
-          {item.pub_year != null && (
-            <span className="text-xs text-muted-foreground">{item.pub_year}</span>
-          )}
-          {item.genre !== "unknown" && <Badge variant="outline">{genreLabel(item.genre)}</Badge>}
-          {/* Flag out-of-default-scope rows (infantil / juvenil / no ficción) so
-              they're distinguishable at a glance — /browse covers the whole
-              mirror, not just the adult-literary default that search assumes. */}
-          {!inDefaultScope(item.audience, item.literary_form) && (
-            <>
-              <Badge variant="secondary">{audienceLabel(item.audience)}</Badge>
-              <Badge variant="secondary">{formLabel(item.literary_form)}</Badge>
-            </>
-          )}
-          <AvailabilityBadge
-            item={item}
-            anchor={availability.anchor}
-            branches={availability.branches}
-            radiusKm={availability.radiusKm}
-            onLocate={availability.locate}
-            canLocate={availability.canLocate}
-            locating={availability.locating}
-          />
-        </div>
+      </div>
+      <div className="min-w-0">
+        <h3 className="line-clamp-2 font-serif text-[1.02rem] font-semibold leading-tight tracking-tight text-foreground">
+          {item.title}
+        </h3>
+        {item.authors.length > 0 && (
+          <p className="mt-1 line-clamp-1 text-[0.85rem] text-muted-foreground">
+            {item.authors.join(" · ")}
+          </p>
+        )}
+        {item.pub_year != null && (
+          <p className="mt-0.5 font-mono text-xs text-faint">
+            {item.pub_year}
+            {item.genre !== "unknown" ? ` · ${genreLabel(item.genre)}` : ""}
+          </p>
+        )}
+      </div>
+      <div className="mt-auto flex flex-wrap items-center gap-1.5">
+        {/* Flag out-of-default-scope rows (infantil / juvenil / no ficción) so
+            they're distinguishable at a glance — /browse covers the whole
+            mirror, not just the adult-literary default that search assumes. */}
+        {!inDefaultScope(item.audience, item.literary_form) && (
+          <>
+            <Badge variant="secondary">{audienceLabel(item.audience)}</Badge>
+            <Badge variant="secondary">{formLabel(item.literary_form)}</Badge>
+          </>
+        )}
+        <AvailabilityBadge
+          item={item}
+          anchor={availability.anchor}
+          branches={availability.branches}
+          radiusKm={availability.radiusKm}
+          onLocate={availability.locate}
+          canLocate={availability.canLocate}
+          locating={availability.locating}
+        />
       </div>
     </a>
   );

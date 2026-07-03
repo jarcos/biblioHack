@@ -56,8 +56,13 @@ describe("BrowsePage", () => {
   it("renders the grid and the facet counts", async () => {
     render(<BrowsePage apiBaseUrl="http://api.test" />);
 
-    expect(await screen.findByText("Cien años de soledad")).toBeInTheDocument();
-    expect(screen.getByText(/2 obras en el espejo/i)).toBeInTheDocument();
+    // Heading role: the title also appears on the procedural Cover jacket.
+    expect(
+      await screen.findByRole("heading", { name: "Cien años de soledad" }),
+    ).toBeInTheDocument();
+    // The count line nests the number in a <strong>, so match on the
+    // status element's full text content rather than a single text node.
+    expect(screen.getByRole("status")).toHaveTextContent(/2 obras en el espejo/i);
     // Facet groups render with Spanish labels.
     expect(screen.getByRole("button", { name: /narrativa/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /poesía 1/i })).toBeInTheDocument();

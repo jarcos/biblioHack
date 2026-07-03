@@ -2,11 +2,11 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 
 import { AvailabilityBadge } from "@/components/AvailabilityBadge";
+import { Cover } from "@/components/Cover";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { browseHref } from "@/lib/browse";
+import { fetchHealth } from "@infrastructure/api/health";
 import { audienceLabel, formLabel, genreLabel, inDefaultScope } from "@/lib/literary";
 import { useAvailabilityContext, type AvailabilityContext } from "@/lib/useAvailability";
 import {
@@ -121,33 +121,50 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Buscar en el catálogo</CardTitle>
-        <CardDescription>
-          Búsqueda de texto completo en castellano, sensible al acento gracias a la configuración{" "}
-          <code>spanish_unaccent</code> de Postgres.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <form className="flex gap-2" onSubmit={onSubmit} autoComplete="off">
-          <Input
-            type="search"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Cien años de soledad, García Márquez, Planeta…"
-            aria-label="Buscar en el catálogo"
-          />
-          <Button type="submit" disabled={draft.trim().length === 0}>
+    <section className="rounded-2xl border border-border bg-card p-6 shadow-card sm:p-9">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h2 className="m-0 font-serif text-[1.62rem] font-semibold tracking-tight">
+          Buscar en el catálogo
+        </h2>
+        <ApiStatusPill apiBaseUrl={apiBaseUrl} />
+      </div>
+      <p className="mb-5 mt-2 text-[0.98rem] leading-relaxed text-muted-foreground">
+        Búsqueda de texto completo en castellano, sensible al acento gracias a la configuración{" "}
+        <code className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[0.86em] text-ocre">
+          spanish_unaccent
+        </code>{" "}
+        de Postgres.
+      </p>
+
+      <div className="space-y-4">
+        <form className="flex gap-3" onSubmit={onSubmit} autoComplete="off">
+          <div className="flex flex-1 items-center gap-3 rounded-xl border-[1.5px] border-input bg-muted px-4">
+            <span aria-hidden="true" className="text-lg text-faint">
+              ⌕
+            </span>
+            <input
+              type="search"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Cien años de soledad, García Márquez, Planeta…"
+              aria-label="Buscar en el catálogo"
+              className="w-full border-none bg-transparent py-3.5 text-[1.02rem] text-foreground outline-none placeholder:text-faint"
+            />
+          </div>
+          <Button
+            type="submit"
+            disabled={draft.trim().length === 0}
+            className="h-auto rounded-xl px-7 text-base font-semibold"
+          >
             Buscar
           </Button>
         </form>
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div
             role="group"
             aria-label="Modo de búsqueda"
-            className="inline-flex rounded-md border border-border p-0.5"
+            className="inline-flex gap-0.5 rounded-[10px] border border-border bg-muted p-1"
           >
             {(
               [
@@ -161,7 +178,7 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
                 type="button"
                 aria-pressed={mode === value}
                 onClick={() => setMode(value)}
-                className={`rounded px-3 py-1 text-sm transition-colors ${
+                className={`rounded-[7px] px-4 py-2 text-sm font-semibold transition-colors ${
                   mode === value
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -172,12 +189,12 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
             ))}
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <label className="flex cursor-pointer items-center gap-2.5 text-sm text-muted-foreground">
             <input
               type="checkbox"
               checked={includeAll}
               onChange={(event) => setIncludeAll(event.target.checked)}
-              className="h-4 w-4 rounded border-border accent-primary"
+              className="h-5 w-5 rounded-md border-input accent-primary"
             />
             Incluir infantil, juvenil y no ficción
           </label>
@@ -214,8 +231,38 @@ function SearchBoxInner({ apiBaseUrl }: Props): ReactElement {
           apiBaseUrl={apiBaseUrl}
           availability={availability}
         />
-      </CardContent>
-    </Card>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * ApiStatusPill — compact live health check in the search-card header
+ * (design: "API ok — v0.1.0" with a pulsing green dot). Replaces the old
+ * standalone HelloIsland card on the home page.
+ */
+function ApiStatusPill({ apiBaseUrl }: { apiBaseUrl: string }): ReactElement {
+  const { data, isSuccess, isError } = useQuery({
+    queryKey: ["healthz"],
+    queryFn: () => fetchHealth(apiBaseUrl),
+  });
+
+  if (isError) {
+    return (
+      <span className="flex items-center gap-1.5 font-mono text-xs text-destructive">
+        <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-destructive" />
+        API caída
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 font-mono text-xs text-primary">
+      <span
+        aria-hidden="true"
+        className="h-[7px] w-[7px] rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--brand-soft))]"
+      />
+      {isSuccess ? `API ok — v${data.version}` : "API…"}
+    </span>
   );
 }
 
@@ -287,9 +334,12 @@ function SearchState({
 }): ReactElement | null {
   if (submittedQuery.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
+      <p className="text-sm text-faint">
         Escribe una consulta y pulsa{" "}
-        <kbd className="rounded border bg-muted px-1.5 py-0.5 text-xs">Enter</kbd>.
+        <kbd className="rounded border border-b-2 border-input bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+          Enter
+        </kbd>
+        .
       </p>
     );
   }
@@ -382,11 +432,8 @@ function ResultRow({
               className="h-16 w-11 shrink-0 rounded border border-border object-cover"
             />
           ) : (
-            <div
-              aria-hidden="true"
-              className="flex h-16 w-11 shrink-0 items-center justify-center rounded border border-dashed border-border bg-muted/50 text-muted-foreground"
-            >
-              <span className="text-xs">📚</span>
+            <div aria-hidden="true" className="w-11 shrink-0">
+              <Cover title={record.title} author={record.authors[0]} />
             </div>
           )}
           <div className="min-w-0 space-y-1">

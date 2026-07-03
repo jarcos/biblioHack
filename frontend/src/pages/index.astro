@@ -1,50 +1,137 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import HelloIsland from "../components/HelloIsland";
+import Cover from "@/components/Cover";
 import { SearchBox } from "@/components/SearchBox";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+
+// Hero shelf — three jackets, hand-placed like books left on a desk.
+// Rendered server-side (Cover is deterministic and hook-free): no island.
+const heroCovers = [
+  {
+    title: "Rayuela",
+    author: "Julio Cortázar",
+    style:
+      "position:absolute;width:150px;left:2px;top:20px;transform:rotate(-7deg);box-shadow:0 24px 50px -20px rgba(0,0,0,.5);z-index:1;",
+  },
+  {
+    title: "La sombra del viento",
+    author: "Carlos Ruiz Zafón",
+    style:
+      "position:absolute;width:158px;left:104px;top:0px;transform:rotate(2deg);box-shadow:0 26px 54px -20px rgba(0,0,0,.55);z-index:3;",
+  },
+  {
+    title: "El amor en los tiempos del cólera",
+    author: "Gabriel García Márquez",
+    style:
+      "position:absolute;width:150px;left:212px;top:28px;transform:rotate(8deg);box-shadow:0 24px 50px -20px rgba(0,0,0,.5);z-index:2;",
+  },
+];
+
+const popularQueries = [
+  "García Márquez",
+  "Poesía andaluza",
+  "Cortázar",
+  "Novela negra",
+  "Lorca",
+  "Premio Planeta 2025",
+  "Ensayo feminista",
+];
+
+const howItWorks = [
+  {
+    num: "01",
+    title: "Espejo público",
+    body: "Replicamos el catálogo de la Red de Bibliotecas de Andalucía y lo mantenemos al día cada hora.",
+  },
+  {
+    num: "02",
+    title: "Búsqueda sensible al acento",
+    body: "Full-text en castellano con y sin tildes: «cancion» encuentra «canción», gracias a spanish_unaccent.",
+  },
+  {
+    num: "03",
+    title: "Recomendador propio",
+    body: "Cruza tu estantería de Goodreads con la red para sugerir lo que aún no has leído y sí tienes cerca.",
+  },
+];
 ---
 
 <Layout title="biblioHack — inicio">
-  <section class="space-y-12">
-    <header class="max-w-3xl space-y-4">
-      <p class="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-        Red de Bibliotecas Públicas de Andalucía · espejo
-      </p>
-      <h1 class="font-serif text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
-        Un catálogo inverso para encontrar el libro que no sabías que buscabas.
+  <!-- HERO -->
+  <section class="grid items-center gap-14 pb-16 pt-8 lg:grid-cols-[1.35fr_0.9fr]">
+    <div>
+      <p class="eyebrow mb-6">Red de Bibliotecas Públicas de Andalucía · Espejo</p>
+      <h1
+        class="m-0 font-serif text-[clamp(2.6rem,4.6vw,4rem)] font-bold leading-[1.04] tracking-[-0.025em] [text-wrap:balance]"
+      >
+        Un catálogo inverso para encontrar el libro que <em
+          class="font-semibold italic text-primary">no sabías</em
+        > que buscabas.
       </h1>
-      <p class="max-w-2xl text-base text-muted-foreground">
-        Proyecto personal. Espejo del catálogo público con búsqueda en castellano (con y sin
-        tildes), historial de disponibilidad por sucursal y un recomendador basado en lo que ya has
+      <p class="mt-6 max-w-[34rem] text-lg leading-relaxed text-muted-foreground">
+        Un proyecto personal: el espejo del catálogo público con búsqueda en castellano —con y sin
+        tildes—, historial de disponibilidad por sucursal y un recomendador basado en lo que ya has
         leído.
       </p>
-      <div class="flex gap-3 pt-2">
-        <Button size="lg">Empezar a buscar</Button>
-        <Button size="lg" variant="ghost">Cómo funciona</Button>
+      <div class="mt-8 flex gap-3">
+        <a
+          href="#buscar"
+          class="rounded-lg bg-primary px-6 py-3 font-sans text-[0.98rem] font-semibold text-primary-foreground no-underline shadow-card transition-opacity hover:opacity-90"
+        >
+          Empezar a buscar
+        </a>
+        <a
+          href="#como-funciona"
+          class="rounded-lg border border-input px-6 py-3 font-sans text-[0.98rem] font-semibold text-foreground no-underline transition-colors hover:bg-muted"
+        >
+          Cómo funciona
+        </a>
       </div>
-    </header>
+    </div>
+    <div class="relative hidden h-[340px] lg:block" aria-hidden="true">
+      {
+        heroCovers.map(({ title, author, style }) => (
+          <div style={style}>
+            <Cover title={title} author={author} />
+          </div>
+        ))
+      }
+    </div>
+  </section>
 
+  <!-- SEARCH -->
+  <section id="buscar" class="scroll-mt-24">
     <SearchBox apiBaseUrl={apiBaseUrl} client:load />
+  </section>
 
-    <Card>
-      <CardHeader>
-        <CardTitle className="font-sans text-base font-medium">API status</CardTitle>
-        <CardDescription> Comprobación en vivo de la conexión con el backend. </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <HelloIsland client:load apiBaseUrl={apiBaseUrl} />
-      </CardContent>
-    </Card>
+  <!-- POPULAR QUERIES -->
+  <section class="mt-9">
+    <p class="eyebrow mb-3.5">Búsquedas frecuentes</p>
+    <div class="flex flex-wrap gap-2.5">
+      {
+        popularQueries.map((q) => (
+          <a
+            href={`/?q=${encodeURIComponent(q)}`}
+            class="rounded-full border border-input bg-card px-4 py-2 text-[0.92rem] text-foreground no-underline transition-colors hover:bg-muted"
+          >
+            {q}
+          </a>
+        ))
+      }
+    </div>
+  </section>
 
-    <p class="text-xs text-muted-foreground">
-      La búsqueda muestra por defecto el <strong>catálogo literario para adultos</strong> (todos los géneros);
-      marca la casilla para incluir infantil, juvenil y no ficción. Conectada a <code
-        >/catalog/search</code
-      >; faltan los registros que poblará el worker.
-    </p>
+  <!-- HOW IT WORKS -->
+  <section id="como-funciona" class="mt-14 grid scroll-mt-24 gap-5 pt-6 sm:grid-cols-3">
+    {
+      howItWorks.map(({ num, title, body }) => (
+        <div class="rounded-2xl border border-border bg-card p-7">
+          <p class="m-0 mb-3.5 font-mono text-[0.78rem] text-ocre">{num}</p>
+          <h2 class="m-0 mb-2 font-serif text-xl font-semibold tracking-tight">{title}</h2>
+          <p class="m-0 text-[0.95rem] leading-relaxed text-muted-foreground">{body}</p>
+        </div>
+      ))
+    }
   </section>
 </Layout>

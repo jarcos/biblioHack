@@ -23,7 +23,7 @@ module.exports = {
         extend: {
             fontFamily: {
                 sans: [
-                    '"Inter Variable"',
+                    '"IBM Plex Sans"',
                     "ui-sans-serif",
                     "system-ui",
                     "-apple-system",
@@ -31,20 +31,20 @@ module.exports = {
                     "Roboto",
                     "sans-serif",
                 ],
-                serif: [
-                    '"Source Serif 4 Variable"',
-                    "ui-serif",
-                    "Georgia",
-                    '"Times New Roman"',
-                    "serif",
-                ],
+                serif: ["Spectral", "ui-serif", "Georgia", '"Times New Roman"', "serif"],
+                mono: ['"IBM Plex Mono"', "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
             },
             colors: {
                 border: "hsl(var(--border))",
                 input: "hsl(var(--input))",
                 ring: "hsl(var(--ring))",
-                background: "hsl(var(--background))",
+                background: {
+                    DEFAULT: "hsl(var(--background))",
+                    2: "hsl(var(--background-2))",
+                },
                 foreground: "hsl(var(--foreground))",
+                // Tinta 3 — tertiary text (eyebrows, meta, counters)
+                faint: "hsl(var(--faint))",
                 primary: {
                     DEFAULT: "hsl(var(--primary))",
                     foreground: "hsl(var(--primary-foreground))",
@@ -56,6 +56,19 @@ module.exports = {
                 destructive: {
                     DEFAULT: "hsl(var(--destructive))",
                     foreground: "hsl(var(--destructive-foreground))",
+                    soft: "hsl(var(--destructive-soft))",
+                    "soft-foreground": "hsl(var(--destructive-soft-foreground))",
+                },
+                // Verde suave — availability-positive surfaces ("En tu biblioteca")
+                brand: {
+                    soft: "hsl(var(--brand-soft))",
+                    "soft-foreground": "hsl(var(--brand-soft-foreground))",
+                },
+                // Ocre — the measured accent (affinity, numerals, "En la red")
+                ocre: {
+                    DEFAULT: "hsl(var(--ocre))",
+                    soft: "hsl(var(--ocre-soft))",
+                    "soft-foreground": "hsl(var(--ocre-soft-foreground))",
                 },
                 muted: {
                     DEFAULT: "hsl(var(--muted))",
@@ -87,6 +100,12 @@ module.exports = {
                 lg: "var(--radius)",
                 md: "calc(var(--radius) - 2px)",
                 sm: "calc(var(--radius) - 4px)",
+            },
+            boxShadow: {
+                // Design `--shadow` — paper card lifting off the desk
+                card: "var(--shadow-card)",
+                // Book-cover drop shadow used across shelves/grids
+                cover: "var(--shadow-cover)",
             },
             keyframes: {
                 "accordion-down": {

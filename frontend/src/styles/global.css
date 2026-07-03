@@ -1,23 +1,34 @@
 /* biblioHack design system — tokens + base styles.
  *
- * All colors are declared as HSL channel triples (e.g. `40 25% 97%`) and
+ * Source of truth: the Claude Design handoff (`BiblioHack.dc.html` +
+ * `Design System.dc.html`, 2026-07). Palette is "papel cálido + verde
+ * bosque": warm paper surfaces, forest-green brand, measured ochre
+ * accent (book-cloth edges), red reserved for destructive actions.
+ *
+ * All colors are declared as HSL channel triples (e.g. `45 35% 93%`) and
  * consumed via `hsl(var(--bg))` so we can swap themes by flipping the
  * `dark` class on <html>. The Tailwind config maps each semantic name to
  * the matching variable.
  *
- * Typography:
- * - `font-sans`  → Inter Variable (UI, body, labels)
- * - `font-serif` → Source Serif 4 Variable (display, headings, prose)
- * Both ship as variable fonts so we get the full weight/style range
- * from a single woff2 each.
- *
- * Palette: warm off-white in light mode, deep warm-near-black in dark.
- * Accent is a forest-green that reads "library / Andalucía" rather
- * than the SaaS-blue everyone uses.
+ * Typography — three voices (design system §02):
+ * - `font-serif` → Spectral        (titles, quotes, covers — the literary voice)
+ * - `font-sans`  → IBM Plex Sans   (body, UI, labels)
+ * - `font-mono`  → IBM Plex Mono   (data: counters, years, identifiers, states)
  */
 
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/source-serif-4";
+@import "@fontsource/spectral/400.css";
+@import "@fontsource/spectral/400-italic.css";
+@import "@fontsource/spectral/500.css";
+@import "@fontsource/spectral/500-italic.css";
+@import "@fontsource/spectral/600.css";
+@import "@fontsource/spectral/600-italic.css";
+@import "@fontsource/spectral/700.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
 
 @tailwind base;
 @tailwind components;
@@ -25,81 +36,112 @@
 
 @layer base {
     :root {
-        /* Light theme — warm editorial palette */
-        --background: 40 25% 97%; /* warm off-white */
-        --foreground: 30 10% 15%; /* warm near-black */
+        /* Light theme — warm paper */
+        --background: 45 35% 93%; /* #F4F1E8 fondo */
+        --background-2: 44 33% 89%; /* #ECE7D9 fondo 2 (footer, wells) */
+        --foreground: 43 14% 10%; /* #1C1A15 tinta */
 
-        --muted: 35 15% 92%;
-        --muted-foreground: 30 5% 40%;
+        --muted: 43 41% 93%; /* #F5F1E7 superficie 2 */
+        --muted-foreground: 45 7% 31%; /* #56534A tinta 2 */
+        --faint: 49 7% 51%; /* #8B887A tinta 3 (eyebrows, meta) */
 
-        --card: 40 25% 99%;
-        --card-foreground: 30 10% 15%;
+        --card: 50 50% 98%; /* #FCFBF6 superficie */
+        --card-foreground: 43 14% 10%;
 
-        --popover: 40 25% 99%;
-        --popover-foreground: 30 10% 15%;
+        --popover: 50 50% 98%;
+        --popover-foreground: 43 14% 10%;
 
-        --border: 35 10% 88%;
-        --input: 35 10% 88%;
-        --ring: 154 50% 22%;
+        --border: 45 27% 85%; /* #E4DFD0 línea */
+        --input: 45 23% 79%; /* #D6D0BE línea 2 (form borders) */
+        --ring: 147 44% 21%;
 
-        --primary: 154 50% 22%; /* forest green */
-        --primary-foreground: 40 25% 97%;
+        --primary: 147 44% 21%; /* #1E4D33 verde bosque */
+        --primary-foreground: 45 35% 93%; /* #F4F1E8 */
 
-        --secondary: 35 15% 92%;
-        --secondary-foreground: 30 10% 15%;
+        --secondary: 43 41% 93%; /* #F5F1E7 neutral chips */
+        --secondary-foreground: 45 7% 31%;
 
-        --accent: 35 15% 92%;
-        --accent-foreground: 30 10% 15%;
+        --accent: 43 41% 93%; /* hover tint */
+        --accent-foreground: 43 14% 10%;
 
-        --destructive: 0 65% 45%;
-        --destructive-foreground: 40 25% 97%;
+        /* Verde suave — "En tu biblioteca" badges, active facet rows */
+        --brand-soft: 126 20% 90%; /* #E1EBE2 */
+        --brand-soft-foreground: 142 35% 26%; /* #2C5B3D */
+
+        /* Ocre — the measured accent: affinity bars, eyebrow numerals, data highlights */
+        --ocre: 34 72% 37%; /* #A2661A */
+        --ocre-soft: 41 48% 89%; /* #F0E7D4 */
+        --ocre-soft-foreground: 34 75% 28%; /* #7C4E12 */
+
+        --destructive: 3 71% 41%; /* #B3261E */
+        --destructive-foreground: 0 0% 100%;
+        --destructive-soft: 6 51% 93%; /* #F6E5E3 */
+        --destructive-soft-foreground: 4 75% 35%; /* #9E2117 */
 
         /* Status colors used by Badge variants for AvailabilityStatus */
-        --status-available: 154 50% 30%;
-        --status-loaned: 25 80% 45%;
+        --status-available: 142 35% 26%; /* verde suave ink */
+        --status-loaned: 34 75% 28%; /* ocre suave ink */
         --status-reserved: 220 50% 45%;
-        --status-unavailable: 0 0% 45%;
-        --status-unknown: 0 0% 60%;
+        --status-unavailable: 49 7% 45%;
+        --status-unknown: 49 7% 55%;
 
-        --radius: 0.5rem;
+        /* Card shadow (design `--shadow`) — paper lifting off the desk */
+        --shadow-card: 0 1px 2px rgba(28, 26, 21, 0.05), 0 18px 40px -22px rgba(28, 26, 21, 0.22);
+        --shadow-cover: 0 10px 24px -14px rgba(28, 26, 21, 0.4);
+
+        --radius: 0.5625rem; /* 9px — buttons/inputs; cards use rounded-xl/2xl */
         color-scheme: light;
     }
 
     .dark {
-        /* Dark theme — deep warm near-black with the same forest accent */
-        --background: 30 8% 9%;
-        --foreground: 40 20% 92%;
+        /* Dark theme — lamplit study: deep warm near-black, lifted greens */
+        --background: 51 20% 7%; /* #15140E */
+        --background-2: 45 17% 9%; /* #1B1913 */
+        --foreground: 48 35% 92%; /* #F1EEE2 */
 
-        --muted: 30 6% 16%;
-        --muted-foreground: 35 8% 65%;
+        --muted: 48 23% 13%; /* #282519 */
+        --muted-foreground: 48 11% 65%; /* #AFAB9B */
+        --faint: 47 8% 47%; /* #827E6F */
 
-        --card: 30 8% 11%;
-        --card-foreground: 40 20% 92%;
+        --card: 48 19% 11%; /* #201E16 */
+        --card-foreground: 48 35% 92%;
 
-        --popover: 30 8% 11%;
-        --popover-foreground: 40 20% 92%;
+        --popover: 48 19% 11%;
+        --popover-foreground: 48 35% 92%;
 
-        --border: 30 6% 20%;
-        --input: 30 6% 20%;
-        --ring: 154 45% 50%;
+        --border: 44 19% 16%; /* #302C21 */
+        --input: 47 17% 20%; /* #3D392B */
+        --ring: 141 33% 58%;
 
-        --primary: 154 45% 55%;
-        --primary-foreground: 30 8% 9%;
+        --primary: 141 33% 58%; /* #71B78A */
+        --primary-foreground: 51 20% 7%;
 
-        --secondary: 30 6% 16%;
-        --secondary-foreground: 40 20% 92%;
+        --secondary: 48 23% 13%;
+        --secondary-foreground: 48 11% 65%;
 
-        --accent: 30 6% 16%;
-        --accent-foreground: 40 20% 92%;
+        --accent: 48 23% 13%;
+        --accent-foreground: 48 35% 92%;
 
-        --destructive: 0 60% 50%;
-        --destructive-foreground: 40 20% 92%;
+        --brand-soft: 146 26% 16%; /* #1E3327 */
+        --brand-soft-foreground: 140 37% 71%; /* #9AD1AC */
 
-        --status-available: 154 50% 55%;
-        --status-loaned: 25 75% 60%;
-        --status-reserved: 220 60% 65%;
-        --status-unavailable: 0 0% 60%;
-        --status-unknown: 0 0% 50%;
+        --ocre: 38 63% 56%; /* #D6A24A */
+        --ocre-soft: 43 35% 13%; /* #2E2716 */
+        --ocre-soft-foreground: 39 65% 65%; /* #E0B96E */
+
+        --destructive: 6 65% 65%; /* #E0776B */
+        --destructive-foreground: 51 20% 7%;
+        --destructive-soft: 8 28% 16%; /* #33201D */
+        --destructive-soft-foreground: 7 73% 72%; /* #EC9084 */
+
+        --status-available: 140 37% 71%;
+        --status-loaned: 39 65% 65%;
+        --status-reserved: 220 60% 70%;
+        --status-unavailable: 47 8% 60%;
+        --status-unknown: 47 8% 50%;
+
+        --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 22px 44px -24px rgba(0, 0, 0, 0.7);
+        --shadow-cover: 0 10px 24px -14px rgba(0, 0, 0, 0.6);
 
         color-scheme: dark;
     }
@@ -108,9 +150,13 @@
         @apply border-border;
     }
 
+    ::selection {
+        background: hsl(var(--brand-soft));
+    }
+
     html {
         font-family:
-            "Inter Variable",
+            "IBM Plex Sans",
             ui-sans-serif,
             system-ui,
             -apple-system,
@@ -119,23 +165,26 @@
 
     body {
         @apply min-h-screen bg-background text-foreground antialiased;
-        font-feature-settings:
-            "rlig" 1,
-            "calt" 1,
-            "ss01" 1;
     }
 
     h1,
     h2,
     h3 {
-        font-family: "Source Serif 4 Variable", ui-serif, Georgia, "Times New Roman", serif;
+        font-family: "Spectral", ui-serif, Georgia, "Times New Roman", serif;
         font-feature-settings: "kern" 1;
         @apply text-foreground;
-        line-height: 1.15;
-        letter-spacing: -0.01em;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
     }
 
     p {
-        line-height: 1.65;
+        line-height: 1.6;
+    }
+}
+
+@layer components {
+    /* Eyebrow — mono, tracked-out, uppercase section label (design §02) */
+    .eyebrow {
+        @apply font-mono text-xs uppercase tracking-[0.2em] text-faint;
     }
 }

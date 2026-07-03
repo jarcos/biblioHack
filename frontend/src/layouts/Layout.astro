@@ -12,6 +12,16 @@ interface Props {
 
 const { title, description = "Reverse catalog of the Andalusian public libraries." } = Astro.props;
 const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+
+// Active nav state — compare against the first path segment so /record etc.
+// simply show no active link (they're reachable from Explorar, not nav items).
+const navLinks = [
+  { href: "/", label: "Inicio" },
+  { href: "/browse", label: "Explorar" },
+  { href: "/shelf", label: "Mi estantería" },
+  { href: "/recommendations", label: "Recomendaciones" },
+];
+const currentPath = Astro.url.pathname.replace(/\/$/, "") || "/";
 ---
 
 <!doctype html>
@@ -46,49 +56,75 @@ const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800
     </script>
   </head>
   <body class="flex min-h-screen flex-col bg-background font-sans text-foreground">
-    <header class="border-b border-border">
-      <Container class="flex items-center justify-between py-4">
-        <a href="/" class="font-serif text-xl font-semibold tracking-tight text-foreground">
-          biblioHack
+    <header class="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-md">
+      <Container class="flex h-[66px] items-center justify-between gap-6">
+        <a
+          href="/"
+          class="flex items-baseline gap-px no-underline"
+          aria-label="biblioHack — inicio"
+        >
+          <span class="font-serif text-2xl font-bold tracking-tight text-foreground">biblio</span>
+          <span class="font-mono text-xl font-medium tracking-tight text-primary">Hack</span>
         </a>
-        <div class="flex items-center gap-2 text-sm text-muted-foreground">
-          <nav class="flex items-center gap-4">
-            <a href="/" class="transition-colors hover:text-foreground">Inicio</a>
-            <a href="/browse" class="transition-colors hover:text-foreground">Explorar</a>
-            <a href="/shelf" class="transition-colors hover:text-foreground">Mi estantería</a>
-            <a href="/recommendations" class="transition-colors hover:text-foreground">
-              Recomendaciones
-            </a>
-            <UserMenu apiBaseUrl={apiBaseUrl} client:only="react" />
-          </nav>
+        <nav class="hidden items-center gap-1 sm:flex" aria-label="Principal">
+          {
+            navLinks.map(({ href, label }) => (
+              <a
+                href={href}
+                aria-current={currentPath === href ? "page" : undefined}
+                class:list={[
+                  "rounded-lg px-3.5 py-2 text-[0.95rem] no-underline transition-colors",
+                  currentPath === href
+                    ? "bg-card font-semibold text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border))]"
+                    : "font-medium text-muted-foreground hover:text-foreground",
+                ]}
+              >
+                {label}
+              </a>
+            ))
+          }
+        </nav>
+        <div class="flex items-center gap-3.5 text-sm">
+          <UserMenu apiBaseUrl={apiBaseUrl} client:only="react" />
           <ThemeToggle client:load />
         </div>
       </Container>
     </header>
 
-    <main class="flex-1 py-10">
+    <main class="flex-1 py-12 pb-20">
       <Container>
         <slot />
       </Container>
     </main>
 
-    <footer class="border-t border-border py-6">
-      <Container class="space-y-2 text-center text-xs text-muted-foreground">
-        <p>
+    <footer class="border-t border-border bg-background-2">
+      <Container
+        class="flex flex-wrap items-center justify-between gap-4 py-7 text-[0.84rem] text-faint"
+      >
+        <p class="m-0 max-w-[52rem] leading-normal">
           Información obtenida del Portal de la Junta de Andalucía. Datos públicos de la Red de
           Bibliotecas Públicas de Andalucía (CC-BY 3.0 ES). Proyecto personal sin ánimo de lucro.
+        </p>
+        <div class="flex gap-4">
           <a
             href="https://github.com/jarcos/biblioHack"
-            class="text-foreground underline-offset-4 hover:underline"
+            class="text-muted-foreground no-underline transition-colors hover:text-foreground"
           >
             Código
           </a>
-        </p>
-        <p>
-          <a href="/privacy" class="underline-offset-4 hover:underline">Privacidad</a>
-          {" · "}
-          <a href="/terms" class="underline-offset-4 hover:underline">Condiciones de uso</a>
-        </p>
+          <a
+            href="/privacy"
+            class="text-muted-foreground no-underline transition-colors hover:text-foreground"
+          >
+            Privacidad
+          </a>
+          <a
+            href="/terms"
+            class="text-muted-foreground no-underline transition-colors hover:text-foreground"
+          >
+            Condiciones
+          </a>
+        </div>
       </Container>
     </footer>
   </body>

@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useMemo, type ReactElement } from "react";
 
+import { Cover } from "@/components/Cover";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { availabilityLabel, availabilityVariant } from "@/lib/availability";
 import { browseHref } from "@/lib/browse";
 import { audienceLabel, formLabel, genreLabel, inDefaultScope } from "@/lib/literary";
@@ -56,8 +56,11 @@ function RecordDetailInner({ apiBaseUrl }: Props): ReactElement {
 
   return (
     <article className="space-y-8">
-      <a href="/" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
-        ← Volver a la búsqueda
+      <a
+        href="/browse"
+        className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground no-underline transition-colors hover:text-foreground"
+      >
+        ← Volver al catálogo
       </a>
       {titn === null ? (
         <Message
@@ -85,12 +88,6 @@ function RecordBody({
   // cover.url is a relative /catalog/covers/… path; make it absolute against
   // the API origin (same-origin in prod, cross-origin in dev).
   const coverSrc = record.cover?.url ? `${apiBaseUrl}${record.cover.url}` : null;
-  const meta = [
-    record.authors.join(", ") || null,
-    record.pub_year != null ? String(record.pub_year) : null,
-    record.publisher ?? null,
-    record.document_type ?? null,
-  ].filter((part): part is string => part !== null);
 
   // Anchor (primary library coords, or GPS) to highlight the reader's branch
   // and order the rest by proximity. No auto-prompt here.
@@ -98,163 +95,198 @@ function RecordBody({
   const primaryCode = availability.anchor?.kind === "primary" ? availability.anchor.code : null;
   const branches = sortByProximity(groupByBranch(record), availability, primaryCode);
   const totalAvailable = branches.reduce((sum, b) => sum + b.available, 0);
-  const branchesWithAvailable = branches.filter((b) => b.available > 0).length;
   const hasAvailabilityData = record.copies.some((c) => c.status !== "unknown");
+  const availableAtPrimary =
+    primaryCode !== null && branches.some((b) => b.code === primaryCode && b.available > 0);
+
+  const distanceLabel = (code: string): string | null => {
+    const { anchor, branches: coords } = availability;
+    if (anchor === null) return null;
+    const coord = coords.get(code);
+    if (!coord || coord.lat === null || coord.lng === null) return null;
+    const km = haversineKm(
+      { lat: anchor.lat, lng: anchor.lng },
+      { lat: coord.lat, lng: coord.lng },
+    );
+    return km < 10
+      ? `${km.toLocaleString("es-ES", { maximumFractionDigits: 1 })} km`
+      : `${Math.round(km).toLocaleString("es-ES")} km`;
+  };
+
+  // Ficha bibliográfica — the two-column meta grid (design "detailMeta").
+  const meta: { k: string; v: string }[] = [];
+  if (record.pub_year != null) meta.push({ k: "Año", v: String(record.pub_year) });
+  if (record.language) meta.push({ k: "Idioma", v: record.language });
+  if (record.genre !== "unknown") meta.push({ k: "Género", v: genreLabel(record.genre) });
+  if (record.publisher) meta.push({ k: "Editorial", v: record.publisher });
+  if (record.document_type) meta.push({ k: "Tipo", v: record.document_type });
+  // Single string ("CDU 821.111") so the classification reads as one unit.
+  if (record.classification) meta.push({ k: "Clasificación", v: `CDU ${record.classification}` });
+  if (record.isbns.length > 0) meta.push({ k: "ISBN", v: record.isbns.join(", ") });
 
   return (
-    <div className="space-y-8">
-      <header className="flex flex-col gap-5 sm:flex-row sm:items-start">
-        {coverSrc !== null && (
-          <img
-            src={coverSrc}
-            alt=""
-            loading="lazy"
-            className="h-48 w-auto shrink-0 rounded-md border border-border object-cover shadow-sm"
-          />
-        )}
-        <div className="min-w-0 space-y-3">
-          <h1 className="font-serif text-3xl font-semibold leading-tight tracking-tight">
-            {record.title}
-          </h1>
-          {record.subtitle != null && record.subtitle.length > 0 && (
-            <p className="text-lg text-muted-foreground">{record.subtitle}</p>
-          )}
-          {meta.length > 0 && <p className="text-sm text-muted-foreground">{meta.join(" · ")}</p>}
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            {/* Público + forma double as filters: each jumps to /browse scoped
-                to that audience / literary form. */}
-            <a href={browseHref({ audience: record.audience })} className="inline-flex">
-              <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
-            </a>
-            <a href={browseHref({ literaryForm: record.literary_form })} className="inline-flex">
-              <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
-            </a>
-            {record.classification != null && record.classification.length > 0 && (
-              <Badge variant="outline" title="Clasificación CDU (MARC T080)">
-                CDU {record.classification}
-              </Badge>
-            )}
-            {!inDefaultScope(record.audience, record.literary_form) && (
-              <span className="text-xs text-muted-foreground">
-                · fuera del catálogo literario por defecto
-              </span>
-            )}
-          </div>
-          {(record.authors.length > 0 || record.genre !== "unknown") && (
-            <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs">
-              <span className="text-muted-foreground">Explorar:</span>
-              {record.authors.map((author) => (
-                <BrowseChip key={author} href={browseHref({ author })}>
-                  {author}
-                </BrowseChip>
-              ))}
-              {record.genre !== "unknown" && (
-                <BrowseChip href={browseHref({ genre: record.genre })}>
-                  {genreLabel(record.genre)}
-                </BrowseChip>
-              )}
-            </div>
+    <div className="grid items-start gap-10 lg:grid-cols-[280px_1fr] lg:gap-12">
+      {/* ── Left rail: cover + availability card (sticky) ── */}
+      <div className="flex flex-col gap-5 self-start lg:sticky lg:top-24">
+        <div className="overflow-hidden rounded-lg shadow-[0_30px_60px_-24px_rgba(28,26,21,.5)]">
+          {coverSrc !== null ? (
+            <img src={coverSrc} alt="" loading="lazy" className="w-full object-cover" />
+          ) : (
+            <Cover title={record.title} author={record.authors[0]} />
           )}
         </div>
-      </header>
 
-      {record.subjects.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-sm font-medium text-foreground">Materias</h2>
-          <ul className="flex flex-wrap gap-2">
-            {record.subjects.map((subject) => (
-              <li key={subject}>
-                <Badge variant="outline">{subject}</Badge>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-sans text-base font-medium">
-            Ejemplares · {record.copies.length} en {branches.length} sucursal
-            {branches.length === 1 ? "" : "es"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-card">
           {branches.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="m-0 text-sm text-muted-foreground">
               Sin ejemplares registrados (posible recurso virtual).
             </p>
           ) : (
             <>
-              <div className="mb-3 flex items-center gap-2 text-sm">
+              <div className="mb-3.5 flex items-center gap-2 text-[0.98rem] font-semibold">
                 {!hasAvailabilityData ? (
-                  <span className="text-muted-foreground">Disponibilidad aún sin rastrear.</span>
+                  <span className="text-muted-foreground">Disponibilidad aún sin rastrear</span>
                 ) : totalAvailable > 0 ? (
-                  <>
-                    <Badge variant="available">Disponible ahora</Badge>
-                    <span className="text-muted-foreground">
-                      {totalAvailable} ejemplar{totalAvailable === 1 ? "" : "es"} en{" "}
-                      {branchesWithAvailable} sucursal{branchesWithAvailable === 1 ? "" : "es"}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">
-                    Ningún ejemplar disponible ahora mismo.
+                  <span className="flex items-center gap-2 text-brand-soft-foreground">
+                    <span aria-hidden="true" className="h-[9px] w-[9px] rounded-full bg-primary" />
+                    {availableAtPrimary ? "Disponible en tu biblioteca" : "Disponible ahora"}
                   </span>
+                ) : (
+                  <span className="text-muted-foreground">Ningún ejemplar disponible</span>
                 )}
               </div>
-              <ul className="divide-y divide-border">
-                {branches.map((branch) => (
-                  <li
-                    key={branch.code}
-                    className="flex items-center justify-between gap-3 py-2 text-sm"
-                  >
-                    <span className="text-foreground">
-                      {branch.name}
-                      {branch.code === primaryCode && (
-                        <Badge variant="secondary" className="ml-2 align-middle">
-                          tu biblioteca
+              <ul className="m-0 list-none divide-y divide-border p-0">
+                {branches.map((branch) => {
+                  const dist = distanceLabel(branch.code);
+                  return (
+                    <li
+                      key={branch.code}
+                      className="flex items-center justify-between gap-2.5 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="m-0 truncate text-sm text-foreground">
+                          {branch.name}
+                          {branch.code === primaryCode && (
+                            <span className="ml-1.5 font-mono text-xs text-primary">
+                              · tu biblioteca
+                            </span>
+                          )}
+                        </p>
+                        <p className="m-0 font-mono text-xs text-faint">
+                          {[dist, `${branch.count} ejemplar${branch.count === 1 ? "" : "es"}`]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      </div>
+                      {branch.available > 0 ? (
+                        <Badge variant="available" className="shrink-0">
+                          {branch.available} disponible{branch.available === 1 ? "" : "s"}
+                        </Badge>
+                      ) : (
+                        <Badge variant={availabilityVariant(branch.status)} className="shrink-0">
+                          {availabilityLabel(branch.status)}
                         </Badge>
                       )}
-                      <span className="text-muted-foreground">
-                        {" · "}
-                        {branch.count} ejemplar{branch.count === 1 ? "" : "es"}
-                      </span>
-                    </span>
-                    {branch.available > 0 ? (
-                      <Badge variant="available" className="shrink-0">
-                        {branch.available} disponible{branch.available === 1 ? "" : "s"}
-                      </Badge>
-                    ) : (
-                      <Badge variant={availabilityVariant(branch.status)} className="shrink-0">
-                        {availabilityLabel(branch.status)}
-                      </Badge>
-                    )}
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </>
           )}
-          <p className="pt-4 text-xs text-muted-foreground">
-            Disponibilidad según el último rastreo del espejo, no en vivo contra el OPAC.
-          </p>
-        </CardContent>
-      </Card>
-
-      <SimilarStrip titn={record.titn} apiBaseUrl={apiBaseUrl} />
-
-      <footer className="space-y-1 border-t border-border pt-4 text-xs text-muted-foreground">
-        {record.isbns.length > 0 && <p>ISBN: {record.isbns.join(", ")}</p>}
-        <p>
           <a
             href={record.source_url}
-            className="text-foreground underline-offset-4 hover:underline"
             target="_blank"
             rel="noreferrer"
+            className="mt-4 block w-full rounded-lg border border-input bg-transparent px-3 py-2.5 text-center text-sm font-semibold text-foreground no-underline transition-colors hover:bg-muted"
           >
-            Ver en el OPAC original ↗
+            Ver en el catálogo oficial ↗
           </a>
-        </p>
-      </footer>
+          <p className="m-0 pt-3 text-xs leading-normal text-faint">
+            Disponibilidad según el último rastreo del espejo, no en vivo contra el OPAC.
+          </p>
+        </section>
+      </div>
+
+      {/* ── Right: the ficha ── */}
+      <div className="min-w-0">
+        <p className="eyebrow mb-3.5">Ficha del catálogo · RBPA</p>
+        <h1 className="m-0 font-serif text-[2.5rem] font-bold leading-[1.06] tracking-tight [text-wrap:balance]">
+          {record.title}
+        </h1>
+        {record.subtitle != null && record.subtitle.length > 0 && (
+          <p className="mb-0 mt-2 font-serif text-xl italic text-muted-foreground">
+            {record.subtitle}
+          </p>
+        )}
+        {record.authors.length > 0 && (
+          <p className="mb-0 mt-3 text-[1.1rem] text-muted-foreground">
+            {record.authors.join(" · ")}
+          </p>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* Público + forma double as filters: each jumps to /browse scoped
+              to that audience / literary form. */}
+          <a href={browseHref({ audience: record.audience })} className="inline-flex no-underline">
+            <Badge variant="secondary">{audienceLabel(record.audience)}</Badge>
+          </a>
+          <a
+            href={browseHref({ literaryForm: record.literary_form })}
+            className="inline-flex no-underline"
+          >
+            <Badge variant="secondary">{formLabel(record.literary_form)}</Badge>
+          </a>
+          {!inDefaultScope(record.audience, record.literary_form) && (
+            <span className="text-xs text-faint">· fuera del catálogo literario por defecto</span>
+          )}
+        </div>
+
+        {meta.length > 0 && (
+          <div className="my-7 grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
+            {meta.map(({ k, v }) => (
+              <div key={k} className="bg-card px-5 py-3.5">
+                <p className="m-0 mb-1 font-mono text-[0.68rem] uppercase tracking-[0.14em] text-faint">
+                  {k}
+                </p>
+                <p className="m-0 text-[0.95rem] font-medium text-foreground">{v}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {(record.authors.length > 0 || record.genre !== "unknown") && (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-faint">Explorar:</span>
+            {record.authors.map((author) => (
+              <BrowseChip key={author} href={browseHref({ author })}>
+                {author}
+              </BrowseChip>
+            ))}
+            {record.genre !== "unknown" && (
+              <BrowseChip href={browseHref({ genre: record.genre })}>
+                {genreLabel(record.genre)}
+              </BrowseChip>
+            )}
+          </div>
+        )}
+
+        {record.subjects.length > 0 && (
+          <section className="mt-7">
+            <p className="eyebrow mb-3">Materias</p>
+            <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
+              {record.subjects.map((subject) => (
+                <li key={subject}>
+                  <span className="inline-flex rounded-full border border-border bg-muted px-3.5 py-1.5 text-[0.84rem] text-muted-foreground">
+                    {subject}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <SimilarStrip titn={record.titn} apiBaseUrl={apiBaseUrl} />
+      </div>
     </div>
   );
 }
@@ -279,9 +311,9 @@ function SimilarStrip({
   if (!isSuccess || data.items.length === 0) return null;
 
   return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-medium text-foreground">Más como este</h2>
-      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <section className="mt-9 border-t border-border pt-7">
+      <h2 className="m-0 mb-4 font-serif text-xl font-semibold tracking-tight">Más como este</h2>
+      <ul className="m-0 grid list-none grid-cols-2 gap-x-4 gap-y-6 p-0 sm:grid-cols-4">
         {data.items.map((item) => (
           <li key={item.titn}>
             <SimilarCard record={item} apiBaseUrl={apiBaseUrl} />
@@ -305,28 +337,20 @@ function SimilarCard({
   return (
     <a
       href={`/record?titn=${record.titn}`}
-      className="flex h-full flex-col gap-2 rounded-md border border-border bg-card p-3 transition-colors hover:border-foreground/30 hover:bg-muted/40"
+      className="group flex h-full flex-col gap-2.5 no-underline transition-transform hover:-translate-y-0.5"
     >
-      {coverSrc !== null ? (
-        <img
-          src={coverSrc}
-          alt=""
-          loading="lazy"
-          className="h-32 w-auto self-center rounded border border-border object-cover"
-        />
-      ) : (
-        <div
-          aria-hidden="true"
-          className="flex h-32 items-center justify-center rounded border border-dashed border-border bg-muted/50 text-muted-foreground"
-        >
-          <span className="text-xl">📚</span>
-        </div>
-      )}
+      <div className="overflow-hidden rounded-md shadow-cover">
+        {coverSrc !== null ? (
+          <img src={coverSrc} alt="" loading="lazy" className="aspect-[0.66] w-full object-cover" />
+        ) : (
+          <Cover title={record.title} author={author ?? undefined} />
+        )}
+      </div>
       <div className="min-w-0 space-y-0.5">
-        <h3 className="line-clamp-2 font-serif text-sm font-semibold leading-snug">
+        <h3 className="line-clamp-2 font-serif text-sm font-semibold leading-snug text-foreground">
           {record.title}
         </h3>
-        {author !== null && <p className="truncate text-xs text-muted-foreground">{author}</p>}
+        {author !== null && <p className="m-0 truncate text-xs text-muted-foreground">{author}</p>}
       </div>
     </a>
   );
