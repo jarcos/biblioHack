@@ -84,7 +84,7 @@ export function LibraryPicker({ apiBaseUrl }: Props): ReactElement {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
+      <p className="m-0 text-[0.98rem] leading-relaxed text-muted-foreground">
         Sigue las bibliotecas donde sueles coger libros. Las usaremos para priorizar lo que tienes
         disponible cerca en el catálogo, la búsqueda y las recomendaciones. Tu ubicación se usa solo
         en tu navegador para ordenar por cercanía: nunca se envía ni se guarda.
@@ -93,7 +93,12 @@ export function LibraryPicker({ apiBaseUrl }: Props): ReactElement {
       <BranchSelect branches={branches} selected={selected} onToggle={toggle} />
 
       <div className="flex items-center gap-3">
-        <Button type="button" disabled={!dirty || saving} onClick={() => void save()}>
+        <Button
+          type="button"
+          className="rounded-lg"
+          disabled={!dirty || saving}
+          onClick={() => void save()}
+        >
           {saving ? "Guardando…" : "Guardar"}
         </Button>
         {justSaved && !dirty && <span className="text-sm text-muted-foreground">Guardado ✓</span>}

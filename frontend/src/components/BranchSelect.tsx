@@ -1,7 +1,6 @@
 import { useMemo, useState, type ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { haversineKm, type Branch } from "@infrastructure/api/branches";
 
 /**
@@ -84,7 +83,7 @@ export function BranchSelect({ branches, selected, onToggle }: Props): ReactElem
     <div className="space-y-4">
       {/* Selected libraries as removable chips. */}
       {selected.length > 0 && (
-        <ul className="flex flex-wrap gap-2">
+        <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
           {selected.map((code) => {
             const b = byCode.get(code);
             return (
@@ -92,11 +91,13 @@ export function BranchSelect({ branches, selected, onToggle }: Props): ReactElem
                 <button
                   type="button"
                   onClick={() => onToggle(code)}
-                  className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary px-3 py-1 text-sm hover:bg-secondary/70"
+                  className="inline-flex items-center gap-2 rounded-full bg-brand-soft px-3 py-1.5 text-[0.86rem] font-semibold text-brand-soft-foreground transition-opacity hover:opacity-80"
                   aria-label={`Dejar de seguir ${b?.name ?? code}`}
                 >
                   {b?.name ?? code}
-                  <span aria-hidden="true">×</span>
+                  <span aria-hidden="true" className="opacity-70">
+                    ✕
+                  </span>
                 </button>
               </li>
             );
@@ -104,17 +105,27 @@ export function BranchSelect({ branches, selected, onToggle }: Props): ReactElem
         </ul>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          type="search"
-          placeholder="Buscar biblioteca o municipio…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Buscar biblioteca"
-          className="max-w-xs"
-        />
-        <Button type="button" variant="outline" onClick={useMyLocation}>
-          {geoState === "locating" ? "Localizando…" : "Ordenar por cercanía"}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex min-w-0 flex-1 basis-60 items-center gap-2 rounded-lg border-[1.5px] border-input bg-muted px-3">
+          <span aria-hidden="true" className="text-faint">
+            ⌕
+          </span>
+          <input
+            type="search"
+            placeholder="Buscar biblioteca o municipio…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Buscar biblioteca"
+            className="w-full border-none bg-transparent py-2.5 text-sm text-foreground outline-none placeholder:text-faint"
+          />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-lg bg-card"
+          onClick={useMyLocation}
+        >
+          {geoState === "locating" ? "Localizando…" : "⌖ Ordenar por cercanía"}
         </Button>
       </div>
 
@@ -125,24 +136,30 @@ export function BranchSelect({ branches, selected, onToggle }: Props): ReactElem
       )}
 
       {/* Candidate list. */}
-      <ul className="max-h-80 divide-y divide-border overflow-y-auto rounded-md border border-border">
+      <ul className="m-0 max-h-80 list-none divide-y divide-border overflow-y-auto rounded-xl border border-border bg-card p-0">
         {visible.length === 0 ? (
           <li className="p-4 text-sm text-muted-foreground">Sin resultados.</li>
         ) : (
           visible.map((b) => (
-            <li key={b.code} className="flex items-center justify-between gap-3 px-4 py-2">
+            <li key={b.code} className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{b.name}</p>
-                <p className="truncate text-xs text-muted-foreground">
+                <p className="m-0 truncate text-[0.96rem] font-semibold text-foreground">
+                  {b.name}
+                </p>
+                <p className="m-0 truncate text-[0.82rem] text-faint">
                   {b.province ?? "—"}
                   {coords && b.lat !== null && b.lng !== null
                     ? ` · ${Math.round(haversineKm(coords, { lat: b.lat, lng: b.lng }))} km`
                     : ""}
                 </p>
               </div>
-              <Button type="button" variant="ghost" onClick={() => onToggle(b.code)}>
+              <button
+                type="button"
+                onClick={() => onToggle(b.code)}
+                className="shrink-0 rounded-lg border border-primary bg-transparent px-4 py-2 text-[0.86rem] font-semibold text-primary transition-colors hover:bg-brand-soft"
+              >
                 Seguir
-              </Button>
+              </button>
             </li>
           ))
         )}

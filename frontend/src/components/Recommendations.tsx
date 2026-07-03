@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState, type ReactElement } from "react";
 
 import { AvailabilityBadge } from "@/components/AvailabilityBadge";
+import { Cover } from "@/components/Cover";
 import { Badge } from "@/components/ui/badge";
 import { useAvailabilityContext, type AvailabilityContext } from "@/lib/useAvailability";
 import { fetchMyBranches } from "@infrastructure/api/branches";
@@ -74,12 +75,12 @@ function RecommendationsInner({ apiBaseUrl }: Props): ReactElement {
 
   const toggle =
     followsBranches && reason === "ok" ? (
-      <label className="flex items-center gap-2 text-sm text-muted-foreground">
+      <label className="flex cursor-pointer items-center gap-2.5 text-sm text-muted-foreground">
         <input
           type="checkbox"
           checked={nearby}
           onChange={(e) => setNearby(e.target.checked)}
-          className="h-4 w-4 rounded border-border accent-primary"
+          className="h-5 w-5 rounded-md border-input accent-primary"
         />
         Solo en mis bibliotecas
       </label>
@@ -128,7 +129,7 @@ function RecommendationsInner({ apiBaseUrl }: Props): ReactElement {
     <div className="space-y-4">
       {coldStart && <ColdStartBanner tastes={tastes} />}
       {toggle}
-      <ul className="grid gap-4 sm:grid-cols-2">
+      <ul className="m-0 grid list-none gap-5 p-0 sm:grid-cols-2">
         {items.map((item) => (
           <li key={item.record.titn}>
             <RecommendationCard item={item} apiBaseUrl={apiBaseUrl} availability={availability} />
@@ -147,8 +148,8 @@ function RecommendationsInner({ apiBaseUrl }: Props): ReactElement {
  */
 function ColdStartBanner({ tastes }: { tastes: readonly string[] }): ReactElement {
   return (
-    <div className="space-y-2 rounded-md border border-border bg-muted/40 p-4">
-      <p className="text-sm font-medium text-foreground">Para empezar, según tu estantería</p>
+    <div className="space-y-2 rounded-xl border border-border bg-card p-4 shadow-card">
+      <p className="m-0 text-sm font-semibold text-foreground">Para empezar, según tu estantería</p>
       {tastes.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-sm text-muted-foreground">Detectamos que te gusta:</span>
@@ -177,49 +178,62 @@ function RecommendationCard({
 }): ReactElement {
   const { record } = item;
   const coverSrc = record.cover?.url ? `${apiBaseUrl}${record.cover.url}` : null;
+  const affinity = Math.round(item.score * 100);
 
   return (
     <a
       href={`/record?titn=${record.titn}`}
-      className="flex h-full gap-4 rounded-md border border-border bg-card p-4 transition-colors hover:border-foreground/30 hover:bg-muted/40"
+      className="grid h-full cursor-pointer grid-cols-[88px_1fr] gap-[18px] rounded-2xl border border-border bg-card p-5 no-underline shadow-card transition-transform hover:-translate-y-0.5"
     >
-      {coverSrc !== null ? (
-        <img
-          src={coverSrc}
-          alt=""
-          loading="lazy"
-          className="h-28 w-auto shrink-0 self-start rounded border border-border object-cover"
-        />
-      ) : (
-        <div
-          aria-hidden="true"
-          className="flex h-28 w-20 shrink-0 items-center justify-center rounded border border-dashed border-border bg-muted/50 text-2xl"
-        >
-          📚
-        </div>
-      )}
-      <div className="min-w-0 space-y-1.5">
-        <h3 className="line-clamp-2 font-serif text-base font-semibold leading-snug">
+      <div className="self-start overflow-hidden rounded shadow-[0_8px_18px_-10px_rgba(0,0,0,.4)]">
+        {coverSrc !== null ? (
+          <img src={coverSrc} alt="" loading="lazy" className="aspect-[0.66] w-full object-cover" />
+        ) : (
+          <Cover title={record.title} author={record.authors[0]} />
+        )}
+      </div>
+      <div className="flex min-w-0 flex-col">
+        <h3 className="m-0 line-clamp-2 font-serif text-[1.1rem] font-semibold leading-snug tracking-tight text-foreground">
           {record.title}
         </h3>
         {record.authors.length > 0 && (
-          <p className="truncate text-xs text-muted-foreground">{record.authors.join(" · ")}</p>
+          <p className="m-0 mt-1.5 truncate font-mono text-xs text-faint">
+            {record.authors.join(" · ")}
+          </p>
         )}
         {item.rationale != null && (
-          <p className="line-clamp-3 text-sm italic text-muted-foreground">«{item.rationale}»</p>
+          <p className="m-0 my-3 line-clamp-3 font-serif text-[0.95rem] italic leading-normal text-muted-foreground">
+            «{item.rationale}»
+          </p>
         )}
-        <div className="flex flex-wrap items-center gap-1.5 pt-1">
-          {record.available_count > 0 ? (
-            <AvailabilityBadge
-              item={record}
-              anchor={availability.anchor}
-              branches={availability.branches}
-              radiusKm={availability.radiusKm}
-            />
-          ) : (
-            <Badge variant="outline">en catálogo</Badge>
-          )}
-          <Badge variant="secondary">{Math.round(item.score * 100)}% afín</Badge>
+        <div className="mt-auto flex flex-col gap-2.5">
+          <div className="flex items-center gap-3">
+            <div
+              className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+              role="img"
+              aria-label={`Afinidad ${affinity}%`}
+            >
+              <div
+                className="h-full rounded-full bg-ocre"
+                style={{ width: `${Math.min(100, Math.max(0, affinity))}%` }}
+              />
+            </div>
+            <span className="whitespace-nowrap font-mono text-[0.82rem] font-medium text-ocre">
+              {affinity}% afín
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {record.available_count > 0 ? (
+              <AvailabilityBadge
+                item={record}
+                anchor={availability.anchor}
+                branches={availability.branches}
+                radiusKm={availability.radiusKm}
+              />
+            ) : (
+              <Badge variant="secondary">En catálogo</Badge>
+            )}
+          </div>
         </div>
       </div>
     </a>

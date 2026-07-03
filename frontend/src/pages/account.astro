@@ -7,14 +7,16 @@ const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800
 ---
 
 <Layout title="biblioHack — mi cuenta">
-  <section class="mx-auto max-w-xl space-y-8">
-    <header class="space-y-3">
-      <h1 class="font-serif text-3xl font-semibold leading-tight tracking-tight">Mi cuenta</h1>
+  <section class="mx-auto max-w-2xl space-y-10">
+    <header>
+      <h1 class="m-0 font-serif text-[2.6rem] font-bold leading-tight tracking-[-0.025em]">
+        Mi cuenta
+      </h1>
     </header>
     <AccountPanel apiBaseUrl={apiBaseUrl} client:only="react" />
 
     <section class="space-y-3">
-      <h2 class="font-serif text-lg font-semibold">Mis bibliotecas</h2>
+      <h2 class="m-0 font-serif text-[1.4rem] font-semibold tracking-tight">Mis bibliotecas</h2>
       <LibraryPicker apiBaseUrl={apiBaseUrl} client:only="react" />
     </section>
   </section>

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { type ReactElement } from "react";
 
+import { Cover } from "@/components/Cover";
 import { Badge } from "@/components/ui/badge";
 import { CatalogApiError, fetchShelf, type ShelfEntry } from "@infrastructure/api/catalog";
 
@@ -52,22 +53,22 @@ export function BookShelf({ apiBaseUrl }: Props): ReactElement {
   }
 
   return (
-    <div className="space-y-10">
-      <p className="text-sm text-muted-foreground">
-        {data.counts.total.toLocaleString("es-ES")} libros ·{" "}
-        <strong className="text-foreground">{data.counts.matched}</strong> encontrados en el
-        catálogo
+    <div className="space-y-12">
+      <p className="m-0 -mt-4 font-mono text-[0.82rem] text-faint" role="status">
+        <strong className="text-foreground">{data.counts.total.toLocaleString("es-ES")}</strong>{" "}
+        libros · <strong className="text-foreground">{data.counts.matched}</strong> encontrados en
+        el catálogo
       </p>
       {SHELVES.map(({ key, label }) => {
         const books = data[key];
         if (books.length === 0) return null;
         return (
-          <section key={key} className="space-y-4">
-            <h2 className="font-serif text-xl font-semibold tracking-tight">
-              {label}{" "}
-              <span className="text-sm font-normal text-muted-foreground">({books.length})</span>
-            </h2>
-            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <section key={key} className="space-y-5">
+            <div className="flex items-baseline gap-2.5">
+              <h2 className="m-0 font-serif text-2xl font-semibold tracking-tight">{label}</h2>
+              <span className="font-mono text-[0.9rem] text-faint">{books.length}</span>
+            </div>
+            <ul className="m-0 grid list-none grid-cols-2 gap-x-5 gap-y-7 p-0 sm:grid-cols-3 lg:grid-cols-4">
               {books.map((book) => (
                 <li key={book.source_book_id}>
                   <BookCard book={book} apiBaseUrl={apiBaseUrl} />
@@ -87,51 +88,51 @@ function BookCard({ book, apiBaseUrl }: { book: ShelfEntry; apiBaseUrl: string }
   const available = book.match?.available_count ?? 0;
 
   const inner = (
-    <div className="flex h-full flex-col gap-2 rounded-md border border-border bg-card p-3 transition-colors hover:border-foreground/30 hover:bg-muted/40">
-      {coverSrc !== null ? (
-        <img
-          src={coverSrc}
-          alt=""
-          loading="lazy"
-          className="h-36 w-auto self-center rounded border border-border object-cover"
-        />
-      ) : (
-        <div
-          aria-hidden="true"
-          className="flex h-36 items-center justify-center rounded border border-dashed border-border bg-muted/50 text-muted-foreground"
-        >
-          <span className="text-2xl">📚</span>
-        </div>
-      )}
-      <div className="min-w-0 space-y-1">
-        <h3 className="line-clamp-2 font-serif text-sm font-semibold leading-snug">{book.title}</h3>
-        {book.author != null && book.author.length > 0 && (
-          <p className="truncate text-xs text-muted-foreground">{book.author}</p>
+    <div className="flex h-full flex-col gap-3">
+      <div className="overflow-hidden rounded-md shadow-cover">
+        {coverSrc !== null ? (
+          <img src={coverSrc} alt="" loading="lazy" className="aspect-[0.66] w-full object-cover" />
+        ) : (
+          <Cover title={book.title} author={book.author ?? undefined} />
         )}
-        <div className="flex flex-wrap items-center gap-1.5 pt-1">
-          {book.rating != null && (
-            <span className="text-xs text-amber-500" aria-label={`${book.rating} de 5`}>
-              {"★".repeat(book.rating)}
-              <span className="text-muted-foreground">{"★".repeat(5 - book.rating)}</span>
-            </span>
-          )}
-          {titn !== null ? (
-            available > 0 ? (
-              <Badge variant="available">{available} disp.</Badge>
-            ) : (
-              <Badge variant="outline">en catálogo</Badge>
-            )
+      </div>
+      <div className="min-w-0">
+        <h3 className="line-clamp-2 font-serif text-[1.02rem] font-semibold leading-tight tracking-tight text-foreground">
+          {book.title}
+        </h3>
+        {book.author != null && book.author.length > 0 && (
+          <p className="mt-1 line-clamp-1 text-[0.85rem] text-muted-foreground">{book.author}</p>
+        )}
+      </div>
+      <div className="mt-auto flex flex-wrap items-center gap-2.5">
+        {book.rating != null && (
+          <span
+            className="text-[0.95rem] tracking-wider text-ocre"
+            aria-label={`${book.rating} de 5`}
+          >
+            {"★".repeat(book.rating)}
+            <span className="text-faint">{"☆".repeat(5 - book.rating)}</span>
+          </span>
+        )}
+        {titn !== null ? (
+          available > 0 ? (
+            <Badge variant="available">{available} disp.</Badge>
           ) : (
-            <Badge variant="secondary">no en catálogo</Badge>
-          )}
-        </div>
+            <Badge variant="secondary">en catálogo</Badge>
+          )
+        ) : (
+          <Badge variant="unknown">no en catálogo</Badge>
+        )}
       </div>
     </div>
   );
 
   // Matched books link to their record page; unmatched are inert cards.
   return titn !== null ? (
-    <a href={`/record?titn=${titn}`} className="block h-full">
+    <a
+      href={`/record?titn=${titn}`}
+      className="block h-full no-underline transition-transform hover:-translate-y-0.5"
+    >
       {inner}
     </a>
   ) : (

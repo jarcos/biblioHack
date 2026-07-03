@@ -88,63 +88,80 @@ export function AccountPanel({ apiBaseUrl }: Props): ReactElement {
     return <p className="text-sm text-muted-foreground">Cargando tu cuenta…</p>;
   }
 
+  const rows: { k: string; v: string }[] = [
+    { k: "Correo", v: user.email },
+    { k: "Nombre", v: user.display_name ?? "—" },
+    { k: "Correo verificado", v: user.email_verified ? "Sí ✓" : "No" },
+    {
+      k: "Miembro desde",
+      v: new Date(user.created_at).toLocaleDateString("es-ES", { dateStyle: "long" }),
+    },
+  ];
+
   return (
-    <div className="space-y-8">
-      <dl className="space-y-4 rounded-md border border-border p-6 text-sm">
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted-foreground">Correo</dt>
-          <dd className="font-medium">{user.email}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted-foreground">Nombre</dt>
-          <dd className="font-medium">{user.display_name ?? "—"}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted-foreground">Correo verificado</dt>
-          <dd className="font-medium">{user.email_verified ? "Sí ✓" : "No"}</dd>
-        </div>
-        <div className="flex justify-between gap-4">
-          <dt className="text-muted-foreground">Miembro desde</dt>
-          <dd className="font-medium">
-            {new Date(user.created_at).toLocaleDateString("es-ES", { dateStyle: "long" })}
-          </dd>
-        </div>
+    <div className="space-y-10">
+      <dl className="m-0 rounded-2xl border border-border bg-card px-6 py-2 shadow-card">
+        {rows.map(({ k, v }, i) => (
+          <div
+            key={k}
+            className={`flex items-center justify-between gap-4 py-4 ${
+              i > 0 ? "border-t border-border" : ""
+            }`}
+          >
+            <dt className="text-[0.95rem] text-muted-foreground">{k}</dt>
+            <dd className="m-0 text-[0.95rem] font-semibold text-foreground">{v}</dd>
+          </div>
+        ))}
       </dl>
 
       <div className="space-y-3">
-        <h2 className="font-serif text-lg font-semibold">Seguridad</h2>
-        <p className="text-sm text-muted-foreground">
+        <h2 className="m-0 font-serif text-[1.4rem] font-semibold tracking-tight">Seguridad</h2>
+        <p className="m-0 text-[0.98rem] leading-relaxed text-muted-foreground">
           Para cambiar la contraseña usa{" "}
-          <a href="/forgot-password" className="text-foreground underline underline-offset-4">
+          <a
+            href="/forgot-password"
+            className="text-primary underline underline-offset-[3px] transition-opacity hover:opacity-80"
+          >
             recuperar contraseña
           </a>{" "}
           — el enlace que recibirás cierra todas las sesiones abiertas.
         </p>
-        <Button variant="outline" onClick={() => void onLogout()}>
+        <Button variant="outline" className="rounded-lg bg-card" onClick={() => void onLogout()}>
           Cerrar sesión
         </Button>
       </div>
 
       <div className="space-y-3">
-        <h2 className="font-serif text-lg font-semibold">Tus datos</h2>
-        <p className="text-sm text-muted-foreground">
+        <h2 className="m-0 font-serif text-[1.4rem] font-semibold tracking-tight">Tus datos</h2>
+        <p className="m-0 text-[0.98rem] leading-relaxed text-muted-foreground">
           Descarga todo lo que guardamos sobre ti (cuenta, estantería, importaciones y
           recomendaciones) en un archivo JSON. Más detalles en la{" "}
-          <a href="/privacy" className="text-foreground underline underline-offset-4">
+          <a
+            href="/privacy"
+            className="text-primary underline underline-offset-[3px] transition-opacity hover:opacity-80"
+          >
             política de privacidad
           </a>
           .
         </p>
-        <Button variant="outline" disabled={busy} onClick={() => void onExport()}>
-          Exportar mis datos
+        <Button
+          variant="outline"
+          className="rounded-lg bg-card"
+          disabled={busy}
+          onClick={() => void onExport()}
+        >
+          ↓ Exportar mis datos
         </Button>
       </div>
 
-      <div className="space-y-3 rounded-md border border-destructive/40 p-4">
-        <h2 className="font-serif text-lg font-semibold text-destructive">Eliminar la cuenta</h2>
-        <p className="text-sm text-muted-foreground">
+      <div className="space-y-3 rounded-2xl border border-destructive bg-destructive-soft p-6">
+        <h2 className="m-0 font-serif text-[1.3rem] font-semibold tracking-tight text-destructive-soft-foreground">
+          Eliminar la cuenta
+        </h2>
+        <p className="m-0 text-sm leading-relaxed text-muted-foreground">
           Borra tu cuenta, tu estantería y tus recomendaciones de forma{" "}
-          <strong>irreversible</strong> (las copias de seguridad rotan en un máximo de 30 días).
+          <strong className="text-foreground">irreversible</strong> (las copias de seguridad rotan
+          en un máximo de 30 días).
         </p>
         {!deleteArmed ? (
           <Button variant="destructive" onClick={() => setDeleteArmed(true)}>

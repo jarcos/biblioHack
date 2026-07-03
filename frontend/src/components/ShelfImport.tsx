@@ -111,13 +111,13 @@ export function ShelfImport({ apiBaseUrl }: Props): ReactElement {
 
   if (hasShelf && !expanded && job?.status !== "failed") {
     return (
-      <p className="text-xs text-muted-foreground">
+      <p className="m-0 text-[0.92rem] text-faint">
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="underline underline-offset-4 transition-colors hover:text-foreground"
+          className="font-semibold text-primary underline underline-offset-[3px] transition-opacity hover:opacity-80"
         >
-          Re-importar CSV de Goodreads
+          ↻ Re-importar CSV de Goodreads
         </button>{" "}
         — actualiza tus libros (pendiente → leyendo → leído, valoraciones, reseñas) sin duplicarlos.
       </p>
