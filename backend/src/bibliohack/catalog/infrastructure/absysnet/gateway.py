@@ -35,6 +35,7 @@ serves real HTML, or our own recorded fixtures).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -94,6 +95,14 @@ class GatewayConfig:
     burst: int = 1
     jitter_seconds: float = 0.5
     fetch_timeout_seconds: float = 20.0
+    # Absolute ceiling on ONE rendered fetch, enforced with `asyncio.wait_for`
+    # at the call site. `fetch_timeout_seconds` is only Playwright's own
+    # navigation timeout — twice observed (2026-07-03, 2026-07-08) a retry's
+    # `Page.goto` never returning at all after a previous goto timeout wedged
+    # the patchright driver, hanging the whole crawl job for days. This bound
+    # must comfortably exceed fetch_timeout_seconds (navigation + render +
+    # network-idle wait) so it only fires on a genuinely wedged driver.
+    fetch_hard_timeout_seconds: float = 120.0
     max_retries: int = 3
     backoff_base_seconds: float = 30.0
     backoff_cap_seconds: float = 1800.0
@@ -229,6 +238,76 @@ class ScraplingOpacGateway:
             extra_headers={"User-Agent": self._config.user_agent},
         )
 
+    async def _bounded_stealth_fetch(self, url: str) -> Any:
+        """`_stealth_fetch` with a hard wall-clock bound and self-healing.
+
+        Root cause of the 2026-07-03 and 2026-07-08 crawl-plane hangs: after
+        a `Page.goto` timeout, the pooled session's single page slot can be
+        left wedged — the NEXT fetch through it never returns (Playwright's
+        own timeout never fires on a wedged driver connection), freezing the
+        job until someone restarts the container. Two defenses:
+
+        - `asyncio.wait_for` guarantees this coroutine returns or raises
+          within `fetch_hard_timeout_seconds`, no matter what the driver does;
+        - any failure (hard timeout or an ordinary render error) recycles the
+          pooled session, so the caller's retry runs on a fresh browser page
+          instead of the possibly-wedged one.
+
+        `TimeoutError` propagates like any transient fetch error — the
+        callers' retry loops backoff and re-attempt, then raise
+        `OpacUnavailableError` when retries are exhausted.
+        """
+        try:
+            return await asyncio.wait_for(
+                self._stealth_fetch(url),
+                timeout=self._config.fetch_hard_timeout_seconds,
+            )
+        except OpacUnavailableError:
+            raise
+        except TimeoutError:
+            log.warning(
+                "absysnet.fetch.hard_timeout after=%.0fs url=%s — recycling browser session",
+                self._config.fetch_hard_timeout_seconds,
+                url,
+            )
+            await self._recycle_session()
+            raise
+        except Exception:
+            await self._recycle_session()
+            raise
+
+    async def _recycle_session(self) -> None:
+        """Replace the pooled browser session after a failed fetch.
+
+        No-op when no session is open (one-shot mode already gets a fresh
+        browser per call). Closing a wedged session can itself hang, so the
+        close is bounded too; on failure the old session object is abandoned —
+        its driver process dies with the job (the run-job.sh timeout is the
+        backstop) rather than blocking recovery. A reopen failure is logged,
+        not raised: `_stealth_fetch` then falls back to one-shot fetches,
+        which is slower but keeps the run alive.
+        """
+        session = self._session
+        if session is None:
+            return
+        self._session = None
+        try:
+            await asyncio.wait_for(session.close(), timeout=30)
+        except Exception as exc:
+            log.warning(
+                "absysnet.session.close_failed error=%s: %s — abandoning old session",
+                type(exc).__name__,
+                exc,
+            )
+        try:
+            await self.open_session()
+        except Exception as exc:
+            log.warning(
+                "absysnet.session.reopen_failed error=%s: %s — falling back to one-shot fetches",
+                type(exc).__name__,
+                exc,
+            )
+
     # ── HTTP-first record fetch ───────────────────────────────────
     # See module docstring. Every GET goes through the same TokenBucket as the
     # browser path (the bootstrap hop costs two tokens, steady state one), so
@@ -335,7 +414,7 @@ class ScraplingOpacGateway:
             attempt += 1
             started = time.monotonic()
             try:
-                page = await self._stealth_fetch(url)
+                page = await self._bounded_stealth_fetch(url)
             except OpacUnavailableError:
                 raise
             except Exception as exc:
@@ -491,7 +570,7 @@ class ScraplingOpacGateway:
         while attempt <= self._config.max_retries:
             attempt += 1
             try:
-                page = await self._stealth_fetch(url)
+                page = await self._bounded_stealth_fetch(url)
             except OpacUnavailableError:
                 raise
             except Exception as exc:
@@ -521,8 +600,6 @@ class ScraplingOpacGateway:
         raise OpacUnavailableError(msg)
 
     async def _backoff(self, attempt: int) -> None:
-        import asyncio
-
         wait = min(
             self._config.backoff_cap_seconds,
             self._config.backoff_base_seconds * (2 ** (attempt - 1)),

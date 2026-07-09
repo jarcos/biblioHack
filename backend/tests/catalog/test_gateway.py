@@ -11,6 +11,7 @@ and are skipped by default.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, replace
 from typing import ClassVar
 
@@ -422,6 +423,76 @@ async def test_close_session_without_open_is_noop(
 ) -> None:
     # Closing a gateway that never opened a session must not raise.
     await ScraplingOpacGateway(fast_config).close_session()
+
+
+# ───────────────────────────────────────────────────────────────
+# Hard fetch timeout + session recycling — regression tests for the
+# 2026-07-03 / 2026-07-08 crawl-plane hangs: after a Page.goto timeout the
+# pooled session's page slot wedged and the NEXT fetch never returned,
+# freezing the job (and everything behind the crawl flock) for days.
+# ───────────────────────────────────────────────────────────────
+
+
+class WedgedSession(FakeAsyncSession):
+    """First session instance hangs forever on fetch (a wedged driver);
+    any later instance answers normally."""
+
+    instances: ClassVar[list[FakeAsyncSession]] = []
+
+    async def fetch(self, url: str, **_kwargs: object) -> FakePage:
+        self.fetches.append(url)
+        if self is type(self).instances[0]:
+            await asyncio.sleep(3600)  # never returns within any test budget
+        return FakePage(status=200, html_content="<html>real record</html>", url=url)
+
+
+class FailingOnceSession(FakeAsyncSession):
+    """First session instance raises on fetch; any later instance is fine."""
+
+    instances: ClassVar[list[FakeAsyncSession]] = []
+
+    async def fetch(self, url: str, **_kwargs: object) -> FakePage:
+        self.fetches.append(url)
+        if self is type(self).instances[0]:
+            msg = "simulated render failure"
+            raise ConnectionError(msg)
+        return FakePage(status=200, html_content="<html>real record</html>", url=url)
+
+
+async def test_wedged_fetch_hits_hard_timeout_and_retries_on_fresh_session(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    WedgedSession.instances.clear()
+    install_fake_fetcher(session_cls=WedgedSession)
+    config = replace(fast_config, fetch_hard_timeout_seconds=0.05)
+
+    gateway = ScraplingOpacGateway(config)
+    async with gateway:
+        result = await gateway.fetch_record(Titn(1))
+
+    # The hang was bounded by the hard timeout (not Playwright's), the wedged
+    # session was recycled, and the retry succeeded on a fresh browser.
+    assert result.outcome is FetchOutcome.OK
+    assert len(WedgedSession.instances) == 2
+    assert WedgedSession.instances[0].closed == 1
+    assert WedgedSession.instances[1].fetches  # retry ran on the new session
+
+
+async def test_render_error_recycles_pooled_session_before_retry(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    FailingOnceSession.instances.clear()
+    install_fake_fetcher(session_cls=FailingOnceSession)
+
+    gateway = ScraplingOpacGateway(fast_config)
+    async with gateway:
+        result = await gateway.fetch_record(Titn(1))
+
+    # An ordinary render exception must not reuse the possibly-wedged page
+    # slot: the session is replaced and the retry uses the fresh one.
+    assert result.outcome is FetchOutcome.OK
+    assert len(FailingOnceSession.instances) == 2
+    assert FailingOnceSession.instances[0].closed == 1
 
 
 # ───────────────────────────────────────────────────────────────
