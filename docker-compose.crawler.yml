@@ -95,7 +95,11 @@ services:
     # zero throughput — it only stops parse/render bursts from monopolising
     # the host. Compose-only change: `docker compose -f docker-compose.crawler.yml
     # up -d` applies it, no image rebuild needed.
-    cpus: 2
+    #
+    # cpuset (pin to 2 of the 4 cores), NOT `cpus:` — the NAS's 4.4 kernel has
+    # no CPU CFS scheduler, so quota-based limits fail at container create
+    # ("NanoCPUs can not be set"). Same seccomp-era kernel gotcha as below.
+    cpuset: "0,1"
     # Firefox needs far more shared memory than Docker's 64MB default.
     shm_size: "1gb"
     # The NAS runs an old (4.4) kernel; relax seccomp so the browser's
