@@ -7,8 +7,11 @@
 # is still running"), which previously starved the nightly every day.
 #
 # Catalogue growth every hour at :00 — discover advances a resumable cursor
-# through the result set, then the worker ingests the new slice. With
-# DISCOVER_MAX/WORKER_MAX ~200 this finishes well before :30.
+# through the result set, then the worker ingests the new slice. Since the
+# 2026-07-02 WORKER_MAX=2000 raise a healthy run takes ~40-60 min (the M7
+# drain working as intended) — back-to-back runs overlapping via the
+# lock-wait in run-job.sh is NORMAL, not an overrun. Only runs past the
+# WORKER_TIMEOUT budget are pathological.
 0 * * * * /app/run-job.sh discover_worker
 # Availability refresh every 6 hours at :30 (offset from the hourly growth so
 # they never race for the flock). Re-scrapes records whose probe is due.
@@ -31,9 +34,10 @@
 0 5 1 * * /app/run-job.sh canon_seed
 # Canon resolve every 4 hours at :50 — on the OPAC (shares the polite crawl
 # lock + 1 req/s budget), asks whether the RBPA holds still-unmatched classics
-# and seeds held TITNs for the worker to ingest. At :50 it's clear of the :00
-# growth (which finishes before :30), the :30 refresh, and the :15/:45 off-OPAC
-# jobs; bounded by CANON_RESOLVE_MAX so it never starves novedades growth.
+# and seeds held TITNs for the worker to ingest. The :00 growth often runs
+# past :50 now (WORKER_MAX=2000) — this job skips if the lock is busy and
+# re-fires 4h later, which is fine; bounded by CANON_RESOLVE_MAX so it never
+# starves novedades growth.
 50 */4 * * * /app/run-job.sh canon_resolve
 # Demand-driven shelf fetcher every 6 hours at :40 — on the OPAC (shares the
 # polite crawl lock + 1 req/s budget). Re-matches unmatched shelf entries the
@@ -46,7 +50,8 @@
 # pre-2024 TITN backlog so the hourly worker fills its idle capacity with it
 # (seeded at a lower priority than novedades, so freshness is never starved).
 # DB-only after the first run; the first run probes the OPAC under the shared
-# crawl lock, so :20 keeps it clear of the :00 growth (done by :30), the :30
-# refresh, the :15/:45 off-OPAC jobs, :50 canon, and :40 shelf. Top-up mode
+# crawl lock — :20 offsets it from the :30 refresh, the :15/:45 off-OPAC jobs,
+# :50 canon, and :40 shelf (it skips if the :00 growth still holds the lock,
+# and re-fires 12h later — top-up seeding tolerates that fine). Top-up mode
 # (BACKLIST_TARGET_DEPTH) means most runs seed nothing once the queue is full.
 20 1,13 * * * /app/run-job.sh backlist

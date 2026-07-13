@@ -133,6 +133,13 @@ class ScraplingOpacGateway:
         # fetch in a crawl run (see `open_session`). Default off so a one-shot
         # fetch (probe / test) still works exactly as before.
         self._session: Any = None
+        # Set by `async with gateway:` — pooling is WANTED but the browser is
+        # launched lazily, on the first fetch that actually needs it (see
+        # `_ensure_pooled_session`). With http_first on, most worker runs
+        # never hit a browser fetch at all; eagerly launching in __aenter__
+        # kept a full idle Camoufox stack (7+ processes) alive for every
+        # hourly run, pinning the NAS CPU for nothing (observed 2026-07-13).
+        self._pooling: bool = False
         # HTTP-first plumbing: a lazy httpx client (cookies persist across the
         # run) and the session-tokenised base URL minted by the first record's
         # meta-refresh hop, reused for one-request-per-record fetches after.
@@ -151,13 +158,20 @@ class ScraplingOpacGateway:
     # single page) and the `TokenBucket` still gates every request, so
     # politeness is unchanged — this stops wasting time, it never crawls faster
     # than the budget allows.
+    #
+    # Since 2026-07-13 the launch is also LAZY: `async with gateway:` only
+    # arms pooling; the browser starts on the first fetch that actually needs
+    # it (`_ensure_pooled_session`). With http_first on, a healthy worker run
+    # fetches everything over plain HTTP and never starts a browser at all.
 
     async def open_session(self) -> None:
         """Start a pooled browser session reused by every fetch until closed.
 
-        Idempotent: a no-op when a session is already open. Requires the
-        ``[scraper]`` extra; raises ``OpacUnavailableError`` (not a bare
-        ``ModuleNotFoundError``) if Scrapling is missing.
+        Called lazily by `_ensure_pooled_session` (the normal path) but still
+        safe to call directly for an eager launch. Idempotent: a no-op when a
+        session is already open. Requires the ``[scraper]`` extra; raises
+        ``OpacUnavailableError`` (not a bare ``ModuleNotFoundError``) if
+        Scrapling is missing.
         """
         if self._session is not None:
             return
@@ -174,6 +188,7 @@ class ScraplingOpacGateway:
 
     async def close_session(self) -> None:
         """Close the pooled session (and HTTP client) if open. Idempotent."""
+        self._pooling = False
         session = self._session
         self._session = None
         if session is not None:
@@ -185,7 +200,11 @@ class ScraplingOpacGateway:
             await client.aclose()
 
     async def __aenter__(self) -> ScraplingOpacGateway:
-        await self.open_session()
+        # Enable pooling but do NOT launch the browser yet — with http_first
+        # on, a run that never falls back to a browser fetch never pays for
+        # (or even starts) the Camoufox stack. `_ensure_pooled_session` does
+        # the actual launch on first need.
+        self._pooling = True
         return self
 
     async def __aexit__(self, *_exc: object) -> None:
@@ -238,6 +257,29 @@ class ScraplingOpacGateway:
             extra_headers={"User-Agent": self._config.user_agent},
         )
 
+    async def _ensure_pooled_session(self) -> None:
+        """Lazily launch the pooled browser on the first fetch that needs it.
+
+        No-op unless pooling was requested (`async with gateway:`) and no
+        session is open yet. A launch failure is logged, not raised — the
+        fetch then runs one-shot (mirroring `_recycle_session`'s reopen
+        fallback), and the next browser fetch retries the pooled launch.
+        `OpacUnavailableError` (the [scraper] extra missing) still propagates:
+        the one-shot path could not work either.
+        """
+        if not self._pooling or self._session is not None:
+            return
+        try:
+            await self.open_session()
+        except OpacUnavailableError:
+            raise
+        except Exception as exc:
+            log.warning(
+                "absysnet.session.lazy_open_failed error=%s: %s — using one-shot fetch",
+                type(exc).__name__,
+                exc,
+            )
+
     async def _bounded_stealth_fetch(self, url: str) -> Any:
         """`_stealth_fetch` with a hard wall-clock bound and self-healing.
 
@@ -257,6 +299,9 @@ class ScraplingOpacGateway:
         callers' retry loops backoff and re-attempt, then raise
         `OpacUnavailableError` when retries are exhausted.
         """
+        # Lazy launch OUTSIDE the hard timeout: a (slow, NAS) browser start
+        # must not eat into the fetch budget the bound was sized for.
+        await self._ensure_pooled_session()
         try:
             return await asyncio.wait_for(
                 self._stealth_fetch(url),

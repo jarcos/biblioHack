@@ -663,6 +663,63 @@ async def test_http_first_decodes_utf8_despite_latin1_declaration(
     assert "Ã" not in result.html
 
 
+async def test_http_first_run_never_launches_browser(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    """`async with gateway:` must NOT start a browser when HTTP handles all
+    fetches — the lazy-launch fix for the hourly worker's idle Camoufox stack
+    pinning the NAS CPU (2026-07-13)."""
+    FakeAsyncSession.instances.clear()
+    install_fake_fetcher(FakeFetcher([]), session_cls=FakeAsyncSession)
+    handler = HttpScript()
+    gateway = ScraplingOpacGateway(
+        replace(fast_config, http_first=True),
+        http_transport=httpx.MockTransport(handler),
+    )
+
+    async with gateway:
+        first = await gateway.fetch_record(Titn(1))
+        second = await gateway.fetch_record(Titn(2))
+
+    assert first.outcome is FetchOutcome.OK
+    assert second.outcome is FetchOutcome.OK
+    # No pooled browser session was ever constructed, let alone started.
+    assert FakeAsyncSession.instances == []
+
+
+async def test_http_fallback_lazily_launches_pooled_session_once(
+    fast_config: GatewayConfig, install_fake_fetcher
+) -> None:
+    """When HTTP does fall back, the pooled session launches on first need,
+    is reused for later fallbacks, and is closed on exit."""
+
+    def maintenance(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>maintenance page</html>")
+
+    FakeAsyncSession.instances.clear()
+    fake = FakeFetcher([])  # one-shot path must never be touched
+    install_fake_fetcher(fake, session_cls=FakeAsyncSession)
+    gateway = ScraplingOpacGateway(
+        replace(fast_config, http_first=True),
+        http_transport=httpx.MockTransport(maintenance),
+    )
+
+    async with gateway:
+        assert FakeAsyncSession.instances == []  # armed, not launched
+        first = await gateway.fetch_record(Titn(1))
+        second = await gateway.fetch_record(Titn(2))
+
+    assert first.outcome is FetchOutcome.OK
+    assert second.outcome is FetchOutcome.OK
+    # Exactly one lazily-launched session served both fallbacks.
+    assert len(FakeAsyncSession.instances) == 1
+    session = FakeAsyncSession.instances[0]
+    assert session.started == 1
+    assert len(session.fetches) == 2
+    assert session.closed == 1
+    assert fake.calls == []
+
+
 async def test_http_first_off_by_default_uses_browser(
     fast_config: GatewayConfig, install_fake_fetcher
 ) -> None:

@@ -89,6 +89,13 @@ services:
     volumes:
       # Shared cover store: the resolver writes here; the api mounts it ro.
       - /volume1/docker/bibliohack/covers:/covers
+    # CPU cap (2026-07-13): hourly discover_worker runs were pegging the whole
+    # NAS ~100% for 40-60 min every hour, starving Postgres/api/the VM. The
+    # worker is throttle-bound at CRAWL_RATE (1 req/s), so capping CPU costs
+    # zero throughput — it only stops parse/render bursts from monopolising
+    # the host. Compose-only change: `docker compose -f docker-compose.crawler.yml
+    # up -d` applies it, no image rebuild needed.
+    cpus: 2
     # Firefox needs far more shared memory than Docker's 64MB default.
     shm_size: "1gb"
     # The NAS runs an old (4.4) kernel; relax seccomp so the browser's

@@ -587,8 +587,10 @@ async def _run_worker(
             f"  TITN={result.titn}{suffix}"
         )
 
-    # One pooled browser session spans the whole worker run — the launch cost
-    # is paid once, not once per record (the throttle still gates each fetch).
+    # Pooling armed for the whole worker run, but the browser launches lazily:
+    # with HTTP-first on, a healthy run never starts one. If a fetch does fall
+    # back, one pooled session spans the rest of the run — the launch cost is
+    # paid once, not once per record (the throttle still gates each fetch).
     async with gateway:
         stats = await worker_run.execute(on_step=_on_step)
 
