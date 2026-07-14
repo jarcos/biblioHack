@@ -28,10 +28,11 @@ from bibliohack.catalog.application.ports import (
 )
 from bibliohack.catalog.domain.canon import AcquireStatus, CanonMatchVia
 from bibliohack.catalog.infrastructure.postgres.models import (
-    BibliographicRecordModel,
     CanonSeedModel,
-    ContributorModel,
     IsbnModel,
+)
+from bibliohack.catalog.infrastructure.postgres.trgm_match import (
+    match_title_author as trgm_match_title_author,
 )
 
 if TYPE_CHECKING:
@@ -41,11 +42,8 @@ if TYPE_CHECKING:
 
     from bibliohack.catalog.domain.canon import CanonSeedWork
 
-# Trigram thresholds — identical to the Goodreads matcher (see
-# reading_history shelf_repository). Precision over recall: a wrong link
-# pollutes the canon signal, a miss simply re-matches as the catalogue grows.
-_TITLE_SIMILARITY_MIN = 0.5
-_AUTHOR_SIMILARITY_MIN = 0.3
+# Trigram matching (thresholds included) lives in the shared, index-eligible
+# helper — see trgm_match.py for why the `%` operator form is load-bearing.
 
 
 class PostgresCanonSeedRepository:
@@ -136,27 +134,7 @@ class PostgresCanonSeedRepository:
         return str(record_id) if record_id is not None else None
 
     async def match_title_author(self, title: str, author: str | None) -> str | None:
-        title_sim = func.similarity(BibliographicRecordModel.title, title)
-        stmt = (
-            select(BibliographicRecordModel.id)
-            .where(title_sim >= _TITLE_SIMILARITY_MIN)
-            .order_by(title_sim.desc())
-            .limit(1)
-        )
-        if author:
-            author_match = (
-                select(ContributorModel.record_id)
-                .where(
-                    ContributorModel.record_id == BibliographicRecordModel.id,
-                    ContributorModel.role == "author",
-                    func.similarity(ContributorModel.name, author) >= _AUTHOR_SIMILARITY_MIN,
-                )
-                .exists()
-            )
-            stmt = stmt.where(author_match)
-
-        record_id = (await self._session.execute(stmt)).scalar_one_or_none()
-        return str(record_id) if record_id is not None else None
+        return await trgm_match_title_author(self._session, title, author)
 
     async def link_match(self, seed_id: str, record_id: str, via: CanonMatchVia) -> None:
         # A row we'd resolved + seeded (acquire_status='held') has now landed in

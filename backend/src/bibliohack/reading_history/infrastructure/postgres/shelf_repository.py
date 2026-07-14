@@ -1,7 +1,7 @@
 """Postgres-backed `ShelfRepository`: catalogue matching + shelf upserts.
 
-Matching uses the `isbns` table for the authoritative path and pg_trgm
-`similarity()` (already enabled for the contributor name index) for the title/
+Matching uses the `isbns` table for the authoritative path and the shared
+index-eligible pg_trgm matcher (catalog's `trgm_match.py`) for the title/
 author fallback, with conservative thresholds so only confident links are made.
 Upserts are `ON CONFLICT (user_id, source, source_book_id) DO UPDATE` and
 report insert-vs-update via the `xmax = 0` trick.
@@ -15,10 +15,9 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, func, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from bibliohack.catalog.infrastructure.postgres.models import (
-    BibliographicRecordModel,
-    ContributorModel,
-    IsbnModel,
+from bibliohack.catalog.infrastructure.postgres.models import IsbnModel
+from bibliohack.catalog.infrastructure.postgres.trgm_match import (
+    match_title_author as trgm_match_title_author,
 )
 from bibliohack.reading_history.application.ports import (
     ResolvableShelfBook,
@@ -34,12 +33,9 @@ if TYPE_CHECKING:
     from bibliohack.reading_history.application.ports import ShelfEntryData
     from bibliohack.reading_history.domain.shelf import MatchVia, ShelfResolveStatus
 
-# Trigram thresholds. Precision over recall: a wrong match pollutes the shelf,
-# whereas a miss simply stays re-checkable as the catalogue grows. Author names
-# differ in ordering across sources ("Salman Rushdie" vs "Rushdie, Salman") but
-# trigrams are substring-based, so a modest author floor still helps.
-_TITLE_SIMILARITY_MIN = 0.5
-_AUTHOR_SIMILARITY_MIN = 0.3
+# Trigram matching (thresholds included) lives in the shared, index-eligible
+# helper — see catalog's trgm_match.py for why the `%` operator form is
+# load-bearing (the old similarity()-only form seq-scanned the whole mirror).
 
 
 class PostgresShelfRepository:
@@ -57,27 +53,7 @@ class PostgresShelfRepository:
         return str(record_id) if record_id is not None else None
 
     async def match_title_author(self, title: str, author: str | None) -> str | None:
-        title_sim = func.similarity(BibliographicRecordModel.title, title)
-        stmt = (
-            select(BibliographicRecordModel.id)
-            .where(title_sim >= _TITLE_SIMILARITY_MIN)
-            .order_by(title_sim.desc())
-            .limit(1)
-        )
-        if author:
-            author_match = (
-                select(ContributorModel.record_id)
-                .where(
-                    ContributorModel.record_id == BibliographicRecordModel.id,
-                    ContributorModel.role == "author",
-                    func.similarity(ContributorModel.name, author) >= _AUTHOR_SIMILARITY_MIN,
-                )
-                .exists()
-            )
-            stmt = stmt.where(author_match)
-
-        record_id = (await self._session.execute(stmt)).scalar_one_or_none()
-        return str(record_id) if record_id is not None else None
+        return await trgm_match_title_author(self._session, title, author)
 
     async def upsert_entry(self, entry: ShelfEntryData) -> bool:
         values = {
