@@ -95,9 +95,7 @@ class FakeFeedback:
     the pre-P1 cache key and centroid behaviour.
     """
 
-    def __init__(
-        self, *, state_hash: str = "", signals: WeightedSignals | None = None
-    ) -> None:
+    def __init__(self, *, state_hash: str = "", signals: WeightedSignals | None = None) -> None:
         self._state_hash = state_hash
         self._signals = signals or WeightedSignals()
         self.recorded: list[tuple[str, str, FeedbackSignal]] = []

@@ -32,6 +32,8 @@ async def test_button_signals_are_recorded(signal: FeedbackSignal) -> None:
 async def test_read_rating_is_rejected_in_p1() -> None:
     """The enum value exists for P2, but its writer is not the button surface."""
     store = FakeFeedback()
-    result = await RecordFeedback(feedback=store).execute("u-1", "rec-1", FeedbackSignal.READ_RATING)
+    result = await RecordFeedback(feedback=store).execute(
+        "u-1", "rec-1", FeedbackSignal.READ_RATING
+    )
     assert result == Err(RecordFeedbackError.UNSUPPORTED_SIGNAL)
     assert store.recorded == []  # nothing persisted on a rejected signal

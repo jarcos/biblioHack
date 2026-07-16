@@ -51,9 +51,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(
-            ["record_id"], ["bibliographic_records.id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["record_id"], ["bibliographic_records.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
