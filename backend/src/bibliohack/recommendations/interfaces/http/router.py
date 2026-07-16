@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 # Runtime imports — FastAPI evaluates endpoint signatures at runtime (see
 # the note in identity/interfaces/http/dependencies.py).
@@ -22,6 +22,7 @@ from bibliohack.interfaces.http.dependencies import get_tx_session
 from bibliohack.recommendations.application.ports import (  # noqa: TC001
     CandidateRetriever,
     ColdStartClassifier,
+    FeedbackStore,
     RationaleWriter,
     RecommendationRepository,
     ShelfTasteReader,
@@ -29,15 +30,20 @@ from bibliohack.recommendations.application.ports import (  # noqa: TC001
 from bibliohack.recommendations.application.use_cases.get_recommendations import (
     GetRecommendations,
 )
+from bibliohack.recommendations.application.use_cases.record_feedback import RecordFeedback
+from bibliohack.recommendations.domain.feedback import FeedbackSignal
 from bibliohack.recommendations.interfaces.http.dependencies import (
     get_caller_branch_codes,
     get_candidate_retriever,
     get_cold_start_classifier,
+    get_feedback_store,
     get_rationale_writer,
     get_recommendation_repository,
     get_shelf_taste_reader,
 )
 from bibliohack.recommendations.interfaces.http.schemas import (
+    FeedbackRequestSchema,
+    FeedbackResponseSchema,
     RecommendationItemSchema,
     RecommendationsResponseSchema,
 )
@@ -61,6 +67,7 @@ async def get_recommendations(
     rationales: Annotated[RationaleWriter, Depends(get_rationale_writer)],
     repository: Annotated[RecommendationRepository, Depends(get_recommendation_repository)],
     classifier: Annotated[ColdStartClassifier, Depends(get_cold_start_classifier)],
+    feedback: Annotated[FeedbackStore, Depends(get_feedback_store)],
     library_codes: Annotated[list[str] | None, Depends(get_caller_branch_codes)],
     nearby: Annotated[
         bool,
@@ -79,6 +86,7 @@ async def get_recommendations(
         rationales=rationales,
         repository=repository,
         classifier=classifier,
+        feedback=feedback,
         limit=settings.recommendations_limit,
     ).execute(str(user.id), library_codes=library_codes, nearby_only=nearby)
 
@@ -91,6 +99,29 @@ async def get_recommendations(
         inferred_tastes=list(outcome.inferred_tastes),
         items=await _enrich(session, outcome.recommendations),
     )
+
+
+@router.post("/feedback", response_model=FeedbackResponseSchema)
+async def record_feedback(
+    body: FeedbackRequestSchema,
+    user: Annotated[User, Depends(get_current_user)],
+    feedback: Annotated[FeedbackStore, Depends(get_feedback_store)],
+) -> FeedbackResponseSchema:
+    """Record one like/dislike/«más como esto»/«no me interesa» on a record.
+
+    Writing the signal busts the caller's recommendations cache (§D4), so the
+    next `GET /api/recommendations` regenerates against the new taste weights.
+    The signal's `Literal` type already bars `read_rating` (P2), so the use
+    case's guard is a belt-and-braces 422.
+    """
+    result = await RecordFeedback(feedback=feedback).execute(
+        str(user.id), str(body.record_id), FeedbackSignal(body.signal)
+    )
+    if isinstance(result, Err):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=result.error.value
+        )
+    return FeedbackResponseSchema(ok=True)
 
 
 async def _enrich(
@@ -113,6 +144,7 @@ async def _enrich(
             continue  # record pruned since generation — just skip it
         items.append(
             RecommendationItemSchema(
+                record_id=UUID(recommendation.record_id),
                 record=_summary_to_schema(summary),
                 score=recommendation.score,
                 rationale=recommendation.rationale,

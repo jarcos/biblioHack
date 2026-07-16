@@ -16,6 +16,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -55,4 +56,50 @@ class RecommendationModel(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "matched_record_id", name="uq_recommendations_user_record"),
         Index("ix_recommendations_user_id", "user_id"),
+    )
+
+
+class RecommendationFeedbackModel(Base):
+    """The reader's return channel (chat-recs P1, §D4) — one row per event.
+
+    Append-only: a like/dislike/«más como esto»/«no me interesa» each insert a
+    new row; the *latest* signal per (user, record) is what re-weights the
+    centroid and busts the cache. `signal` is a plain string (see
+    `FeedbackSignal`), matching the codebase's enum-ish-column convention.
+    `rating` is set only for the P2 `read_rating` signal.
+    """
+
+    __tablename__ = "recommendation_feedback"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    record_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("bibliographic_records.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    signal: Mapped[str] = mapped_column(String(20), nullable=False)
+    rating: Mapped[int | None] = mapped_column(SmallInteger)
+    # clock_timestamp(), not now(): "latest signal per record wins" orders by
+    # this column, and now() is fixed at transaction start — two signals written
+    # in one transaction would tie. clock_timestamp() advances per statement, so
+    # insertion order is preserved regardless of transaction boundaries.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
+    )
+
+    __table_args__ = (
+        # The "latest signal per record" read is DISTINCT ON (record_id) ordered
+        # by created_at, scoped to the user — a btree on these columns serves it
+        # (Postgres scans backward for the desc ordering).
+        Index(
+            "ix_recommendation_feedback_user_record_created",
+            "user_id",
+            "record_id",
+            "created_at",
+        ),
     )

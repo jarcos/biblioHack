@@ -8,12 +8,13 @@ fakes; identifiers cross as plain strings.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from bibliohack.recommendations.domain.feedback import FeedbackSignal
     from bibliohack.recommendations.domain.recommendation import Recommendation
 
 
@@ -42,6 +43,25 @@ class CachedBatch:
 
     recommendations: tuple[Recommendation, ...]
     inferred_tastes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class WeightedSignals:
+    """The reader's feedback, reduced to what retrieval needs (chat-recs P1, §4).
+
+    `weights` maps a record_id to its (non-zero) centroid weight: a `like` /
+    `more_like_this` pulls the taste centroid toward that record (+), a
+    `dislike` pushes it away (-). `excluded` is the hard-drop set - every
+    `dislike` **and** `not_interested` record, which must never resurface in a
+    batch regardless of taste similarity. A `dislike` therefore appears in
+    both. Empty on a user who has given no feedback (retrieval is unchanged).
+    """
+
+    weights: dict[str, float] = field(default_factory=dict)
+    excluded: frozenset[str] = field(default_factory=frozenset)
+
+    def is_empty(self) -> bool:
+        return not self.weights and not self.excluded
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +119,7 @@ class CandidateRetriever(Protocol):
         limit: int,
         followed_branch_codes: list[str] | None = None,
         nearby_only: bool = False,
+        feedback: WeightedSignals | None = None,
     ) -> CandidateBatch:
         """Nearest unread records to the user's taste centroid.
 
@@ -110,6 +131,12 @@ class CandidateRetriever(Protocol):
         higher (taste still dominates). ``nearby_only`` turns that into a hard
         filter — only borrowable-nearby candidates. Both no-op when the list is
         empty/None.
+
+        Feedback-aware (chat-recs P1, §4): when ``feedback`` is given, the
+        centroid becomes a weighted mean - liked records pull it toward them,
+        disliked ones push it away - and every excluded record (disliked or
+        not-interested) is hard-dropped from the results. None -> today's plain
+        shelf-centroid behaviour.
         """
         ...
 
@@ -151,4 +178,28 @@ class RecommendationRepository(Protocol):
         inferred_tastes: Sequence[str] = (),
     ) -> None:
         """Drop the user's previous batch and store this one (with its tastes)."""
+        ...
+
+
+class FeedbackStore(Protocol):
+    """The reader's return channel (chat-recs P1, §D4): write signals, read the
+    latest-per-record state that re-weights retrieval and busts the cache."""
+
+    async def record(
+        self, user_id: str, record_id: str, signal: FeedbackSignal, *, rating: int | None = None
+    ) -> None:
+        """Append one feedback event. Latest signal per record is what counts."""
+        ...
+
+    async def state_hash(self, user_id: str) -> str:
+        """A stable digest of the user's current (latest-per-record) signals.
+
+        Joins the recommendations cache key: any new signal changes the hash,
+        so the batch regenerates on the next request (§D4). Empty-state digest
+        is a fixed constant so a no-feedback user keeps today's cache key.
+        """
+        ...
+
+    async def weighted_signals(self, user_id: str) -> WeightedSignals:
+        """The latest-per-record signals as centroid weights + exclusions (§4)."""
         ...

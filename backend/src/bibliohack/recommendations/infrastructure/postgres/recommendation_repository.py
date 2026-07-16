@@ -34,9 +34,14 @@ from bibliohack.recommendations.application.ports import (
     CachedBatch,
     Candidate,
     CandidateBatch,
+    WeightedSignals,
 )
+from bibliohack.recommendations.domain.feedback import FeedbackSignal
 from bibliohack.recommendations.domain.recommendation import Recommendation
-from bibliohack.recommendations.infrastructure.postgres.models import RecommendationModel
+from bibliohack.recommendations.infrastructure.postgres.models import (
+    RecommendationFeedbackModel,
+    RecommendationModel,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -56,6 +61,22 @@ _MAX_PROFILE_BOOKS = 50
 _LIBRARY_BOOST = 0.05
 _POOL_FACTOR = 5
 _MAX_POOL = 200
+
+# Feedback → centroid weights (chat-recs P1, §4). Constants, not settings: tune
+# them from impressions→reads data, never by intuition. `not_interested` carries
+# no weight (it's "not now", not "not my taste") — it only hard-excludes. The
+# `read_rating` weights (+1.2 / -0.6) arrive with P2's mark-read loop.
+_FEEDBACK_WEIGHTS: dict[FeedbackSignal, float] = {
+    FeedbackSignal.LIKE: 0.7,
+    FeedbackSignal.MORE_LIKE_THIS: 0.7,
+    FeedbackSignal.DISLIKE: -0.5,
+    FeedbackSignal.NOT_INTERESTED: 0.0,
+}
+# Latest signals in these states are dropped from every batch, similarity aside.
+_EXCLUDING_SIGNALS = frozenset({FeedbackSignal.DISLIKE, FeedbackSignal.NOT_INTERESTED})
+# Stable digest for "this user has given no feedback" — keeps their cache key
+# identical to the pre-P1 shelf fingerprint (no needless regeneration).
+_EMPTY_FEEDBACK_HASH = ""
 
 
 class PostgresRecommendationRepository:
@@ -127,6 +148,82 @@ class PostgresRecommendationRepository:
         await self._session.flush()
 
 
+class PostgresFeedbackStore:
+    """Concrete `FeedbackStore` — appends signals, reads latest-per-record state.
+
+    The read side is a DISTINCT ON `(record_id)` ordered by `created_at desc`:
+    the append-only log keeps history, but only the newest signal per record
+    re-weights the centroid or busts the cache.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def record(
+        self,
+        user_id: str,
+        record_id: str,
+        signal: FeedbackSignal,
+        *,
+        rating: int | None = None,
+    ) -> None:
+        self._session.add(
+            RecommendationFeedbackModel(
+                id=uuid4(),
+                user_id=UUID(user_id),
+                record_id=UUID(record_id),
+                signal=str(signal),
+                rating=rating,
+            )
+        )
+        await self._session.flush()
+
+    async def _latest_signals(self, user_id: str) -> list[tuple[str, FeedbackSignal]]:
+        """(record_id, latest signal) for every record the user has acted on."""
+        rows = (
+            await self._session.execute(
+                select(
+                    RecommendationFeedbackModel.record_id,
+                    RecommendationFeedbackModel.signal,
+                )
+                .where(RecommendationFeedbackModel.user_id == UUID(user_id))
+                .distinct(RecommendationFeedbackModel.record_id)
+                .order_by(
+                    RecommendationFeedbackModel.record_id,
+                    RecommendationFeedbackModel.created_at.desc(),
+                )
+            )
+        ).all()
+        out: list[tuple[str, FeedbackSignal]] = []
+        for row in rows:
+            try:
+                out.append((str(row.record_id), FeedbackSignal(row.signal)))
+            except ValueError:
+                continue  # unknown signal from a newer writer → ignore, don't crash
+        return out
+
+    async def state_hash(self, user_id: str) -> str:
+        latest = await self._latest_signals(user_id)
+        if not latest:
+            return _EMPTY_FEEDBACK_HASH
+        digest = hashlib.sha256(b"feedback\n")
+        for record_id, signal in sorted(latest):
+            digest.update(f"{record_id}|{signal}\n".encode())
+        return digest.hexdigest()
+
+    async def weighted_signals(self, user_id: str) -> WeightedSignals:
+        latest = await self._latest_signals(user_id)
+        weights: dict[str, float] = {}
+        excluded: set[str] = set()
+        for record_id, signal in latest:
+            weight = _FEEDBACK_WEIGHTS.get(signal, 0.0)
+            if weight:
+                weights[record_id] = weight
+            if signal in _EXCLUDING_SIGNALS:
+                excluded.add(record_id)
+        return WeightedSignals(weights=weights, excluded=frozenset(excluded))
+
+
 class PostgresShelfTasteReader:
     """Concrete `ShelfTasteReader` — fingerprints the shelf state."""
 
@@ -185,6 +282,7 @@ class PostgresCandidateRetriever:
         limit: int,
         followed_branch_codes: list[str] | None = None,
         nearby_only: bool = False,
+        feedback: WeightedSignals | None = None,
     ) -> CandidateBatch:
         owned_ids, profile_ids = await self._profile_record_ids(UUID(user_id))
         if not profile_ids:
@@ -204,9 +302,19 @@ class PostgresCandidateRetriever:
         if not anchor_rows:
             return CandidateBatch(liked_books=(), candidates=())  # embeddings not ready yet
 
+        # Weighted centroid (chat-recs P1, §4): shelf anchors weigh +1.0 each,
+        # then liked/disliked feedback records pull it toward / push it away.
         # The SQL filters embedding IS NOT NULL; the `if` repeats it for mypy.
-        centroid = _mean([list(row.embedding) for row in anchor_rows if row.embedding is not None])
+        weighted = [(list(row.embedding), 1.0) for row in anchor_rows if row.embedding is not None]
+        weighted += await self._feedback_vectors(feedback)
+        centroid = _weighted_mean(weighted)
         liked_books = tuple(_label(row) for row in anchor_rows)
+
+        # Every disliked / not-interested record is hard-dropped, on top of the
+        # shelf itself (never recommend what's owned).
+        excluded_ids = list(owned_ids)
+        if feedback is not None and feedback.excluded:
+            excluded_ids += [UUID(rid) for rid in feedback.excluded]
 
         distance = BibliographicRecordModel.embedding.cosine_distance(centroid)
         # "Held in a followed branch?" — a correlated EXISTS, present only when
@@ -237,7 +345,7 @@ class PostgresCandidateRetriever:
         stmt = (
             stmt.where(
                 BibliographicRecordModel.embedding.is_not(None),
-                BibliographicRecordModel.id.not_in(owned_ids),
+                BibliographicRecordModel.id.not_in(excluded_ids),
                 BibliographicRecordModel.audience.in_(default_scope_audiences()),
                 BibliographicRecordModel.literary_form.in_(default_scope_forms()),
             )
@@ -311,6 +419,33 @@ class PostgresCandidateRetriever:
         )
         return CandidateBatch(liked_books=(), candidates=candidates)
 
+    async def _feedback_vectors(
+        self, feedback: WeightedSignals | None
+    ) -> list[tuple[list[float], float]]:
+        """(embedding, weight) for each liked/disliked feedback record (§4).
+
+        Only records that carry a non-zero centroid weight are fetched
+        (`not_interested` is exclusion-only). Records without an embedding yet
+        are skipped — they still hard-exclude via `excluded`, they just can't
+        move the centroid.
+        """
+        if feedback is None or not feedback.weights:
+            return []
+        ids = [UUID(rid) for rid in feedback.weights]
+        rows = (
+            await self._session.execute(
+                select(BibliographicRecordModel.id, BibliographicRecordModel.embedding).where(
+                    BibliographicRecordModel.id.in_(ids),
+                    BibliographicRecordModel.embedding.is_not(None),
+                )
+            )
+        ).all()
+        return [
+            (list(row.embedding), feedback.weights[str(row.id)])
+            for row in rows
+            if row.embedding is not None
+        ]
+
     async def _profile_record_ids(self, user_id: UUID) -> tuple[list[UUID], list[UUID]]:
         """(everything matched on the shelf, the taste anchors).
 
@@ -344,14 +479,21 @@ class PostgresCandidateRetriever:
         return owned, anchors
 
 
-def _mean(vectors: list[list[float]]) -> list[float]:
-    dimensions = len(vectors[0])
+def _weighted_mean(weighted: list[tuple[list[float], float]]) -> list[float]:
+    """Centroid as a weighted sum, scaled by total |weight| (§4).
+
+    Cosine ranking ignores magnitude, so the divisor is only for numerical
+    hygiene; the *direction* is what liked (+) and disliked (-) records bend.
+    Falls back to the plain mean when every weight is +1.0 (no feedback), so
+    a no-feedback user gets exactly today's centroid.
+    """
+    total = sum(abs(weight) for _, weight in weighted) or 1.0
+    dimensions = len(weighted[0][0])
     sums = [0.0] * dimensions
-    for vector in vectors:
+    for vector, weight in weighted:
         for index, value in enumerate(vector):
-            sums[index] += value
-    count = float(len(vectors))
-    return [value / count for value in sums]
+            sums[index] += value * weight
+    return [value / total for value in sums]
 
 
 def _first_author(record: BibliographicRecordModel) -> str | None:

@@ -4,15 +4,15 @@ h1: "📚 biblioHack"
 tagline: 'A reverse catalogue, availability tracker &amp; AI recommender for the Andalusian public-library network — live at <a href="https://biblio.josearcos.me" style="color:#e8c891">biblio.josearcos.me</a>'
 raw_html: true
 ---
-  <p><strong>Status snapshot — 21 June 2026.</strong> The project has gone from research draft (May 2026) to a <strong>live, public, multi-user application</strong> in roughly seven weeks. Every planned milestone through the identity milestone's Phase 5 hardening has shipped, and since then three more have landed: the <strong>catalogue navigator</strong> (<code>/browse</code> with facets), the <strong>relevance milestone</strong> (a stored score driving browse/search), and the <strong>canon import</strong> path (classics seeded from Wikidata/awards, matched and politely acquired — now scheduled and self-maintaining on the crawl plane). The novedades 2024+ crawl window is now caught up (~54k records mirrored), so hourly growth is a trickle by design. What remains is a short tail of follow-ups (canon coverage panel, WDQS keyset pagination), a handful of operational loose ends, and the long-horizon roadmap (the Libraries milestone, other provinces, mobile, and a MARC-dump request that would close the full catalogue gap).</p>
+  <p><strong>Status snapshot — 16 July 2026.</strong> The project has gone from research draft (May 2026) to a <strong>live, public, multi-user application</strong> in roughly two months, and every planned product milestone through the <strong>Libraries</strong> milestone has shipped: navigator, relevance, canon import, library scoping (L0–L5), <strong>library-aware availability badges</strong>, and the full <strong>design reskin</strong> (both phases). The centre of gravity is <strong>M7 — the network-wide backlist crawl</strong>: the mirror has ~2.4×'d since early July to <strong>300k records</strong> (17.9% of the TITN space), draining a steady ~32k backlist tasks/day within the same 1 req/s politeness budget — backlist <strong>15.7% swept</strong>, ETA down to ~75 days. That scale surfaced three reliability failure modes, all now fixed back-to-back: a browser-fetch hang (07-09), hourly runs pegging the NAS CPU (07-13), and a 4-hourly canon-resolve query timeout (07-14). The long-stalled shelf-resolve job is now resolving on-OPAC. <strong>Chat &amp; Recommendations P1</strong> (feedback buttons → weighted taste centroid → cache busting) shipped 2026-07-16; next up its read-loop (P2), a crawl-plane alerting layer, and keeping enrichment (embeddings) caught up with the faster mirror.</p>
 
   <div class="stats">
+    <div class="stat"><span class="n">300k</span><span class="l">Records mirrored</span></div>
     <div class="stat"><span class="n">2.66M</span><span class="l">TITN record space</span></div>
     <div class="stat"><span class="n">8</span><span class="l">Bounded contexts</span></div>
-    <div class="stat"><span class="n">18</span><span class="l">Alembic migrations</span></div>
-    <div class="stat"><span class="n">463</span><span class="l">Backend tests (green)</span></div>
-    <div class="stat"><span class="n">84%</span><span class="l">Backend coverage</span></div>
-    <div class="stat"><span class="n">56</span><span class="l">Frontend tests (green)</span></div>
+    <div class="stat"><span class="n">23</span><span class="l">Alembic migrations</span></div>
+    <div class="stat"><span class="n">649</span><span class="l">Backend tests (green)</span></div>
+    <div class="stat"><span class="n">89</span><span class="l">Frontend tests (green)</span></div>
   </div>
 
   <h2>What it is</h2>
@@ -39,8 +39,12 @@ raw_html: true
     <tr><td><strong>Navigator</strong></td><td><code>/browse</code> faceted explorer (author · genre · idioma · año · disponibilidad), self-excluding facet counts, CDU-derived genre. Tier A+B shipped; Tier C (author nationality) deferred</td><td><span class="badge b-done">SHIPPED 2026-06-12</span></td></tr>
     <tr><td><strong>Relevance</strong> milestone</td><td><code>relevance_score</code> (demand + holdings + recency + completeness) → default browse sort + search tiebreak; nightly recompute. (<a href="relevance-and-libraries.html">plan</a>)</td><td><span class="badge b-done">SHIPPED 2026-06-16</span></td></tr>
     <tr><td><strong>Canon import</strong></td><td>Classics seeded from Wikidata/awards (CC0) → matcher → positive-only relevance boost → polite OPAC resolve + Open Library ratings. C0–C4 + crawl-plane scheduling. (<a href="canon-import.html">plan</a>)</td><td><span class="badge b-done">LIVE 2026-06-21</span></td></tr>
-    <tr><td><strong>Libraries</strong> milestone</td><td>Follow branches by proximity; hard-filter browse/search/recs to "my libraries → province → full". (<a href="relevance-and-libraries.html">plan</a>)</td><td><span class="badge b-pending">PLANNED</span></td></tr>
-    <tr><td><strong>M7</strong> Network-wide backlist crawl</td><td>Coverage, not scoping — discovery is already network-wide; crawl the pre-2024 backlist to completion</td><td><span class="badge b-defer">ROADMAP</span></td></tr>
+    <tr><td><strong>Libraries</strong> milestone (L0–L4)</td><td>Follow branches by proximity (571/573 geocoded); hard-filter browse/search/recs to "my libraries → province → full". (<a href="relevance-and-libraries.html">plan</a>)</td><td><span class="badge b-done">SHIPPED 2026-06-22</span></td></tr>
+    <tr><td><strong>L5</strong> Library at registration</td><td>Optional «Mis bibliotecas» picker at signup, skippable, no schema change</td><td><span class="badge b-done">SHIPPED 2026-06-26</span></td></tr>
+    <tr><td><strong>Library-aware availability</strong></td><td>Optimistic, distance-anchored «Disponible en tu biblioteca · +N cercanas» badge; all distance math client-side. (<a href="library-aware-availability.html">plan</a>)</td><td><span class="badge b-done">SHIPPED 2026-06-29</span></td></tr>
+    <tr><td><strong>M7</strong> Network-wide backlist crawl</td><td>Coverage, not scoping — crawl the pre-2024 backlist to completion. Operating since 2026-06-26; 2026-07-02 pace fixes (HTTP-first fetch + crawl-hour recovery + <code>WORKER_MAX=2000</code>) tripled the drain to a steady ~32k/day. (<a href="m7-backlist-crawl.html">plan</a>)</td><td><span class="badge b-pending">OPERATING · 15.7% swept · ETA ~75d</span></td></tr>
+    <tr><td><strong>Design reskin</strong></td><td>Claude-Design handoff: warm-paper palette, Spectral/IBM Plex, procedural typographic covers. Phase 1 (tokens, Cover, nav, home, browse, detail) + phase 2 (shelf, recommendations, account) both shipped</td><td><span class="badge b-done">SHIPPED 2026-07-03</span></td></tr>
+    <tr><td><strong>Chat &amp; Recommendations</strong></td><td>Feedback buttons → weighted taste centroid → read-after-recommended loop → catalogue-grounded chatbot + distilled taste profile. (<a href="chat-recommendations.html">plan</a>)</td><td><span class="badge b-pending">P1 SHIPPED 2026-07-16 · P2–P4 NEXT</span></td></tr>
     <tr><td><strong>M8</strong> Mobile app</td><td>React Native / Expo client over the same API</td><td><span class="badge b-defer">ROADMAP</span></td></tr>
   </table>
 
@@ -56,20 +60,26 @@ raw_html: true
   </table>
   <p>Full phase-by-phase detail, decisions and deviations: <a href="identity-milestone.html">Identity Milestone</a>.</p>
 
-  <h2>What's still pending</h2>
+  <h2>What's next (priorities as of 2026-07-16)</h2>
   <div class="panel">
-    <p><strong>Canon import (shipped + scheduled 2026-06-21):</strong> ✓ C0–C4 — seed builder, matcher, relevance boost, OPAC resolve, Open Library ratings + award fallback — now self-maintaining on the crawl plane. Follow-ups: a WDQS keyset-pagination fix so the seed grows past ~500 works/page, a "canon coverage" Grafana panel, and wiring the OL rating signal into the boost.</p>
-    <p><strong>Catalog navigator (✓ Tier A+B shipped 2026-06-12):</strong> the <code>/browse</code> faceted explorer is live — filter by author, genre (CDU-derived), language, publication year, audience/literary form and live availability, with facet counts and author search. Tier C (true author country/nationality) needs BNE/Wikidata authority enrichment and stays deferred.</p>
-    <p><strong>Engineering follow-ups (closed 2026-06-11):</strong> ✓ schemathesis contract tests · ✓ otel-redis · ✓ token-endpoint rate limits · ✓ hybrid FTS+vector fusion (RRF) · ✓ Junta attribution (footer/README/export) · ✓ README refresh · ✓ shelf re-import UX (collapse to link; upsert updates in place).</p>
-    <p><strong>Operational loose ends:</strong> ✓ José's shelf re-imported; ✓ <code>privacy@josearcos.me</code> delivery verified (Cloudflare route added 2026-06-13); <code>OPENROUTER_API_KEY</code> on the NAS or rationales stay empty; OTel for the crawl/worker plane.</p>
-    <p>The full annotated list, with the long-horizon roadmap and open risks: <a href="pending-and-ops.html">Pending &amp; Operations</a>.</p>
+    <p><strong>Just shipped — Chat &amp; Recommendations P1 (2026-07-16):</strong> feedback buttons (like / dislike / más-como-esto / no-me-interesa) + the <code>recommendation_feedback</code> table (migration <code>0023</code>) + the weighted taste centroid + feedback-hash cache busting. Next Chat step is P2 (the read-after-recommended loop). Full plan: <a href="chat-recommendations.html">Chat &amp; Recommendations</a>.</p>
+    <p><strong>1 · Crawl-plane alerting:</strong> the 07-03 → 07-09 hangs were only caught by eye on Grafana. The code fixes bound the hangs, but the detection layer is still unbuilt — a Loki alert on the «job is still running» supercronic message plus Grafana staleness alerts (heartbeat &gt; ~9h, 0 records in 3h).</p>
+    <p><strong>2 · Keep enrichment on pace:</strong> whole-mirror embedding coverage has fallen to <strong>19.6%</strong> (from ~32%) because the mirror is growing ~20k/day faster than the embed job — raise <code>EMBED_MAX</code>. Also a bounded requeue for the 424 <code>failed</code> scrape tasks so transient OPAC wobbles self-heal.</p>
+    <p><strong>3 · Canon follow-up:</strong> OL rating collection still has only 3 ratings stored — the enrich-ratings pipeline needs a look before the rating signal can meaningfully feed the boost.</p>
+    <p><strong>Parked (external):</strong> the MARC-dump request to the Junta — one «sí» would obsolete ~90% of the crawl; draft ready at <code>docs/outreach/marc-dump-request.md</code>.</p>
+    <p>The full annotated list, with the ops runbook and open risks: <a href="pending-and-ops.html">Pending &amp; Operations</a>.</p>
   </div>
 
   <h2>Dive deeper</h2>
   <div class="cards">
     <a class="card" href="architecture.html"><strong>Architecture →</strong><span>Bounded contexts, stack, data model, the polite crawler, deployment topology, observability.</span></a>
     <a class="card" href="identity-milestone.html"><strong>Identity Milestone →</strong><span>How the app went multi-user: phases 0–5, locked decisions, and the deviations that mattered.</span></a>
-    <a class="card" href="relevance-and-libraries.html"><strong>Relevance &amp; Libraries →</strong><span>Planned: a relevance score driving browse/search, and following branches by proximity to scope the catalogue.</span></a>
+    <a class="card" href="relevance-and-libraries.html"><strong>Relevance &amp; Libraries →</strong><span>Shipped: a relevance score driving browse/search, and following branches by proximity to scope the catalogue.</span></a>
+    <a class="card" href="canon-import.html"><strong>Canon Import →</strong><span>Classics seeded from Wikidata/awards, matched, boosted and politely acquired — self-maintaining on the crawl plane.</span></a>
+    <a class="card" href="demand-driven-shelf-fetcher.html"><strong>Demand-driven Fetcher →</strong><span>Unmatched shelf books resolved against the live OPAC and ingested when the network holds them.</span></a>
+    <a class="card" href="m7-backlist-crawl.html"><strong>M7 Backlist Crawl →</strong><span>The current gate: sweeping the pre-2024 backlist network-wide within the 1 req/s politeness budget.</span></a>
+    <a class="card" href="library-aware-availability.html"><strong>Library-aware Availability →</strong><span>«Disponible en tu biblioteca · +N cercanas» — the badge redesigned around the reader's own branches.</span></a>
+    <a class="card" href="chat-recommendations.html"><strong>Chat &amp; Recommendations →</strong><span>P1 shipped: feedback buttons + weighted taste centroid. Designed onward: a read-after-recommended rating and a catalogue-grounded literary chatbot.</span></a>
     <a class="card" href="pending-and-ops.html"><strong>Pending &amp; Operations →</strong><span>Everything not done yet, the ops runbook, and the open questions worth re-visiting.</span></a>
     <a class="card" href="kanban.html"><strong>Kanban →</strong><span>The board: done, in progress (including the autonomous crawl), and what's to do, at a glance.</span></a>
   </div>

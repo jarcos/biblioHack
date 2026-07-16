@@ -22,6 +22,7 @@ from bibliohack.interfaces.http.dependencies import get_embedder, get_tx_session
 from bibliohack.recommendations.application.ports import (  # noqa: TC001
     CandidateRetriever,
     ColdStartClassifier,
+    FeedbackStore,
     RationaleWriter,
     RecommendationRepository,
     ShelfTasteReader,
@@ -36,6 +37,7 @@ from bibliohack.recommendations.infrastructure.llm.openrouter_rationales import 
 )
 from bibliohack.recommendations.infrastructure.postgres.recommendation_repository import (
     PostgresCandidateRetriever,
+    PostgresFeedbackStore,
     PostgresRecommendationRepository,
     PostgresShelfTasteReader,
 )
@@ -52,6 +54,12 @@ def get_shelf_taste_reader(
     session: Annotated[AsyncSession, Depends(get_tx_session)],
 ) -> ShelfTasteReader:
     return PostgresShelfTasteReader(session)
+
+
+def get_feedback_store(
+    session: Annotated[AsyncSession, Depends(get_tx_session)],
+) -> FeedbackStore:
+    return PostgresFeedbackStore(session)
 
 
 def get_candidate_retriever(

@@ -16,12 +16,14 @@ from bibliohack.recommendations.interfaces.http.dependencies import (
     get_caller_branch_codes,
     get_candidate_retriever,
     get_cold_start_classifier,
+    get_feedback_store,
     get_rationale_writer,
     get_recommendation_repository,
     get_shelf_taste_reader,
 )
 from tests.recommendations.test_get_recommendations import (
     FakeClassifier,
+    FakeFeedback,
     FakeRationales,
     FakeRepository,
     FakeRetriever,
@@ -43,6 +45,7 @@ def _app(
     fingerprint: str | None,
     raw_shelf: tuple[str, ...] = (),
     classifier_profile: ColdStartProfile | None = None,
+    feedback: FakeFeedback | None = None,
 ) -> FastAPI:
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: reader
@@ -55,6 +58,10 @@ def _app(
     app.dependency_overrides[get_rationale_writer] = FakeRationales
     app.dependency_overrides[get_recommendation_repository] = FakeRepository
     app.dependency_overrides[get_cold_start_classifier] = lambda: FakeClassifier(classifier_profile)
+    # A shared feedback fake so the POST test can inspect what was recorded and
+    # the GET path has a DB-free state hash / signals source.
+    store = feedback or FakeFeedback()
+    app.dependency_overrides[get_feedback_store] = lambda: store
     # Library-aware resolution is a dependency so it overrides without a DB.
     app.dependency_overrides[get_caller_branch_codes] = lambda: None
     # The route declares a raw session for enrichment; with an empty batch it
@@ -113,3 +120,39 @@ def test_cold_start_surfaces_flag_and_tastes(reader: User) -> None:
         "inferred_tastes": ["novela histórica", "guerra civil"],
         "items": [],
     }
+
+
+# ── POST /api/recommendations/feedback (chat-recs P1, §D4) ───────
+
+_RECORD_ID = "11111111-1111-1111-1111-111111111111"
+
+
+def test_feedback_requires_authentication() -> None:
+    with TestClient(create_app()) as client:
+        response = client.post(
+            "/api/recommendations/feedback",
+            json={"record_id": _RECORD_ID, "signal": "like"},
+        )
+    assert response.status_code == 401
+
+
+def test_feedback_records_the_signal(reader: User) -> None:
+    store = FakeFeedback()
+    with TestClient(_app(reader, fingerprint="fp-1", feedback=store)) as client:
+        response = client.post(
+            "/api/recommendations/feedback",
+            json={"record_id": _RECORD_ID, "signal": "more_like_this"},
+        )
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert store.recorded == [(str(reader.id), _RECORD_ID, "more_like_this")]
+
+
+def test_feedback_rejects_unknown_signal(reader: User) -> None:
+    """`read_rating` (and anything off-list) is a 422 — the Literal bars it."""
+    with TestClient(_app(reader, fingerprint="fp-1")) as client:
+        response = client.post(
+            "/api/recommendations/feedback",
+            json={"record_id": _RECORD_ID, "signal": "read_rating"},
+        )
+    assert response.status_code == 422

@@ -9,6 +9,8 @@ import { CatalogApiError, CatalogRecordSummarySchema } from "@infrastructure/api
  */
 
 export const RecommendationItemSchema = z.object({
+  /** The catalogue record's id — echo it back to `sendFeedback` (§D4). */
+  record_id: z.string(),
   record: CatalogRecordSummarySchema,
   score: z.number(),
   rationale: z.string().nullable().optional(),
@@ -27,6 +29,29 @@ export const RecommendationsResponseSchema = z.object({
   items: z.array(RecommendationItemSchema),
 });
 export type RecommendationsResponse = z.infer<typeof RecommendationsResponseSchema>;
+
+/** The four feedback signals P1 exposes (chat-recs §D4). `read_rating` is P2. */
+export const FEEDBACK_SIGNALS = ["like", "dislike", "more_like_this", "not_interested"] as const;
+export type FeedbackSignal = (typeof FEEDBACK_SIGNALS)[number];
+
+/** `POST /api/recommendations/feedback` — record one like/dislike/«más como
+ * esto»/«no me interesa» on a recommended record. Writing the signal busts the
+ * server-side cache (§D4), so the next `fetchRecommendations` regenerates. */
+export async function sendFeedback(
+  apiBaseUrl: string,
+  input: { recordId: string; signal: FeedbackSignal; signal_?: AbortSignal },
+): Promise<void> {
+  const response = await fetch(new URL("/api/recommendations/feedback", apiBaseUrl).toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ record_id: input.recordId, signal: input.signal }),
+    ...(input.signal_ ? { signal: input.signal_ } : {}),
+  });
+  if (!response.ok) {
+    throw new CatalogApiError(response.status, response.statusText || `HTTP ${response.status}`);
+  }
+}
 
 /** `GET /api/recommendations` — the user's current batch (cached server-side).
  *

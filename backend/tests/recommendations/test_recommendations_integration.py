@@ -41,9 +41,11 @@ from bibliohack.reading_history.domain.shelf import MatchVia, Shelf
 from bibliohack.reading_history.infrastructure.postgres.shelf_repository import (
     PostgresShelfRepository,
 )
+from bibliohack.recommendations.domain.feedback import FeedbackSignal
 from bibliohack.recommendations.domain.recommendation import Recommendation
 from bibliohack.recommendations.infrastructure.postgres.recommendation_repository import (
     PostgresCandidateRetriever,
+    PostgresFeedbackStore,
     PostgresRecommendationRepository,
     PostgresShelfTasteReader,
 )
@@ -97,7 +99,10 @@ async def session(applied_db: str) -> AsyncIterator[AsyncSession]:
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as setup, setup.begin():
         await setup.execute(
-            text("TRUNCATE bibliographic_records, users, shelf_entries, recommendations CASCADE")
+            text(
+                "TRUNCATE bibliographic_records, users, shelf_entries, "
+                "recommendations, recommendation_feedback CASCADE"
+            )
         )
     async with factory() as s, s.begin():
         yield s
@@ -173,6 +178,77 @@ async def test_retriever_ranks_by_taste_and_never_recommends_the_shelf(
     assert str(owned_near) not in returned
     assert batch.candidates[0].score > batch.candidates[1].score
     assert any("El anclado" in liked for liked in batch.liked_books)
+
+
+async def test_feedback_dislike_hard_excludes_the_record(session: AsyncSession) -> None:
+    """A disliked candidate never resurfaces, however close its taste (§4)."""
+    anchor = await _seed_record(session, 1, "El anclado", _vector(a0=1.0))
+    near = await _seed_record(session, 2, "El cercano", _vector(a0=0.9, a1=0.1))
+    far = await _seed_record(session, 3, "El lejano", _vector(a5=1.0))
+    user_id = await _seed_reader_with_shelf(session, [anchor])
+
+    store = PostgresFeedbackStore(session)
+    retriever = PostgresCandidateRetriever(session)
+
+    # Baseline: the near record is the top pick.
+    baseline = await retriever.retrieve(user_id, limit=10)
+    assert [c.record_id for c in baseline.candidates] == [str(near), str(far)]
+
+    # Dislike it → gone, even though it is the closest to the taste centroid.
+    await store.record(user_id, str(near), FeedbackSignal.DISLIKE)
+    signals = await store.weighted_signals(user_id)
+    after = await retriever.retrieve(user_id, limit=10, feedback=signals)
+    returned = [c.record_id for c in after.candidates]
+    assert str(near) not in returned
+    assert returned == [str(far)]
+
+
+async def test_feedback_more_like_this_pulls_the_ranking(session: AsyncSession) -> None:
+    """«Más como esto» bends the centroid toward the liked record's region (§4)."""
+    # cand_near leans toward the anchor's axis but not overwhelmingly, so a
+    # single +0.7 like on the orthogonal cand_alt is enough to tip the order:
+    # baseline cos(near)=0.6 > cos(alt)=0; after the like the centroid points
+    # at (a0=1, a2=0.7) → cos(alt)=0.57 > cos(near)=0.49.
+    anchor = await _seed_record(session, 1, "El anclado", _vector(a0=1.0))
+    cand_near = await _seed_record(session, 2, "Afín al ancla", _vector(a0=0.6, a1=0.8))
+    cand_alt = await _seed_record(session, 3, "Otro rumbo", _vector(a2=1.0))
+    user_id = await _seed_reader_with_shelf(session, [anchor])
+
+    store = PostgresFeedbackStore(session)
+    retriever = PostgresCandidateRetriever(session)
+
+    # Baseline: cand_near (aligned with the anchor) outranks the orthogonal one.
+    baseline = await retriever.retrieve(user_id, limit=10)
+    assert [c.record_id for c in baseline.candidates] == [str(cand_near), str(cand_alt)]
+
+    # Like the orthogonal one → the centroid shifts toward it and it climbs.
+    await store.record(user_id, str(cand_alt), FeedbackSignal.MORE_LIKE_THIS)
+    signals = await store.weighted_signals(user_id)
+    after = await retriever.retrieve(user_id, limit=10, feedback=signals)
+    assert next(c.record_id for c in after.candidates) == str(cand_alt)
+
+
+async def test_feedback_state_hash_changes_with_each_signal(session: AsyncSession) -> None:
+    """Empty until a signal; a new latest-signal changes the digest (cache bust)."""
+    anchor = await _seed_record(session, 1, "El anclado", _vector(a0=1.0))
+    near = await _seed_record(session, 2, "El cercano", _vector(a0=0.9))
+    user_id = await _seed_reader_with_shelf(session, [anchor])
+    store = PostgresFeedbackStore(session)
+
+    assert await store.state_hash(user_id) == ""  # no feedback yet
+
+    await store.record(user_id, str(near), FeedbackSignal.LIKE)
+    liked = await store.state_hash(user_id)
+    assert liked != ""
+
+    # Latest-signal-wins: flipping the same record to a dislike changes the hash.
+    await store.record(user_id, str(near), FeedbackSignal.DISLIKE)
+    flipped = await store.state_hash(user_id)
+    assert flipped != liked
+
+    weighted = await store.weighted_signals(user_id)
+    assert weighted.weights == {str(near): -0.5}  # only the latest signal counts
+    assert str(near) in weighted.excluded
 
 
 async def test_fingerprint_exists_only_with_matches_and_tracks_changes(

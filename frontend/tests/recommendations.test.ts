@@ -3,9 +3,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   RecommendationsResponseSchema,
   fetchRecommendations,
+  sendFeedback,
 } from "../src/infrastructure/api/recommendations";
 
 const ITEM = {
+  record_id: "11111111-1111-1111-1111-111111111111",
   record: {
     titn: 7,
     title: "Nada",
@@ -69,5 +71,44 @@ describe("fetchRecommendations", () => {
     const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
     mockFetch.mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({}) });
     await expect(fetchRecommendations("http://api.test")).rejects.toThrow(/401/);
+  });
+});
+
+describe("sendFeedback", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs the record id and signal with credentials", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200 });
+
+    await sendFeedback("http://api.test", {
+      recordId: "11111111-1111-1111-1111-111111111111",
+      signal: "more_like_this",
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://api.test/api/recommendations/feedback",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          record_id: "11111111-1111-1111-1111-111111111111",
+          signal: "more_like_this",
+        }),
+      }),
+    );
+  });
+
+  it("throws on a non-2xx response", async () => {
+    const mockFetch = globalThis.fetch as ReturnType<typeof vi.fn>;
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 422, json: async () => ({}) });
+    await expect(
+      sendFeedback("http://api.test", { recordId: "x", signal: "read_rating" as never }),
+    ).rejects.toThrow(/422/);
   });
 });

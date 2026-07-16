@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         CandidateBatch,
         CandidateRetriever,
         ColdStartClassifier,
+        FeedbackStore,
         RationaleWriter,
         RecommendationRepository,
         ShelfTasteReader,
@@ -67,6 +68,7 @@ class GetRecommendations:
         rationales: RationaleWriter,
         repository: RecommendationRepository,
         classifier: ColdStartClassifier,
+        feedback: FeedbackStore,
         limit: int,
     ) -> None:
         self._shelf = shelf
@@ -74,6 +76,7 @@ class GetRecommendations:
         self._rationales = rationales
         self._repository = repository
         self._classifier = classifier
+        self._feedback = feedback
         self._limit = limit
 
     async def execute(
@@ -87,20 +90,24 @@ class GetRecommendations:
         if fingerprint is None:
             return await self._cold_start(user_id)
 
-        # The library context is part of the cache identity: changing followed
-        # branches or toggling "nearby only" must regenerate (the batch ordering
-        # depends on it). No context → the plain shelf fingerprint (back-compat).
-        cache_key = _cache_key(fingerprint, library_codes, nearby_only)
+        # The library context and the reader's feedback are both part of the
+        # cache identity: changing followed branches, toggling "nearby only", or
+        # pressing any feedback button must regenerate (§D4). No context and no
+        # feedback → the plain shelf fingerprint (back-compat).
+        feedback_hash = await self._feedback.state_hash(user_id)
+        cache_key = _cache_key(fingerprint, library_codes, nearby_only, feedback_hash)
 
         cached = await self._repository.get_cached(user_id, cache_key)
         if cached is not None:
             return Ok(RecommendationOutcome(recommendations=cached.recommendations))
 
+        signals = await self._feedback.weighted_signals(user_id)
         batch = await self._retriever.retrieve(
             user_id,
             limit=self._limit,
             followed_branch_codes=library_codes,
             nearby_only=nearby_only,
+            feedback=signals,
         )
         if not batch.candidates:
             # Profile exists but nothing retrievable (e.g. embeddings still
@@ -190,14 +197,25 @@ class GetRecommendations:
         return recommendations
 
 
-def _cache_key(fingerprint: str, library_codes: list[str] | None, nearby_only: bool) -> str:
-    """Shelf fingerprint, extended with the library context when there is one."""
-    if not library_codes:
+def _cache_key(
+    fingerprint: str,
+    library_codes: list[str] | None,
+    nearby_only: bool,
+    feedback_hash: str = "",
+) -> str:
+    """Shelf fingerprint, extended with the library context and feedback state.
+
+    No library context and no feedback → the bare fingerprint, so a reader who
+    has done neither keeps their pre-P1 cache key (no needless regeneration).
+    """
+    if not library_codes and not feedback_hash:
         return fingerprint
     digest = hashlib.sha256(fingerprint.encode())
     digest.update(f"|nearby={nearby_only}|".encode())
-    for code in sorted(library_codes):
+    for code in sorted(library_codes or ()):
         digest.update(f"{code},".encode())
+    if feedback_hash:
+        digest.update(f"|fb={feedback_hash}|".encode())
     return digest.hexdigest()
 
 

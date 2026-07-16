@@ -9,6 +9,7 @@ from bibliohack.recommendations.application.ports import (
     Candidate,
     CandidateBatch,
     ColdStartProfile,
+    WeightedSignals,
 )
 from bibliohack.recommendations.application.use_cases.get_recommendations import (
     GetRecommendations,
@@ -19,6 +20,8 @@ from bibliohack.shared.application.result import Err, Ok
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from bibliohack.recommendations.domain.feedback import FeedbackSignal
 
 
 class FakeShelf:
@@ -50,11 +53,13 @@ class FakeRetriever:
         limit: int,
         followed_branch_codes: list[str] | None = None,
         nearby_only: bool = False,
+        feedback: WeightedSignals | None = None,
     ) -> CandidateBatch:
         self.calls += 1
         self.last_kwargs = {
             "followed_branch_codes": followed_branch_codes,
             "nearby_only": nearby_only,
+            "feedback": feedback,
         }
         return self._batch
 
@@ -81,6 +86,32 @@ class FakeRationales:
         self, *, liked_books: Sequence[str], candidates: Sequence[Candidate]
     ) -> dict[str, str]:
         return self._rationales
+
+
+class FakeFeedback:
+    """In-memory FeedbackStore: a fixed state hash + weighted signals.
+
+    Default is "no feedback" (empty hash, empty signals) so existing tests keep
+    the pre-P1 cache key and centroid behaviour.
+    """
+
+    def __init__(
+        self, *, state_hash: str = "", signals: WeightedSignals | None = None
+    ) -> None:
+        self._state_hash = state_hash
+        self._signals = signals or WeightedSignals()
+        self.recorded: list[tuple[str, str, FeedbackSignal]] = []
+
+    async def record(
+        self, user_id: str, record_id: str, signal: FeedbackSignal, *, rating: int | None = None
+    ) -> None:
+        self.recorded.append((user_id, record_id, signal))
+
+    async def state_hash(self, user_id: str) -> str:
+        return self._state_hash
+
+    async def weighted_signals(self, user_id: str) -> WeightedSignals:
+        return self._signals
 
 
 class FakeRepository:
@@ -132,6 +163,7 @@ async def test_empty_profile_short_circuits() -> None:
         rationales=FakeRationales(),
         repository=FakeRepository(),
         classifier=classifier,
+        feedback=FakeFeedback(),
         limit=10,
     ).execute("u-1")
     assert result == Err(RecommendationsError.EMPTY_PROFILE)
@@ -148,6 +180,7 @@ async def test_cache_hit_skips_retrieval() -> None:
         rationales=FakeRationales(),
         repository=FakeRepository(cached=cached),
         classifier=FakeClassifier(),
+        feedback=FakeFeedback(),
         limit=10,
     ).execute("u-1")
     assert isinstance(result, Ok)
@@ -164,6 +197,7 @@ async def test_cache_miss_generates_decorates_and_persists() -> None:
         rationales=FakeRationales({"rec-1": "Posguerra íntima, como lo que sueles puntuar alto."}),
         repository=repository,
         classifier=FakeClassifier(),
+        feedback=FakeFeedback(),
         limit=10,
     ).execute("u-1")
 
@@ -184,6 +218,7 @@ async def test_empty_retrieval_is_cached_ok() -> None:
         rationales=FakeRationales(),
         repository=repository,
         classifier=FakeClassifier(),
+        feedback=FakeFeedback(),
         limit=10,
     ).execute("u-1")
     assert isinstance(result, Ok)
@@ -199,12 +234,11 @@ async def test_library_context_threads_to_retriever() -> None:
         rationales=FakeRationales(),
         repository=FakeRepository(),
         classifier=FakeClassifier(),
+        feedback=FakeFeedback(),
         limit=10,
     ).execute("u-1", library_codes=["AL03", "AL04"], nearby_only=True)
-    assert retriever.last_kwargs == {
-        "followed_branch_codes": ["AL03", "AL04"],
-        "nearby_only": True,
-    }
+    assert retriever.last_kwargs["followed_branch_codes"] == ["AL03", "AL04"]
+    assert retriever.last_kwargs["nearby_only"] is True
 
 
 async def test_library_context_changes_the_cache_key() -> None:
@@ -218,6 +252,7 @@ async def test_library_context_changes_the_cache_key() -> None:
             rationales=FakeRationales(),
             repository=repo,
             classifier=FakeClassifier(),
+            feedback=FakeFeedback(),
             limit=10,
         ).execute("u-1", library_codes=library_codes, nearby_only=nearby)
         assert repo.replaced is not None
@@ -230,6 +265,51 @@ async def test_library_context_changes_the_cache_key() -> None:
     assert plain == "fp-1"  # no library context → unchanged (back-compat)
     assert mine != plain
     assert nearby_only != mine  # toggling nearby regenerates
+
+
+# ── feedback (chat-recs P1, §D4) ────────────────────────────────
+
+
+async def test_feedback_signals_thread_to_retriever() -> None:
+    """The weighted signals the store returns are handed to the retriever."""
+    signals = WeightedSignals(weights={"rec-3": 0.7}, excluded=frozenset({"rec-4"}))
+    retriever = FakeRetriever(_batch())
+    await GetRecommendations(
+        shelf=FakeShelf("fp-1"),
+        retriever=retriever,
+        rationales=FakeRationales(),
+        repository=FakeRepository(),
+        classifier=FakeClassifier(),
+        feedback=FakeFeedback(state_hash="fbhash", signals=signals),
+        limit=10,
+    ).execute("u-1")
+    assert retriever.last_kwargs["feedback"] == signals
+
+
+async def test_feedback_state_busts_the_cache_key() -> None:
+    """No feedback → bare fingerprint (back-compat); any signal → distinct key."""
+
+    async def key_for(state_hash: str) -> str:
+        repo = FakeRepository()
+        await GetRecommendations(
+            shelf=FakeShelf("fp-1"),
+            retriever=FakeRetriever(_batch()),
+            rationales=FakeRationales(),
+            repository=repo,
+            classifier=FakeClassifier(),
+            feedback=FakeFeedback(state_hash=state_hash),
+            limit=10,
+        ).execute("u-1")
+        assert repo.replaced is not None
+        return repo.replaced[0]
+
+    none = await key_for("")  # no feedback
+    liked = await key_for("hash-a")
+    changed = await key_for("hash-b")
+
+    assert none == "fp-1"  # unchanged from pre-P1 (back-compat)
+    assert liked != none  # a press busts the key
+    assert changed != liked  # a different feedback state busts again
 
 
 # ── cold-start (§8.3.3) ─────────────────────────────────────────
@@ -255,6 +335,7 @@ async def test_cold_start_infers_and_retrieves_when_nothing_matched() -> None:
         rationales=FakeRationales(),
         repository=repository,
         classifier=classifier,
+        feedback=FakeFeedback(),
         limit=10,
     ).execute("u-1")
 
@@ -281,6 +362,7 @@ async def test_cold_start_cache_hit_returns_persisted_tastes() -> None:
             cached=cached, cached_tastes=("novela histórica", "guerra civil")
         ),
         classifier=classifier,
+        feedback=FakeFeedback(),
         limit=10,
     ).execute("u-1")
 
@@ -301,6 +383,7 @@ async def test_cold_start_falls_back_to_empty_profile_when_llm_down() -> None:
         rationales=FakeRationales(),
         repository=FakeRepository(),
         classifier=FakeClassifier(None),  # LLM unavailable
+        feedback=FakeFeedback(),
         limit=10,
     ).execute("u-1")
 
@@ -320,6 +403,7 @@ async def test_cold_start_cache_key_busts_when_shelf_changes() -> None:
             rationales=FakeRationales(),
             repository=repo,
             classifier=FakeClassifier(ColdStartProfile(descriptor="d")),
+            feedback=FakeFeedback(),
             limit=10,
         ).execute("u-1")
         assert repo.replaced is not None
