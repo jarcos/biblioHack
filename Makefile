@@ -59,8 +59,12 @@ backend-lint: ## Lint the backend with ruff.
 	cd backend && uv run ruff check .
 
 .PHONY: backend-format
-backend-format: ## Format the backend with ruff.
+backend-format: ## Format the backend with ruff (modifies files).
 	cd backend && uv run ruff format .
+
+.PHONY: backend-format-check
+backend-format-check: ## Check backend formatting with ruff (CI gate; does not modify files).
+	cd backend && uv run ruff format --check .
 
 .PHONY: backend-typecheck
 backend-typecheck: ## Typecheck the backend with mypy.
@@ -71,7 +75,7 @@ backend-test: ## Run backend tests with pytest.
 	cd backend && uv run pytest
 
 .PHONY: backend-check
-backend-check: backend-lint backend-typecheck backend-test ## Lint + typecheck + test.
+backend-check: backend-lint backend-format-check backend-typecheck backend-test ## Ruff lint + format-check + mypy + pytest (mirrors CI's backend job).
 
 .PHONY: backend-run
 backend-run: ## Run the FastAPI app locally (without docker).
@@ -123,8 +127,12 @@ frontend-lint: ## Lint the frontend.
 	cd frontend && pnpm lint
 
 .PHONY: frontend-format
-frontend-format: ## Format the frontend with prettier.
+frontend-format: ## Format the frontend with prettier (modifies files).
 	cd frontend && pnpm format
+
+.PHONY: frontend-format-check
+frontend-format-check: ## Check frontend formatting with prettier (CI gate; does not modify files).
+	cd frontend && pnpm format:check
 
 .PHONY: frontend-typecheck
 frontend-typecheck: ## Typecheck the frontend (astro check + tsc).
@@ -135,7 +143,7 @@ frontend-test: ## Run frontend unit tests with vitest.
 	cd frontend && pnpm test
 
 .PHONY: frontend-check
-frontend-check: frontend-lint frontend-typecheck frontend-test ## Lint + typecheck + test.
+frontend-check: frontend-format-check frontend-lint frontend-typecheck frontend-test ## Prettier-check + eslint + typecheck + vitest (mirrors CI's frontend job).
 
 .PHONY: frontend-run
 frontend-run: ## Run the Astro dev server.
@@ -162,7 +170,7 @@ docs-check: ## Fail if docs/site/ is out of date with its Markdown sources.
 install: backend-install frontend-install ## Install all deps.
 
 .PHONY: check
-check: backend-check frontend-check ## Lint + typecheck + test everything.
+check: backend-check frontend-check docs-check ## Every CI gate: backend + frontend + docs freshness (docker build smoke excluded — run it in CI). Run `make docs` needs `pip install -r tools/requirements.txt` first.
 
 .PHONY: format
 format: backend-format frontend-format ## Format everything.
