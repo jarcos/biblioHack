@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make help)",
+      "Bash(make check)",
+      "Bash(make backend-check)",
+      "Bash(make backend-lint)",
+      "Bash(make backend-format-check)",
+      "Bash(make backend-typecheck)",
+      "Bash(make backend-test)",
+      "Bash(make frontend-check)",
+      "Bash(make frontend-lint)",
+      "Bash(make frontend-typecheck)",
+      "Bash(make frontend-test)",
+      "Bash(make docs)",
+      "Bash(make docs-check)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run mypy:*)",
+      "Bash(uv run alembic history:*)",
+      "Bash(uv run alembic current:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git stash:*)"
+    ],
+    "deny": [
+      "Bash(make dev-nuke)",
+      "Bash(docker compose down -v:*)",
+      "Bash(docker compose:*-v)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)"
+    ]
+  }
+}

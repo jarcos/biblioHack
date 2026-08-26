@@ -181,7 +181,14 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "\\.\\.\\.",
 ]
-fail_under = 75
+# Trinquete: arranca en la cobertura real y sólo sube. Bajarlo es una
+# decisión explícita con su commit y su motivo.
+#
+# Medido 26-08-2026: 83.09% (664 tests). El suelo va en 82 y no en 83 a
+# propósito: con 83 quedaban 0.09 puntos de margen, y un refactor que añada
+# una rama defensiva pondría la suite en rojo por el motivo equivocado. Un
+# punto de holgura mantiene el trinquete honesto sin volverlo ruido.
+fail_under = 82
 
 # ────────────────────────────────────────────────────────────
 # Ruff

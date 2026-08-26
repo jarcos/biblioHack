@@ -14,3 +14,11 @@ Quick reminders, full detail in `AGENTS.md`:
 - Add an Alembic revision for every schema change.
 - Be a good OPAC citizen — never raise crawler request rates casually.
 - Don't break the OpenTelemetry instrumentation in `infra/backend.Dockerfile`.
+- **Standards** (full text in `AGENTS.md` → *Engineering standards*): TDD —
+  test first, always; DDD — dependencies point inward, `domain` imports nothing
+  from the framework; SOLID, all five; coverage is a **ratchet** at
+  `fail_under = 82` and only goes up. `pytest` can fail with every test green
+  if coverage drops — that's a red.
+- **Subagents** (`.claude/agents/`): `verificador` runs `make check` and gives a
+  VERDE/ROJO/INESTABLE verdict — run it before every commit. `arquitecto`
+  reviews hexagonal boundaries; it only reads.

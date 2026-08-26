@@ -54,6 +54,59 @@ sets them), so local/dev/test runs are unaffected. When changing things:
 - The crawl/worker plane is **not** OTel-instrumented yet; crawl health comes
   from the `scrape_tasks` status histogram + `last_error`.
 
+## Engineering standards (portfolio-wide)
+
+These apply to every project in the portfolio. Canonical copy lives in
+`~/Sites/hq/ESTANDARES.md`; this section is the repo-local copy so an agent
+working inside the repo doesn't need it. If they diverge, the canonical one wins.
+
+**TDD — the test comes first.**
+- No production code without a test that asked for it first. Red → green →
+  refactor. The test and the implementation land in the same commit, but the
+  test was written first and was seen to fail.
+- A test describes behaviour, not implementation. If a behaviour-preserving
+  refactor breaks the test, the test was wrong.
+- A reported bug starts with a test that reproduces it. Never "fix now, test
+  later".
+- Green before committing, always. Red doesn't get committed.
+
+**DDD — domain first and isolated.** Already the shape of this repo: four
+bounded contexts (`catalog`, `holdings`, `availability`, `covers`) over
+`domain` / `application` / `infrastructure` / `interfaces`. The rules that are
+easy to break:
+- Dependencies point inward. `*/domain/` imports no FastAPI, no SQLAlchemy, no
+  httpx, nothing from `infrastructure`.
+- A context doesn't reach into another context's tables — it asks through an
+  interface.
+- Invariants live in entities and value objects, not in controllers. No anemic
+  models.
+- Every external API and vendor SDK sits behind an interface this project owns
+  (anti-corruption layer), so a vendor change touches one adapter.
+
+**SOLID — all five.**
+- **S**ingle responsibility: one reason to change per class.
+- **O**pen/closed: extend by adding, not by editing what already works.
+- **L**iskov: any implementation of a port substitutes for another.
+- **I**nterface segregation: narrow ports. Three one-method interfaces beat one
+  of ten.
+- **D**ependency inversion: high-level modules depend on abstractions; concrete
+  implementations are wired in infrastructure.
+
+**Coverage — a ratchet, not an aspiration.**
+- The floor is `fail_under = 82` in `backend/pyproject.toml`, measured with
+  **branch** coverage. Real number today is **83.09%** (664 tests, 26-08-2026);
+  the floor sits one point below on purpose, so a refactor that adds a
+  defensive branch doesn't go red for the wrong reason. It only goes up.
+  Lowering it is an explicit decision with its own commit and a written reason.
+- **New code: 100%.** The global floor is the ratchet for old debt; there's no
+  excuse for what gets written today.
+- Exclusions are listed **by name with a written reason** in
+  `[tool.coverage.run] omit`. No wildcards.
+- Coverage is not a substitute for assertions. A test that executes a line
+  without asserting anything raises the number and buys false confidence.
+- **`pytest` can fail with every test green** if coverage drops below the
+  floor. That's a red, not a pass.
+
 ## Conventions
 
 - **Ship workflow:** commit + push to `main`; CI gates everything and then
