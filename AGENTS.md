@@ -107,6 +107,30 @@ easy to break:
 - **`pytest` can fail with every test green** if coverage drops below the
   floor. That's a red, not a pass.
 
+## Deploy traps — read before touching `docker-compose.prod.yml`
+
+- **No hardcoded IPs, ever.** Postgres and MinIO bind to the NAS LAN IP so the
+  off-NAS worker/embedder can reach them without exposing anything to the
+  internet. That IP comes from `NAS_BIND_IP` in the NAS's `.env` — never
+  written into the compose file.
+
+  This cost an outage on 2026-08-26. The IP had been pinned to
+  `192.168.1.130`; DHCP moved the NAS to `.131` at some point after the last
+  deploy (2026-07-16), and the next deploy died starting Postgres with
+  `bind: cannot assign requested address`. Six weeks of armed bomb that only
+  goes off when someone deploys. `bibliohack-minio` survived only because it
+  had held the old socket for seven weeks — a restart would have killed it too.
+
+- **`Created` is not `Exited`.** If `docker ps -a` shows containers in
+  `Created`, the deploy built and created them and then died *before starting
+  them*. Look at the deploy job's log, not at the container logs — a container
+  that never started has none.
+
+- **A green CI is not a green deploy.** `deploy` is a separate job. Tests,
+  lint, typecheck, docs and the docker build smoke can all pass while the
+  deploy fails. Check the deploy job explicitly:
+  `gh run view <id> -R jarcos/biblioHack --log-failed`.
+
 ## Conventions
 
 - **Ship workflow:** commit + push to `main`; CI gates everything and then

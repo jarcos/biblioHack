@@ -38,7 +38,19 @@ services:
       # Bind to the NAS LAN IP only — NOT 0.0.0.0 and NOT the tunnel.
       # This lets the off-NAS worker/embedder reach Postgres over LAN /
       # Tailscale, while keeping it off the public internet entirely.
-      - "192.168.1.130:5432:5432"
+      #
+      # La IP vive en el .env del NAS y NO se clava aquí. Estuvo clavada a
+      # 192.168.1.130 hasta el 26-08-2026: la DHCP movió el NAS a .131 en
+      # algún momento tras el último despliegue (16-07-2026), y el siguiente
+      # despliegue murió al arrancar postgres con «bind: cannot assign
+      # requested address». Seis semanas de bomba armada que sólo estalla
+      # cuando alguien despliega.
+      #
+      # `:?` en vez de un valor por defecto a propósito: si falta la
+      # variable, el despliegue falla en voz alta. Un defecto a 127.0.0.1
+      # arrancaría «bien» y dejaría al worker de fuera del NAS sin base de
+      # datos, en silencio.
+      - "${NAS_BIND_IP:?set NAS_BIND_IP in .env — IP LAN del NAS}:5432:5432"
     networks:
       - bibliohack
     healthcheck:
@@ -204,8 +216,12 @@ services:
       - /volume1/docker/bibliohack/minio:/data
     ports:
       # S3 API + console on the LAN only — never exposed via the tunnel.
-      - "192.168.1.130:9000:9000"
-      - "192.168.1.130:9001:9001"
+      # La IP viene del .env del NAS; ver la nota larga en el servicio
+      # `postgres`. Este contenedor sobrevivió al fallo del 26-08-2026 sólo
+      # porque llevaba 7 semanas corriendo y conservaba el socket de la IP
+      # vieja: en cuanto se reinicie, habría muerto igual.
+      - "${NAS_BIND_IP:?set NAS_BIND_IP in .env — IP LAN del NAS}:9000:9000"
+      - "${NAS_BIND_IP:?set NAS_BIND_IP in .env — IP LAN del NAS}:9001:9001"
     networks:
       - bibliohack
     healthcheck:
