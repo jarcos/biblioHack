@@ -32,7 +32,29 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
       POSTGRES_DB: ${POSTGRES_DB:-bibliohack}
     volumes:
-      - /volume1/docker/bibliohack/pgdata:/var/lib/postgresql/data
+      # OJO: el destino es /home/postgres/pgdata, NO /var/lib/postgresql/data.
+      #
+      # La imagen `timescale/timescaledb-ha:pg16` tiene
+      # PGDATA=/home/postgres/pgdata/data, y `/home/postgres/pgdata` es un
+      # directorio real, no un enlace a /var/lib/postgresql/data. Montar en
+      # /var/lib/postgresql/data deja el montaje INERTE: postgres no lo lee
+      # nunca y escribe en la capa escribible del contenedor, que se destruye
+      # al recrearlo.
+      #
+      # Esto costó la base de datos entera el 26-08-2026. El destino se cambió
+      # a /var/lib/postgresql/data el 12-08-2026 y no se desplegó hasta el 26,
+      # porque no hubo despliegues por medio. El contenedor que llevaba seis
+      # semanas corriendo seguía con el montaje bueno, así que nada fallaba.
+      # El primer despliegue aplicó el cambio, postgres encontró
+      # /home/postgres/pgdata vacío, hizo initdb, y el sitio quedó en pie y sin
+      # datos. Los 7,4 GB reales seguían en el NAS, intactos, simplemente sin
+      # que nadie los leyera.
+      #
+      # Antes de tocar esta línea: `docker exec <c> psql -tAc "show
+      # data_directory"` dice dónde escribe postgres DE VERDAD. Que el
+      # contenedor arranque «sano» no prueba que esté usando tus datos —
+      # comprueba que hay filas, no que hay tablas.
+      - /volume1/docker/bibliohack/pgdata:/home/postgres/pgdata
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
       # Bind to the NAS LAN IP only — NOT 0.0.0.0 and NOT the tunnel.

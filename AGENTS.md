@@ -109,6 +109,44 @@ easy to break:
 
 ## Deploy traps — read before touching `docker-compose.prod.yml`
 
+- **The Postgres volume mounts at `/home/postgres/pgdata`, not
+  `/var/lib/postgresql/data`.** `timescale/timescaledb-ha:pg16` sets
+  `PGDATA=/home/postgres/pgdata/data`, and `/home/postgres/pgdata` is a real
+  directory, not a symlink. Mount anywhere else and the bind is **inert**:
+  Postgres writes into the container's writable layer, which dies on recreate.
+
+  This cost the whole database on 2026-08-26. The destination had been changed
+  on 2026-08-12 and sat undeployed for two weeks, because there were no deploys
+  in between. The container that had been up for six weeks still had the good
+  mount, so nothing looked wrong. The first deploy applied the change, Postgres
+  found an empty `PGDATA`, ran `initdb`, and the site came back up serving
+  nothing. The real 7.4 GB were on the NAS the whole time, untouched, with
+  nobody reading them.
+
+- **A healthy container is not a working database.** `docker ps` said
+  `healthy`, every endpoint returned 200, and every table existed — because
+  `initdb` plus Alembic recreates the *schema*. **Count rows, not tables.**
+  And `psql -tAc "show data_directory"` tells you where Postgres is really
+  writing, which is the question a `docker inspect` of the mounts cannot answer
+  on its own.
+
+- **Before deploying a project that hasn't deployed in weeks, diff what will
+  actually change on the target.** Every incident here came from the same
+  shape: a change made weeks earlier, latent because nothing redeployed, and
+  detonated by the first deploy that came along. The push is the trigger, not
+  the cause — but the person pushing owns checking.
+
+- **`pgdata/` is `drwx------` owned by uid 1000, so your shell user cannot
+  read it.** Don't reach for `sudo` — do the work in a throwaway container,
+  which runs as root and preserves ownership and permissions:
+
+  ```sh
+  docker run --rm -v /volume1/docker/bibliohack:/x alpine \
+    sh -c "cp -a /x/pgdata /x/pgdata.copia-$(date +%Y%m%d%H%M%S)"
+  ```
+
+  Same trick for inspecting it (`ls`, `du`, reading `PG_VERSION`).
+
 - **No hardcoded IPs, ever.** Postgres and MinIO bind to the NAS LAN IP so the
   off-NAS worker/embedder can reach them without exposing anything to the
   internet. That IP comes from `NAS_BIND_IP` in the NAS's `.env` — never
