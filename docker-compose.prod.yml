@@ -27,6 +27,18 @@ services:
     image: timescale/timescaledb-ha:pg16 # x86-64 only — confirm NAS arch
     container_name: bibliohack-postgres
     restart: unless-stopped
+    # Docker da 64 MB de /dev/shm por defecto y Postgres lo usa para la memoria
+    # compartida de las consultas paralelas y de la construccion de indices.
+    #
+    # El ensayo de restauracion del 28-08-2026 lo destapo: al cargar el dump en
+    # un Postgres limpio, `CREATE INDEX ix_bibrec_embedding_hnsw` (HNSW de
+    # pgvector sobre los embeddings) murio con
+    #   could not resize shared memory segment to 2143327776 bytes:
+    #   No space left on device
+    # La carga CONTINUO y la base quedo con 66 indices en vez de 67. Un dato
+    # completo, un indice menos, y ni un aviso: exactamente el tipo de fallo
+    # silencioso que solo aparece si ensayas la restauracion.
+    shm_size: 2gb
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-bibliohack}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
