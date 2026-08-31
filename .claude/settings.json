@@ -29,7 +29,9 @@
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git show:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(sh herramientas/commit-en-verde.sh:*)",
+      "Bash(cat .puerta)"
     ],
     "deny": [
       "Bash(make dev-nuke)",

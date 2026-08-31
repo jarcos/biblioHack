@@ -182,3 +182,20 @@ easy to break:
 - **Be a good OPAC citizen:** the crawler is polite by design (per-second
   throttle + per-run caps). Don't raise request rates casually — it hits a
   public library system.
+
+
+## El commit pasa por `herramientas/commit-en-verde.sh` (31-08-2026)
+
+Único camino al commit para un agente en este repo. Comprueba, por este orden:
+identidad de git, que la rama es `main`, **qué entra exactamente en el commit**
+(`git diff --cached --stat`, impreso siempre), que no hay basura ni ficheros de
+más de 1 MB, y **corre la puerta antes de commitear** — no después, porque un
+commit deshecho a mano a las 3 de la mañana no lo deshace nadie.
+
+La puerta la declara el repo en `.puerta`, en la raíz: una línea, `make check`.
+Si el fichero falta o está vacío, el guion **para**: no se adivina un comando.
+
+El guion es una **copia idéntica** de `hq/plantillas/commit-en-verde.sh` y
+`hq/comprobar-cartera.sh` comprueba que no ha derivado. Si hay que cambiarlo,
+se cambia en `hq` y se re-copia; tocarlo aquí solo hace que el verificador de
+la cartera se ponga rojo, que es exactamente para lo que está.
