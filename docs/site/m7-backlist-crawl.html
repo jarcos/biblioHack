@@ -161,6 +161,11 @@ chunk as <code>discovered</code> at backlist priority:</p>
    free.</li>
 <li>Advance and persist the cursor (<code>next_offset = high + 1</code>). Stop when
    <code>next_offset &gt; total</code>.</li>
+<li><strong>Once caught up</strong> (<code>next_offset &gt; total</code>), every run re-probes the
+   high-water mark and extends <code>total</code> if the catalogue has grown, never
+   shrinking it. Added 2026-09-28: the sweep finished on 2026-09-21 against the
+   mark probed on 2026-06-26 (2,666,936), and nothing else discovers new
+   acquisitions with a pre-2024 publication year (novedades is <code>@fepu&gt;=2024</code>).</li>
 </ol>
 <p>Returns a typed <code>BacklistResult(seeded, range_low, range_high, next_offset,
 total, queue_depth)</code> for CLI/observability, mirroring <code>DiscoverResult</code> /

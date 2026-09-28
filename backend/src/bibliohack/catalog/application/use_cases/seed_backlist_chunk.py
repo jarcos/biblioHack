@@ -21,6 +21,9 @@ Two modes:
 - **top-up** (pass `target_depth`) — seed only enough to refill the queue of
   outstanding backlist rows to `target_depth`, keeping the discovered backlog
   bounded and the claim index cheap. Recommended for the crawler-plane cron.
+
+Once the sweep catches up with the high-water mark, every run re-probes it and
+extends the sweep over any newly catalogued TITNs (the space only grows).
 """
 
 from __future__ import annotations
@@ -105,6 +108,17 @@ class SeedBacklistChunk:
         else:
             total = cursor.total
             next_titn = max(1, cursor.next_offset)
+
+        # Caught up with the last known high-water mark: re-probe, because the
+        # catalogue keeps growing at the top. Novedades discovery only covers
+        # recent publication years, so without this a new acquisition of an
+        # older book would never be discovered. One probe is ~40 polite fetches
+        # and the cron runs twice a day. Never shrink the space: a probe can land
+        # a little low when bisection meets a gap near the boundary.
+        if next_titn > total and not probed:
+            result = await self._probe.execute()
+            total = max(total, int(result.highest_existing))
+            probed = True
 
         # Already swept the whole space — nothing left to seed.
         if next_titn > total:

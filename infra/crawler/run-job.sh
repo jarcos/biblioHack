@@ -142,8 +142,10 @@ case "$JOB" in
     # M7 (docs/design/m7-backlist-crawl.md): top up the pre-2024 TITN backlog.
     # DB-only seeding (idempotent) at a lower priority than novedades, so the
     # hourly discover_worker drains fresh records first and fills idle capacity
-    # with the backlist. Shares the crawl lock (default below) because the FIRST
-    # run probes the OPAC for the high-water mark; after that it's pure DB.
+    # with the backlist. Shares the crawl lock (default below) because it probes
+    # the OPAC for the high-water mark on the first run AND on every run once
+    # the sweep has caught up (~40 fetches, to extend it over newly catalogued
+    # TITNs); while it is still sweeping it's pure DB.
     # Top-up mode: seeds only enough to refill the queue to BACKLIST_TARGET_DEPTH.
     run "${BACKLIST_TIMEOUT:-3000}" bibliohack catalog backlist \
       --target-depth "${BACKLIST_TARGET_DEPTH:-100000}" \

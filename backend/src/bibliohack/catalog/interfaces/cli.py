@@ -358,7 +358,8 @@ def backlist(
     as `discovered` at a lower priority than novedades, so the existing
     `catalog worker` drains fresh records first and fills idle capacity with
     the backlist. The seeder is DB-only (plus one polite probe on the first
-    run / `--reset`); the OPAC budget is spent by the worker draining the queue.
+    run / `--reset`, and on every run once the sweep has caught up, to extend
+    it over newly catalogued TITNs); the OPAC budget is spent by the worker.
 
     Usage:
 
@@ -399,12 +400,18 @@ async def _run_backlist(
 
         existing = None if reset else await cursors.get(BACKLIST_CURSOR_KEY)
         needs_probe = reset or existing is None or existing.total is None
+        # Caught up → the use case re-probes to pick up newly catalogued TITNs.
+        caught_up = (
+            existing is not None
+            and existing.total is not None
+            and existing.next_offset > existing.total
+        )
 
         typer.echo(
             f"Backlist sweep — chunk={chunk:,}, target_depth={target_depth or '∞'}, reset={reset}"
         )
         try:
-            if needs_probe:
+            if needs_probe or caught_up:
                 settings = get_settings()
                 gateway = ScraplingOpacGateway(
                     GatewayConfig(
@@ -413,7 +420,11 @@ async def _run_backlist(
                         http_first=settings.scraper_http_first,
                     )
                 )
-                typer.echo("First run / --reset: probing the TITN high-water mark…")
+                typer.echo(
+                    "Sweep caught up: re-probing the TITN high-water mark for new records…"
+                    if caught_up and not needs_probe
+                    else "First run / --reset: probing the TITN high-water mark…"
+                )
                 async with gateway:
                     use_case = SeedBacklistChunk(
                         probe=ProbeTitnRange(gateway), tasks=tasks, cursors=cursors

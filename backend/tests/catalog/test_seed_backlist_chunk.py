@@ -156,6 +156,47 @@ async def test_when_already_swept_seeds_nothing_and_is_done() -> None:
     assert tasks.seed_calls == []
 
 
+async def test_caught_up_reprobes_and_seeds_newly_catalogued_titns() -> None:
+    # Swept to 150; the catalogue has since grown to 180. Without a re-probe
+    # the new acquisitions (any publication year) would never be discovered.
+    probe = _FakeProbe(highest=180)
+    tasks = _FakeTaskRepo()
+    cursors = _FakeCursorRepo(
+        DiscoveryCursor(expression=BACKLIST_CURSOR_KEY, next_offset=151, total=150)
+    )
+    uc = _use_case(probe, tasks, cursors)
+
+    result = await uc.execute(chunk_size=100)
+
+    assert probe.calls == 1
+    assert result.probed is True
+    assert (result.range_low, result.range_high) == (151, 180)
+    assert result.seeded == 30
+    assert result.total == 180
+    assert result.done is True
+    saved = await cursors.get(BACKLIST_CURSOR_KEY)
+    assert saved is not None
+    assert (saved.next_offset, saved.total) == (181, 180)
+
+
+async def test_caught_up_reprobe_never_shrinks_the_known_space() -> None:
+    # A probe can land a little low (bisection treats a gap as the boundary);
+    # the high-water mark must never move backwards.
+    probe = _FakeProbe(highest=140)
+    tasks = _FakeTaskRepo()
+    cursors = _FakeCursorRepo(
+        DiscoveryCursor(expression=BACKLIST_CURSOR_KEY, next_offset=151, total=150)
+    )
+    uc = _use_case(probe, tasks, cursors)
+
+    result = await uc.execute(chunk_size=100)
+
+    assert result.seeded == 0
+    assert result.total == 150
+    assert result.next_offset == 151
+    assert tasks.seed_calls == []
+
+
 async def test_idempotent_rerun_seeds_only_unknown_titns() -> None:
     probe = _FakeProbe(highest=1000)
     tasks = _FakeTaskRepo(known={1, 2, 3})  # 1..3 already seeded (e.g. by bootstrap)

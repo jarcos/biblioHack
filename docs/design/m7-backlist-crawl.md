@@ -67,6 +67,11 @@ chunk as `discovered` at backlist priority:
    free.
 5. Advance and persist the cursor (`next_offset = high + 1`). Stop when
    `next_offset > total`.
+6. **Once caught up** (`next_offset > total`), every run re-probes the
+   high-water mark and extends `total` if the catalogue has grown, never
+   shrinking it. Added 2026-09-28: the sweep finished on 2026-09-21 against the
+   mark probed on 2026-06-26 (2,666,936), and nothing else discovers new
+   acquisitions with a pre-2024 publication year (novedades is `@fepu>=2024`).
 
 Returns a typed `BacklistResult(seeded, range_low, range_high, next_offset,
 total, queue_depth)` for CLI/observability, mirroring `DiscoverResult` /
