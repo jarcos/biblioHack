@@ -419,6 +419,42 @@ def test_parses_search_results_pagination_and_total(search_results_html: str) ->
     assert page.total == 83607
 
 
+@pytest.fixture
+def search_results_html_2026_09() -> str:
+    """The same `(@fepu>=2024)` results page as served since Sep 2026.
+
+    The OPAC relabelled its next-page control from ``Siguiente`` to ``Página
+    Siguiente``. Matching the old label exactly made every resumed discovery
+    run see "no next page" and silently seed nothing for months.
+    """
+    return (FIXTURES / "search_novedades_2026_09.html").read_text(encoding="utf-8")
+
+
+def test_parses_relabelled_next_page_control(search_results_html_2026_09: str) -> None:
+    page = parse_search_results(search_results_html_2026_09)
+    assert len(page.titns) == 10
+    assert page.total == 63276
+    assert page.next_url is not None
+    assert "abnetcl.cgi" in page.next_url
+    assert "DOC=11" in page.next_url
+
+
+@pytest.mark.parametrize("attr", ["aria-label", "title"])
+@pytest.mark.parametrize("label", ["Siguiente", "Página Siguiente"])
+def test_next_page_control_matched_by_either_label(attr: str, label: str) -> None:
+    href = "/cultura/absys/abnopac/abnetcl.cgi/TOKEN?ACC=161&amp;DOC=11"
+    html = f'<html><body><span class="js-TITN">5</span><a {attr}="{label}" href="{href}">&gt;</a></body></html>'
+    page = parse_search_results(html)
+    assert page.next_url is not None
+    assert "DOC=11" in page.next_url
+
+
+def test_previous_page_control_is_not_mistaken_for_next() -> None:
+    href = "/cultura/absys/abnopac/abnetcl.cgi/TOKEN?ACC=161&amp;DOC=1"
+    html = f'<html><body><span class="js-TITN">5</span><a aria-label="Página Anterior" href="{href}">&lt;</a></body></html>'
+    assert parse_search_results(html).next_url is None
+
+
 def test_parse_search_results_rejects_empty() -> None:
     with pytest.raises(ParseError, match="empty results"):
         parse_search_results("")

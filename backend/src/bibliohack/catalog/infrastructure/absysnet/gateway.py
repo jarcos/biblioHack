@@ -561,6 +561,18 @@ class ScraplingOpacGateway:
         if total is not None and start_offset >= total:
             return DiscoverySlice(titns=[], next_offset=start_offset, total=total)
 
+        # More results than page 1 shows, yet no next-page control we recognise:
+        # the OPAC's pagination markup has changed. Say so loudly — in Sep 2026
+        # a relabelled control made every run "succeed" with 0 TITNs for months.
+        if first.next_url is None and total is not None and total > len(first.titns):
+            log.warning(
+                "absysnet.search.no_next_control total=%d page1=%d start_offset=%d expr=%s",
+                total,
+                len(first.titns),
+                start_offset,
+                expression,
+            )
+
         if start_offset <= 0:
             # Resume from the top: page 1's own results count.
             for titn in first.titns:

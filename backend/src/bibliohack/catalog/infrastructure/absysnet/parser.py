@@ -276,8 +276,12 @@ def _extract_next_page(tree: HTMLParser) -> str | None:
 
     On the last page the control is absent or disabled, so it won't carry a
     usable ``DOC=`` offset — we treat that as 'no more pages'.
+
+    The label is matched as a suffix, not exactly: in Sep 2026 the OPAC
+    renamed it from ``Siguiente`` to ``Página Siguiente``, and the exact match
+    silently stalled novedades discovery (every resumed run saw "no next page").
     """
-    node = tree.css_first('a[aria-label="Siguiente"]') or tree.css_first('a[title="Siguiente"]')
+    node = tree.css_first('a[aria-label$="Siguiente"]') or tree.css_first('a[title$="Siguiente"]')
     if node is None:
         return None
     href = node.attributes.get("href")
