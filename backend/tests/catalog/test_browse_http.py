@@ -258,7 +258,10 @@ async def test_browse_default_orders_by_relevance(client: AsyncClient, seeded: s
         async with factory() as s:
             for titn, score in score_by_titn.items():
                 await s.execute(
-                    text("UPDATE bibliographic_records SET relevance_score = :sc WHERE titn = :t"),
+                    text(
+                        "UPDATE record_relevance SET score = :sc "
+                        "WHERE record_id = (SELECT id FROM bibliographic_records WHERE titn = :t)"
+                    ),
                     {"sc": score, "t": titn},
                 )
             await s.commit()
@@ -274,7 +277,7 @@ async def test_browse_default_orders_by_relevance(client: AsyncClient, seeded: s
         assert [it["titn"] for it in items[3:]] == [6, 4, 2]
     finally:
         async with factory() as s:
-            await s.execute(text("UPDATE bibliographic_records SET relevance_score = 0"))
+            await s.execute(text("UPDATE record_relevance SET score = 0"))
             await s.commit()
         await engine.dispose()
 

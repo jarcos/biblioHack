@@ -36,6 +36,7 @@ from bibliohack.catalog.infrastructure.postgres.models import (
     BibliographicRecordModel,
     ContributorModel,
     IsbnModel,
+    RecordRelevanceModel,
 )
 from bibliohack.covers.infrastructure.postgres.models import CoverModel
 from bibliohack.holdings.infrastructure.postgres.models import BranchModel, CopyModel
@@ -173,6 +174,13 @@ class PostgresCatalogReadRepository:
             out[copy_id] = (status, due.isoformat() if due is not None else None)
         return out
 
+    async def _relevance_by_record(self, record_ids: Sequence[object]) -> dict[object, float]:
+        """Precomputed relevance per record (migration 0024 moved it off the row)."""
+        stmt = select(RecordRelevanceModel.record_id, RecordRelevanceModel.score).where(
+            RecordRelevanceModel.record_id.in_(record_ids)
+        )
+        return {rid: float(score) for rid, score in (await self._session.execute(stmt)).all()}
+
     async def _covers_by_record(self, record_ids: Sequence[object]) -> dict[object, CoverView]:
         """One CoverView per record, joined via ISBN (records → isbns → covers).
 
@@ -243,10 +251,11 @@ class PostgresCatalogReadRepository:
         # near-ties (ts_rank_cd produces many equal ranks), so a stronger
         # textual match is never displaced. titn is the final stable tiebreak.
         page_stmt = (
-            base_q.options(selectinload(BibliographicRecordModel.contributors))
+            _join_relevance(base_q)
+            .options(selectinload(BibliographicRecordModel.contributors))
             .order_by(
                 rank.desc(),
-                BibliographicRecordModel.relevance_score.desc(),
+                RecordRelevanceModel.score.desc(),
                 BibliographicRecordModel.titn.asc(),
             )
             .limit(capped_limit)
@@ -365,6 +374,7 @@ class PostgresCatalogReadRepository:
         ).scalar_one()
 
         order: tuple[ColumnElement[Any], ...]
+        page_q = base_q
         if sort == "title":
             order = (BibliographicRecordModel.title.asc(), BibliographicRecordModel.titn.asc())
         elif sort == "newest":
@@ -373,12 +383,15 @@ class PostgresCatalogReadRepository:
                 BibliographicRecordModel.titn.desc(),
             )
         else:  # "relevance" (default) — precomputed score, titn as stable tiebreak
+            # INNER JOIN (every record has a trigger-seeded row) so Postgres can
+            # walk ix_record_relevance_score instead of sorting the catalogue.
+            page_q = _join_relevance(base_q)
             order = (
-                BibliographicRecordModel.relevance_score.desc(),
+                RecordRelevanceModel.score.desc(),
                 BibliographicRecordModel.titn.desc(),
             )
         page_stmt = (
-            base_q.options(selectinload(BibliographicRecordModel.contributors))
+            page_q.options(selectinload(BibliographicRecordModel.contributors))
             .order_by(*order)
             .limit(capped_limit)
             .offset(capped_offset)
@@ -484,10 +497,11 @@ class PostgresCatalogReadRepository:
         distance = BibliographicRecordModel.embedding.cosine_distance(vector)
         # D16: cosine distance drives ordering; relevance only breaks ties.
         page_stmt = (
-            base_q.options(selectinload(BibliographicRecordModel.contributors))
+            _join_relevance(base_q)
+            .options(selectinload(BibliographicRecordModel.contributors))
             .order_by(
                 distance.asc(),
-                BibliographicRecordModel.relevance_score.desc(),
+                RecordRelevanceModel.score.desc(),
                 BibliographicRecordModel.titn.asc(),
             )
             .limit(capped_limit)
@@ -664,6 +678,7 @@ class PostgresCatalogReadRepository:
             available_branches_by_id.setdefault(rid, set()).add(branch_code)
 
         covers_by_id = await self._covers_by_record(ids)
+        score_by_id = await self._relevance_by_record(ids)
 
         primary = self._primary_branch_code
         summaries: list[CatalogRecordSummary] = []
@@ -684,7 +699,21 @@ class PostgresCatalogReadRepository:
                     available_branch_codes=tuple(sorted(branches)),
                     available_at_primary=(primary in branches) if primary is not None else None,
                     cover=covers_by_id.get(r.id),
-                    relevance_score=r.relevance_score,
+                    relevance_score=score_by_id.get(r.id, 0.0),
                 )
             )
         return tuple(summaries)
+
+
+def _join_relevance[S: Select[Any]](stmt: S) -> S:
+    """INNER JOIN the record's precomputed relevance row (migration 0024).
+
+    Inner, not outer: an AFTER INSERT trigger seeds a `record_relevance` row
+    for every record, and only the inner join lets the planner drive the
+    relevance-default /browse from `ix_record_relevance_score` (~40 ms on prod
+    vs ~4.7 s for LEFT JOIN + COALESCE, which sorts the whole catalogue).
+    """
+    return stmt.join(
+        RecordRelevanceModel,
+        RecordRelevanceModel.record_id == BibliographicRecordModel.id,
+    )

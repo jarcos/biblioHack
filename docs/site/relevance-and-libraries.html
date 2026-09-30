@@ -268,13 +268,29 @@ holdings 0.25 / recency 0.20 / completeness 0.10</strong> (tune empirically).</p
 <hr>
 <h2 id="phase-r-catalogue-relevance-ships-first">Phase R — Catalogue relevance (ships first)</h2>
 <h3 id="r0-schema">R0 — Schema</h3>
-<p><code>bibliographic_records</code> (Alembic revision):</p>
+<p>Originally (revision 0014) three columns on <code>bibliographic_records</code>. Since
+revision <strong>0024</strong> (2026-09-30) they live in their own narrow table,
+<code>record_relevance</code>, one row per record:</p>
 <ul>
-<li><code>relevance_score double precision NOT NULL DEFAULT 0</code> — indexed (<code>ix_records_relevance</code> desc).</li>
-<li><code>relevance_components jsonb</code> — per-component sub-scores, for debugging + a future
+<li><code>record_id uuid</code> — PK, FK → <code>bibliographic_records.id</code> <code>ON DELETE CASCADE</code>.</li>
+<li><code>score double precision NOT NULL DEFAULT 0</code> — indexed (<code>ix_record_relevance_score</code> desc).</li>
+<li><code>components jsonb</code> — per-component sub-scores, for debugging + a future
   "why this" UI badge set.</li>
-<li><code>relevance_updated_at timestamptz</code> — staleness tracking.</li>
+<li><code>updated_at timestamptz</code> — staleness tracking; NULL until the first recompute
+  scores the record.</li>
 </ul>
+<p>An <code>AFTER INSERT</code> trigger on <code>bibliographic_records</code> (<code>trg_record_relevance_seed</code>)
+seeds a row for every new record, so readers <strong>INNER JOIN</strong> it. That is what lets
+the relevance-default <code>/browse</code> walk <code>ix_record_relevance_score</code> (~40 ms on prod);
+a <code>LEFT JOIN … COALESCE</code> sorts the whole catalogue instead (~4.7 s).</p>
+<p><strong>Why the move.</strong> With the score on the record row, every nightly rewrite was a
+non-HOT update (the score is indexed) that re-inserted the row into all eleven
+indexes on <code>bibliographic_records</code>, including the 1.3 GB HNSW embedding index and
+the trigram/FTS GINs, and recomputed the stored <code>fts</code> column. On the NAS that ran
+at ~30 rows/s: ~16 h for the 1.7M-record mirror against a 30-minute job budget,
+so the job timed out every night from mid-July until the move. The recompute now
+writes with a chunked, set-based upsert (<code>unnest</code> of parallel arrays, 10k rows per
+statement) into the narrow table.</p>
 <h3 id="r1-the-score-catalog-domain-a-recompute-use-case">R1 — The score (<code>catalog</code> domain + a recompute use case)</h3>
 <p><code>relevance_score ∈ [0,1]</code>, a weighted blend of four <strong>corpus-normalised</strong> components
 (percentile or min-max with log compression where noted):</p>
@@ -372,7 +388,7 @@ matcher).</p>
 <hr>
 <h2 id="schema-migration-summary-one-alembic-revision-each">Schema &amp; migration summary (one Alembic revision each)</h2>
 <ol>
-<li><code>bibliographic_records</code>: <code>relevance_score</code>, <code>relevance_components</code>, <code>relevance_updated_at</code> (+ index).</li>
+<li><code>bibliographic_records</code>: <code>relevance_score</code>, <code>relevance_components</code>, <code>relevance_updated_at</code> (+ index) — moved to the <code>record_relevance</code> table in revision 0024.</li>
 <li><code>branches</code>: <code>address</code>, <code>lat</code>, <code>lng</code>, <code>url</code>, <code>phone</code>, <code>opening_hours</code>; backfill <code>municipality</code>, <code>province</code>.</li>
 <li><code>user_followed_branches</code>: new join table.</li>
 </ol>

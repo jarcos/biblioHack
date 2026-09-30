@@ -93,12 +93,30 @@ holdings 0.25 / recency 0.20 / completeness 0.10** (tune empirically).
 
 ### R0 — Schema
 
-`bibliographic_records` (Alembic revision):
+Originally (revision 0014) three columns on `bibliographic_records`. Since
+revision **0024** (2026-09-30) they live in their own narrow table,
+`record_relevance`, one row per record:
 
-- `relevance_score double precision NOT NULL DEFAULT 0` — indexed (`ix_records_relevance` desc).
-- `relevance_components jsonb` — per-component sub-scores, for debugging + a future
+- `record_id uuid` — PK, FK → `bibliographic_records.id` `ON DELETE CASCADE`.
+- `score double precision NOT NULL DEFAULT 0` — indexed (`ix_record_relevance_score` desc).
+- `components jsonb` — per-component sub-scores, for debugging + a future
   "why this" UI badge set.
-- `relevance_updated_at timestamptz` — staleness tracking.
+- `updated_at timestamptz` — staleness tracking; NULL until the first recompute
+  scores the record.
+
+An `AFTER INSERT` trigger on `bibliographic_records` (`trg_record_relevance_seed`)
+seeds a row for every new record, so readers **INNER JOIN** it. That is what lets
+the relevance-default `/browse` walk `ix_record_relevance_score` (~40 ms on prod);
+a `LEFT JOIN … COALESCE` sorts the whole catalogue instead (~4.7 s).
+
+**Why the move.** With the score on the record row, every nightly rewrite was a
+non-HOT update (the score is indexed) that re-inserted the row into all eleven
+indexes on `bibliographic_records`, including the 1.3 GB HNSW embedding index and
+the trigram/FTS GINs, and recomputed the stored `fts` column. On the NAS that ran
+at ~30 rows/s: ~16 h for the 1.7M-record mirror against a 30-minute job budget,
+so the job timed out every night from mid-July until the move. The recompute now
+writes with a chunked, set-based upsert (`unnest` of parallel arrays, 10k rows per
+statement) into the narrow table.
 
 ### R1 — The score (`catalog` domain + a recompute use case)
 
@@ -205,7 +223,7 @@ matcher).
 
 ## Schema & migration summary (one Alembic revision each)
 
-1. `bibliographic_records`: `relevance_score`, `relevance_components`, `relevance_updated_at` (+ index).
+1. `bibliographic_records`: `relevance_score`, `relevance_components`, `relevance_updated_at` (+ index) — moved to the `record_relevance` table in revision 0024.
 2. `branches`: `address`, `lat`, `lng`, `url`, `phone`, `opening_hours`; backfill `municipality`, `province`.
 3. `user_followed_branches`: new join table.
 

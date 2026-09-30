@@ -95,15 +95,11 @@ class BibliographicRecordModel(Base):
     # NULL until the embedder processes the record (off the OPAC path).
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
 
-    # Catalogue relevance (Phase R). Precomputed nightly off the OPAC path by
-    # the recompute use case; intrinsic to the record (no per-user context).
-    # `relevance_score` ∈ [0,1] is the blended rank key (default sort on
-    # /browse); `relevance_components` holds the per-component sub-scores for
-    # debugging + a future "why this" badge set; `relevance_updated_at` tracks
-    # staleness. server_default 0 keeps un-scored rows last until first compute.
-    relevance_score: Mapped[float] = mapped_column(Double, nullable=False, server_default=text("0"))
-    relevance_components: Mapped[dict[str, float] | None] = mapped_column(JSONB)
-    relevance_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Catalogue relevance (Phase R) lives in its own narrow table,
+    # `record_relevance` (RecordRelevanceModel below), not on this row: every
+    # rewrite of this wide, heavily indexed row (HNSW, trigram, FTS GIN) cost
+    # ~30 rows/s on the NAS, so the nightly recompute of 1.7M records could
+    # never finish (migration 0024).
 
     # Generated full-text-search column, populated by Postgres using the
     # Spanish-unaccent configuration seeded in infra/postgres/init/01-extensions.sql.
@@ -147,10 +143,37 @@ class BibliographicRecordModel(Base):
         Index("ix_bibliographic_records_genre", "genre"),
         Index("ix_bibliographic_records_language", "language"),
         Index("ix_bibliographic_records_pub_year", "pub_year"),
-        # Ranking index for the relevance-default /browse sort (matches the
-        # hand-written DESC index in migration 0014).
-        Index("ix_records_relevance", text("relevance_score DESC")),
     )
+
+
+class RecordRelevanceModel(Base):
+    """Precomputed catalogue relevance, one row per bibliographic record.
+
+    Kept apart from `bibliographic_records` so the nightly recompute rewrites
+    a narrow table (PK + one score index) instead of the wide record row with
+    its HNSW / trigram / FTS indexes (migration 0024). An AFTER INSERT trigger
+    on `bibliographic_records` seeds a row (score 0, `updated_at` NULL) for
+    every new record, so readers can INNER JOIN — the join is what lets the
+    relevance-default /browse walk `ix_record_relevance_score` instead of
+    sorting the whole catalogue.
+
+    `score` ∈ [0,1] is the blended rank key; `components` holds the
+    per-component sub-scores; `updated_at` is NULL until the first recompute
+    scores the record (the Grafana coverage panel counts non-NULL).
+    """
+
+    __tablename__ = "record_relevance"
+
+    record_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("bibliographic_records.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    score: Mapped[float] = mapped_column(Double, nullable=False, server_default=text("0"))
+    components: Mapped[dict[str, float] | None] = mapped_column(JSONB)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (Index("ix_record_relevance_score", text("score DESC")),)
 
 
 class ContributorModel(Base):

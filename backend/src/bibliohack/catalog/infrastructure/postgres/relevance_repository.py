@@ -8,8 +8,8 @@ sweep rather than 37k round-trips:
   :class:`RecordSignals` the domain scorer needs. The demand arithmetic that
   turns raw counts into rates lives here (it's persistence-shaped: it depends
   on the snapshot window), but the *blend* lives in ``catalog.domain.relevance``.
-- ``write_scores`` — bulk-update ``relevance_score`` / ``relevance_components``
-  / ``relevance_updated_at`` from the scored results.
+- ``write_scores`` — chunked, set-based upsert of ``score`` / ``components`` /
+  ``updated_at`` into the narrow ``record_relevance`` table (migration 0024).
 
 Demand is read off the availability series only (``unavailable``/``unknown``
 snapshots are excluded as noise). Checkouts are ``available → loaned``
@@ -18,11 +18,11 @@ transitions detected with a per-copy ``LAG`` window over ``observed_at``.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import bindparam, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import text
 
 from bibliohack.catalog.domain.relevance import RecordSignals
 
@@ -121,6 +121,29 @@ LEFT JOIN canon cn ON cn.record_id = r.id
 """
 )
 
+# Scores live in the narrow `record_relevance` table (migration 0024). Each
+# chunk is one statement: parallel arrays unnested server-side, upserted on the
+# record PK. Components travel as JSON text and are cast per element.
+_UPSERT_SQL = text(
+    """
+INSERT INTO record_relevance (record_id, score, components, updated_at)
+SELECT u.record_id, u.score, u.components::jsonb, :updated_at
+FROM unnest(
+    CAST(:record_ids AS uuid[]),
+    CAST(:scores AS double precision[]),
+    CAST(:components AS text[])
+) AS u(record_id, score, components)
+ON CONFLICT (record_id) DO UPDATE
+SET score = EXCLUDED.score,
+    components = EXCLUDED.components,
+    updated_at = EXCLUDED.updated_at
+"""
+)
+
+# Rows per upsert statement: big enough to amortise round-trips, small enough
+# to keep each bound array (and asyncpg's encoding of it) modest in memory.
+_WRITE_CHUNK = 10_000
+
 # Minimum span (weeks) we divide velocity by, so a burst inside a sub-week
 # window can't produce an absurd per-week rate.
 _MIN_VELOCITY_WEEKS = 1.0
@@ -147,31 +170,38 @@ class PostgresRelevanceRepository:
 
         return [_row_to_signals(row) for row in rows]
 
-    async def write_scores(self, results: Sequence[tuple[UUID, RelevanceResult]]) -> int:
-        """Bulk-write scores/components/updated_at. Returns rows touched."""
+    async def write_scores(
+        self,
+        results: Sequence[tuple[UUID, RelevanceResult]],
+        *,
+        chunk_size: int = _WRITE_CHUNK,
+    ) -> int:
+        """Upsert scores/components/updated_at into `record_relevance`.
+
+        One set-based statement per chunk (arrays unnested server-side) rather
+        than one UPDATE per record: the whole catalogue is ~1.7M rows, and the
+        narrow table (PK + score index) is what keeps this inside the nightly
+        budget — see migration 0024. Upsert rather than plain UPDATE so a
+        record that somehow lacks its trigger-seeded row still gets scored.
+        Returns rows written.
+        """
         if not results:
             return 0
         now = datetime.now(UTC)
-        stmt = text(
-            """
-                UPDATE bibliographic_records
-                SET relevance_score = :score,
-                    relevance_components = :components,
-                    relevance_updated_at = :updated_at
-                WHERE id = :record_id
-                """
-        ).bindparams(bindparam("components", type_=JSONB))
-        params = [
-            {
-                "record_id": record_id,
-                "score": result.score,
-                "components": result.components,
-                "updated_at": now,
-            }
-            for record_id, result in results
-        ]
-        await self._session.execute(stmt, params)
-        return len(params)
+        written = 0
+        for start in range(0, len(results), chunk_size):
+            chunk = results[start : start + chunk_size]
+            await self._session.execute(
+                _UPSERT_SQL,
+                {
+                    "record_ids": [record_id for record_id, _ in chunk],
+                    "scores": [result.score for _, result in chunk],
+                    "components": [json.dumps(result.components) for _, result in chunk],
+                    "updated_at": now,
+                },
+            )
+            written += len(chunk)
+        return written
 
 
 def _row_to_signals(row: object) -> RecordSignals:

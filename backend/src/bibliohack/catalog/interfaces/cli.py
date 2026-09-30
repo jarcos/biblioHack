@@ -800,7 +800,7 @@ def relevance_recompute(
         help="Trailing availability window (days) the demand signal reads.",
     ),
 ) -> None:
-    """Recompute `relevance_score` for every catalogue record.
+    """Recompute the relevance score (`record_relevance`) for every catalogue record.
 
     Pure DB compute over the availability time-series + holdings: gathers raw
     per-record signals, derives corpus-wide normalisation bounds, blends the
