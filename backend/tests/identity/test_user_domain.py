@@ -9,7 +9,7 @@ from bibliohack.identity.domain.user import Email, PasswordHash, User
 
 class TestEmail:
     def test_normalizes_case_and_whitespace(self) -> None:
-        assert Email("  Jose.Arcos@FeverUp.com ").value == "jose.arcos@feverup.com"
+        assert Email("  Jane.Doe@Example.COM ").value == "jane.doe@example.com"
 
     @pytest.mark.parametrize(
         "raw",
