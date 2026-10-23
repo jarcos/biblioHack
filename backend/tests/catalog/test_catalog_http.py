@@ -18,7 +18,8 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
@@ -28,9 +29,13 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 from bibliohack.catalog.application.dto import RewrittenQuery
+from bibliohack.catalog.domain.titn import Titn
 from bibliohack.catalog.infrastructure.absysnet.parser import ParsedCopy, ParsedRecord
 from bibliohack.catalog.infrastructure.postgres.catalog_ingest_repository import (
     PostgresCatalogIngestRepository,
+)
+from bibliohack.catalog.infrastructure.postgres.catalog_read_repository import (
+    PostgresCatalogReadRepository,
 )
 from bibliohack.interfaces.http.app import create_app
 from bibliohack.interfaces.http.dependencies import (
@@ -526,6 +531,99 @@ async def test_similar_empty_for_unembedded_record(client: AsyncClient) -> None:
 async def test_similar_422_for_invalid_titn(client: AsyncClient) -> None:
     r = await client.get("/catalog/records/0/similar")
     assert r.status_code == 422
+
+
+async def _capture_knn_statement(
+    semantic_client: AsyncClient, path: str
+) -> tuple[str, tuple[object, ...]]:
+    """Run `path` and return the one SQL statement that orders by `<=>`."""
+    captured: list[tuple[str, tuple[object, ...]]] = []
+
+    def _grab(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        parameters: tuple[object, ...],
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        if "<=>" in statement:
+            captured.append((statement, parameters))
+
+    event.listen(Engine, "before_cursor_execute", _grab)
+    try:
+        r = await semantic_client.get(path)
+    finally:
+        event.remove(Engine, "before_cursor_execute", _grab)
+    assert r.status_code == 200
+    assert len(captured) == 1, captured
+    return captured[0]
+
+
+async def _plan_without_seqscan(
+    applied_db: str, statement: str, parameters: tuple[object, ...]
+) -> str:
+    """EXPLAIN a captured statement with seq scans and sorts priced out.
+
+    With three rows the planner would seq-scan and sort anything. Pricing both
+    out asks the real question: *can* the nearest-neighbour step be produced in
+    index order? Only an ORDER BY on the distance alone can (HNSW).
+    """
+    engine = create_async_engine(applied_db, future=True)
+    try:
+        async with engine.connect() as conn:
+            for guc in ("enable_seqscan", "enable_sort", "enable_incremental_sort"):
+                await conn.exec_driver_sql(f"SET {guc} = off")
+            rows = await conn.exec_driver_sql("EXPLAIN " + statement, parameters)
+            # Vector literals are 1024 numbers long: keep the message readable.
+            return "\n".join(str(row[0])[:160] for row in rows)
+    finally:
+        await engine.dispose()
+
+
+async def test_similar_knn_is_served_by_the_hnsw_index(
+    applied_db: str, semantic_client: AsyncClient
+) -> None:
+    """Regression 2026-10-23: "más como este" ordered by (distance, titn).
+
+    pgvector can only walk the HNSW index when the ORDER BY is the distance
+    and nothing else; the extra key forced a parallel seq scan + sort of the
+    whole 1.7M-row table (~4.6 s median in production).
+    """
+    statement, parameters = await _capture_knn_statement(
+        semantic_client, "/catalog/records/1/similar"
+    )
+    plan = await _plan_without_seqscan(applied_db, statement, parameters)
+    assert "ix_bibrec_embedding_hnsw" in plan, plan
+
+
+async def test_similar_fills_the_strip_when_scope_hides_the_nearest(
+    applied_db: str, embedded: None
+) -> None:
+    """An HNSW walk filters AFTER collecting `hnsw.ef_search` candidates.
+
+    When the nearest ones fall outside the scope, a plain index scan returns
+    fewer rows than asked for (seen in production on 2026-10-23: 5 of 8).
+    pgvector's iterative scan keeps walking until the LIMIT is met. Here the
+    walk is as narrow as it gets (ef_search = 1): the only candidate is the
+    anchor itself, and record 2 — the next nearest — is a children's book.
+    """
+    engine = create_async_engine(applied_db, future=True)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            await session.execute(
+                text("UPDATE bibliographic_records SET audience = 'children' WHERE titn = 2")
+            )
+            for guc in ("enable_seqscan", "enable_sort", "enable_incremental_sort"):
+                await session.execute(text(f"SET LOCAL {guc} = off"))
+            await session.execute(text("SET LOCAL hnsw.ef_search = 1"))
+
+            items = await PostgresCatalogReadRepository(session).similar_to(Titn(1), limit=1)
+
+            assert [item.titn for item in items] == [3]
+            await session.rollback()
+    finally:
+        await engine.dispose()
 
 
 async def test_read_side_reflects_latest_availability(

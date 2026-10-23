@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, text
 from sqlalchemy.orm import selectinload
 
 from bibliohack.availability.domain.status import AvailabilityStatus
@@ -543,17 +543,33 @@ class PostgresCatalogReadRepository:
         if anchor is None or anchor.embedding is None:
             return ()
 
-        base_q = select(BibliographicRecordModel).where(
+        distance = BibliographicRecordModel.embedding.cosine_distance(anchor.embedding)
+        # The KNN ORDER BY must be the distance and NOTHING else: that is the
+        # only shape pgvector can serve from the HNSW index. Until 2026-10-23
+        # this also ordered by titn, which forced a parallel seq scan + sort of
+        # the whole table (~4.6 s median in production, 1.7M rows). The titn
+        # tie-break survives in the outer query, over at most `limit` rows.
+        nearest_q = select(BibliographicRecordModel.id, distance.label("distance")).where(
             BibliographicRecordModel.embedding.is_not(None),
             BibliographicRecordModel.id != anchor.id,
         )
-        base_q = self._apply_scope(base_q, scope)
-
-        distance = BibliographicRecordModel.embedding.cosine_distance(anchor.embedding)
-        stmt = (
-            base_q.options(selectinload(BibliographicRecordModel.contributors))
-            .order_by(distance.asc(), BibliographicRecordModel.titn.asc())
+        nearest = (
+            self._apply_scope(nearest_q, scope)
+            .order_by(distance.asc())
             .limit(capped_limit)
+            .subquery("nearest")
+        )
+        # An HNSW walk filters AFTER collecting `hnsw.ef_search` (40) candidates,
+        # so when the scope hides the nearest ones the strip comes back short
+        # (5 of 8 for one anchor in production). The iterative scan keeps
+        # walking until the LIMIT is met; `relaxed_order` may hand rows back
+        # slightly out of order, which the outer ORDER BY puts right.
+        await self._session.execute(text("SET LOCAL hnsw.iterative_scan = relaxed_order"))
+        stmt = (
+            select(BibliographicRecordModel)
+            .join(nearest, nearest.c.id == BibliographicRecordModel.id)
+            .options(selectinload(BibliographicRecordModel.contributors))
+            .order_by(nearest.c.distance.asc(), BibliographicRecordModel.titn.asc())
         )
         rows = (await self._session.execute(stmt)).scalars().all()
         return await self._summarize(rows)
