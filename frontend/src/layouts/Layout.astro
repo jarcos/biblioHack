@@ -4,6 +4,7 @@ import "../styles/global.css";
 import Container from "@/components/ui/container.astro";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserMenu } from "@/components/UserMenu";
+import { umamiScript } from "@infrastructure/analytics/umami";
 
 interface Props {
   title: string;
@@ -12,6 +13,8 @@ interface Props {
 
 const { title, description = "Reverse catalog of the Andalusian public libraries." } = Astro.props;
 const apiBaseUrl = import.meta.env.PUBLIC_API_BASE_URL ?? "http://localhost:8800";
+// Usage analytics (Umami on the NAS); null unless the prod build baked an id.
+const umami = umamiScript(import.meta.env.PUBLIC_UMAMI_WEBSITE_ID);
 
 // Active nav state — compare against the first path segment so /record etc.
 // simply show no active link (they're reachable from Explorar, not nav items).
@@ -33,6 +36,7 @@ const currentPath = Astro.url.pathname.replace(/\/$/, "") || "/";
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
+    {umami && <script is:inline defer {...umami} />}
 
     {
       /*

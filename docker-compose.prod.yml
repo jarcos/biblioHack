@@ -226,6 +226,9 @@ services:
         # Turnstile widget appears once this is set (set TURNSTILE_SECRET on
         # the api in lockstep).
         PUBLIC_TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+        # Usage analytics: the "biblioHack" website in umami.josearcos.me
+        # (06-11-2026). Not a secret — it ships in every page anyway.
+        PUBLIC_UMAMI_WEBSITE_ID: be1f187c-3f02-4231-8afa-3fccf81c6724
     container_name: bibliohack-frontend
     restart: unless-stopped
     environment:

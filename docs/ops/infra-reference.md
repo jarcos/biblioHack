@@ -297,6 +297,7 @@ Enabling key-based SSH (so deploys can run unattended) required, in order:
 - **DB shell:** `… docker exec -it bibliohack-postgres psql -U bibliohack -d bibliohack`.
 - **Populate the mirror:** the catalog starts empty; run the crawler (off-NAS) with `DATABASE_URL` pointed at `192.168.1.130:5432`.
 - **Scratch left on NAS (safe to delete):** `/volume1/docker/bibliohack/{deploy-build,up,fe,fe2}.log`, `*.done`, and `/tmp/sshd_dbg.log`.
+- **Usage analytics (2026-11-06):** Umami, the shared instance on the NAS (`frienddraft-umami`, panel at `umami.josearcos.me`, events purged after 90 days). The frontend loads `https://umami.josearcos.me/script.js` directly — `serve` cannot proxy and the tunnel cannot rewrite paths. The website id is a build arg in `docker-compose.prod.yml` (`PUBLIC_UMAMI_WEBSITE_ID`); without it the tag is not rendered, so dev/CI builds never report. Queries and hashes are never sent (`/verify` and `/reset-password` carry tokens). Code: `frontend/src/infrastructure/analytics/umami.ts`; the privacy page describes it.
 
 ---
 

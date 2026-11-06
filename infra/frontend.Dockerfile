@@ -24,6 +24,10 @@ ENV PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL}
 # matching the backend's disabled check when its secret is unset.
 ARG PUBLIC_TURNSTILE_SITE_KEY=
 ENV PUBLIC_TURNSTILE_SITE_KEY=${PUBLIC_TURNSTILE_SITE_KEY}
+# Umami website id (usage analytics, umami.josearcos.me). Empty = no tracker,
+# so only the production compose, which passes it, ever reports.
+ARG PUBLIC_UMAMI_WEBSITE_ID=
+ENV PUBLIC_UMAMI_WEBSITE_ID=${PUBLIC_UMAMI_WEBSITE_ID}
 
 RUN pnpm build
 

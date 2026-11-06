@@ -6,6 +6,8 @@ interface ImportMetaEnv {
   readonly PUBLIC_API_BASE_URL: string;
   /** Cloudflare Turnstile site key; empty/unset disables the widget. */
   readonly PUBLIC_TURNSTILE_SITE_KEY?: string;
+  /** Umami website id (usage analytics); empty/unset renders no tracker. */
+  readonly PUBLIC_UMAMI_WEBSITE_ID?: string;
 }
 
 interface ImportMeta {
