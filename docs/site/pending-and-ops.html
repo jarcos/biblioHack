@@ -119,7 +119,7 @@
   <h2>Next priorities (re-prioritised 2026-11-26)</h2>
   <div class="panel">
     <p><strong>1 · Crawl-plane detection layer.</strong> Grafana alerts on heartbeat staleness, 0 records/24h, relevance freshness, flat embedding coverage, growing failures and supercronic «job is still running» — plus a schema-drift guard that stops the crawler when the database is on a newer Alembic head than its image.</p>
-    <p><strong>2 · <code>/browse</code> takes 13–15 s</strong> (measured 2026-11-26; search answers in ~2 s). The facet counts over 1.7M records are the suspect. Launch blocker.</p>
+    <p><strong>2 · <code>/browse</code> and semantic search take 13–15 s</strong> (measured 2026-11-26; keyword search answers in ~2 s). For browse the facet counts over 1.7M records are the suspect; semantic search orders by <code>(distance, score, titn)</code>, which keeps it off the HNSW index (the <code>d32753f</code> pattern), and counts every embedded record — it gets slower as the backfill fills in. Launch blocker.</p>
     <p><strong>3 · DHCP reservation for the NAS</strong> <span class="badge b-ops">OPS</span>, so the 08-26 failure can't come back.</p>
     <p><strong>4 · Automatic retry of transient failures</strong> (claim due <code>failed</code> rows with a retry time, or schedule <code>requeue-failed</code>).</p>
     <p><strong>5 · Chat &amp; Recommendations P2 → P3 → P4</strong>, once vector coverage is well along.</p>

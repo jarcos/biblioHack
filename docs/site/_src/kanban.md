@@ -302,8 +302,8 @@ raw_html: true
       </div>
 
       <div class="card">
-        <h3>2 · <code>/browse</code> takes 13–15 s</h3>
-        <p>Measured 2026-11-26 from outside: the default <code>/catalog/browse</code> (relevance sort) answers in 14.7 s and the title sort in 12.9 s, while a search answers in ~2 s. It was ~9 s on 09-30, and sorting by title cost the same then too, which points at the facet counts over 1.7M records rather than the sort. This is the catalogue's front door, so it blocks the launch. Profile with <code>EXPLAIN ANALYZE</code>; likely fixes are facet counts cached per filter set (Redis, short TTL) or precomputed by the nightly job, and the unfiltered page served from that cache.</p>
+        <h3>2 · <code>/browse</code> and semantic search take 13–15 s</h3>
+        <p>Measured 2026-11-26 from outside: the default <code>/catalog/browse</code> (relevance sort) answers in 14.7 s and the title sort in 12.9 s, while a search answers in ~2 s. It was ~9 s on 09-30, and sorting by title cost the same then too, which points at the facet counts over 1.7M records rather than the sort. This is the catalogue's front door, so it blocks the launch. Profile with <code>EXPLAIN ANALYZE</code>; likely fixes are facet counts cached per filter set (Redis, short TTL) or precomputed by the nightly job, and the unfiltered page served from that cache. <strong>Semantic search</strong> (<code>mode=semantic</code>) measured 15.3 s the same day: it orders by <code>(distance, score, titn)</code>, which keeps pgvector off the HNSW index — the pattern <code>d32753f</code> fixed for «más como este» — and it counts every embedded record in scope for <code>total</code>. It gets slower as the backfill fills in vectors, so it can't wait for the browse work.</p>
         <div class="meta"><span class="tag t-todo">PERF · LAUNCH BLOCKER</span></div>
       </div>
 
