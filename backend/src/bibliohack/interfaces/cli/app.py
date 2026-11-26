@@ -18,6 +18,7 @@ from bibliohack import __version__
 from bibliohack.catalog.interfaces.cli import catalog_app
 from bibliohack.covers.interfaces.cli import covers_app
 from bibliohack.holdings.interfaces.cli import holdings_app
+from bibliohack.ops.interfaces.cli import ops_app
 from bibliohack.reading_history.interfaces.cli import shelf_app
 from bibliohack.shared.infrastructure import configure_logging, get_settings
 
@@ -30,6 +31,7 @@ cli.add_typer(catalog_app, name="catalog", help="Catalog ingest and search comma
 cli.add_typer(covers_app, name="covers", help="Cover-image resolution commands.")
 cli.add_typer(holdings_app, name="holdings", help="Branch / holdings commands.")
 cli.add_typer(shelf_app, name="shelf", help="Personal bookshelf (reading history) commands.")
+cli.add_typer(ops_app, name="ops", help="Crawler-plane health: schema guard and metrics.")
 
 
 @cli.callback()

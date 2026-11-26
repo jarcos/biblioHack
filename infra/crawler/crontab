@@ -56,3 +56,9 @@
 # and re-fires 12h later — top-up seeding tolerates that fine). Top-up mode
 # (BACKLIST_TARGET_DEPTH) means most runs seed nothing once the queue is full.
 20 1,13 * * * /app/run-job.sh backlist
+# Health metrics every 10 minutes — off-OPAC, read-only, own lock. Writes the
+# data-level signals (last availability snapshot, schema drift, recent
+# failures, discovery cursors, embedding coverage) to the node-exporter
+# textfile; Prometheus alerts on them (infra/monitoring/prometheus/). Not
+# behind the schema guard: it is what reports the drift.
+*/10 * * * * /app/run-job.sh health

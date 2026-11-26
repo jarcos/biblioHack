@@ -163,6 +163,18 @@ docs-check: ## Fail if docs/site/ is out of date with its Markdown sources.
 	git diff --exit-code docs/site
 
 # ────────────────────────────────────────────────────────────
+# Monitoring
+# ────────────────────────────────────────────────────────────
+
+PROMTOOL = docker run --rm -v "$(CURDIR)/infra/monitoring/prometheus:/rules:ro" -w /rules \
+	--entrypoint promtool prom/prometheus:v2.54.1
+
+.PHONY: monitoring-check
+monitoring-check: ## Validate and unit-test the Prometheus alert rules (promtool in Docker, same version as the NAS).
+	$(PROMTOOL) check rules bibliohack-alerts.yml
+	$(PROMTOOL) test rules bibliohack-alerts.test.yaml
+
+# ────────────────────────────────────────────────────────────
 # Aggregate
 # ────────────────────────────────────────────────────────────
 
@@ -170,7 +182,7 @@ docs-check: ## Fail if docs/site/ is out of date with its Markdown sources.
 install: backend-install frontend-install ## Install all deps.
 
 .PHONY: check
-check: backend-check frontend-check docs-check ## Every CI gate: backend + frontend + docs freshness (docker build smoke excluded — run it in CI). Run `make docs` needs `pip install -r tools/requirements.txt` first.
+check: backend-check frontend-check docs-check monitoring-check ## Every CI gate: backend + frontend + docs freshness + alert rules (docker build smoke excluded — run it in CI). Run `make docs` needs `pip install -r tools/requirements.txt` first.
 
 .PHONY: format
 format: backend-format frontend-format ## Format everything.

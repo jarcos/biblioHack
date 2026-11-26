@@ -1,0 +1,139 @@
+# Alertas del plano del crawler de biblioHack.
+#
+# Fuente versionada: biblio-hack/infra/monitoring/prometheus/bibliohack-alerts.yml.
+# En el NAS va en /volume1/docker/monitoring/grafana-stack/prometheus/rules/,
+# junto a alerts.yml y backup-alerts.yml: Prometheus ya carga *.yml de ahi y
+# Alertmanager ya manda el correo por Mailgun. Copiar y recargar:
+#   cat infra/monitoring/prometheus/bibliohack-alerts.yml | ssh nas-deploy \
+#     'cat > /volume1/docker/monitoring/grafana-stack/prometheus/rules/bibliohack-alerts.yml'
+#   ssh nas-deploy '/usr/local/bin/docker exec prometheus wget -qO- --post-data= http://localhost:9090/-/reload'
+# Pruebas: bibliohack-alerts.test.yaml (`make monitoring-check`).
+#
+# Por que existen: del 30-09 al 26-11-2026 el crawler fallo cada escritura de
+# registros durante 57 dias y nada aviso. Los jobs salian con 0 y el
+# descubrimiento seguia moviendo cursores. Por eso las metricas miden datos
+# (cuando entro la ultima instantanea, si la base va en la revision que espera
+# la imagen), no si un job termino bien. Las escribe el propio crawler cada
+# 10 min (bibliohack ops health-metrics) en el textfile de node-exporter.
+#
+# Todas llevan instance="bibliohack-crawler": sin eso heredarian la instancia
+# de node-exporter, y la regla de inhibicion de Alertmanager (un critico tapa
+# los warning de la misma instancia) callaria los avisos del host mientras una
+# alerta critica de biblioHack estuviese activa.
+
+groups:
+  - name: bibliohack-crawler
+    rules:
+      # La averia del 30-09: una migracion quito una columna que el codigo
+      # viejo del crawler seguia escribiendo. Ahora el crawler se niega a
+      # trabajar y esta alerta dice como arreglarlo.
+      - alert: BiblioEsquemaDesincronizado
+        expr: bibliohack_schema_drift == 1
+        for: 5m
+        labels:
+          severity: critical
+          area: bibliohack
+          instance: bibliohack-crawler
+        annotations:
+          summary: "biblioHack: la imagen del crawler no coincide con la base de datos y no trabaja"
+          description: "La base de datos esta en otra revision de Alembic que la que espera la imagen del crawler (ver bibliohack_schema_revision_info). Todos los jobs se niegan a correr hasta reconstruirlo: cd /volume1/docker/bibliohack && docker compose -f docker-compose.crawler.yml up -d --build"
+
+      # La senal que mas pronto habria saltado el 30-09: cada registro que
+      # el worker o el refresco persiste deja instantaneas, cada hora.
+      - alert: BiblioDisponibilidadSinActualizar
+        expr: time() - bibliohack_availability_last_snapshot_timestamp_seconds > 9 * 3600
+        for: 15m
+        labels:
+          severity: critical
+          area: bibliohack
+          instance: bibliohack-crawler
+        annotations:
+          summary: "biblioHack: no entra ninguna instantanea de disponibilidad desde hace mas de 9 h"
+          description: "El worker y el refresco guardan instantaneas cada hora; sin ellas el crawler no esta escribiendo. Mirar docker logs bibliohack-crawler (UndefinedColumn, TIMED OUT, job is still running) y bibliohack catalog requeue-failed --dry-run."
+
+      # De mediados de julio a finales de septiembre el recalculo nocturno se
+      # paso del tiempo cada noche sin que nadie lo viera.
+      - alert: BiblioRelevanciaCaducada
+        expr: time() - bibliohack_relevance_last_update_timestamp_seconds > 30 * 3600
+        for: 30m
+        labels:
+          severity: warning
+          area: bibliohack
+          instance: bibliohack-crawler
+        annotations:
+          summary: "biblioHack: la relevancia no se recalcula desde hace mas de 30 h"
+          description: "El job relevance corre cada noche a las 04:00 UTC. Mirar docker logs bibliohack-crawler | grep relevance (TIMED OUT, UndefinedColumn)."
+
+      - alert: BiblioFallosDeRastreo
+        expr: bibliohack_scrape_failures_last_hour > 200
+        for: 30m
+        labels:
+          severity: warning
+          area: bibliohack
+          instance: bibliohack-crawler
+        annotations:
+          summary: "biblioHack: {{ $value | printf \"%.0f\" }} tareas de rastreo fallidas en la ultima hora"
+          description: "Lo normal son unas pocas. bibliohack catalog requeue-failed --dry-run las agrupa por error; cuando la causa este arreglada, --error-prefix las devuelve a la cola."
+
+      # El caso de «Pagina Siguiente» (septiembre de 2026): el cursor se quedo
+      # en 56.944 mientras el OPAC seguia catalogando. Un cursor que avanza,
+      # aunque vaya por detras, no dispara. La ultima condicion exige que la
+      # serie exista desde hace 24 h: changes() sobre una ventana mas corta
+      # tambien da 0.
+      - alert: BiblioDescubrimientoAtascado
+        expr: |
+          (bibliohack_discovery_cursor_total - bibliohack_discovery_cursor_next_offset > 1000)
+          and on(expression)
+          (changes(bibliohack_discovery_cursor_next_offset[24h]) == 0)
+          and on(expression)
+          (bibliohack_discovery_cursor_next_offset offset 24h)
+        for: 1h
+        labels:
+          severity: warning
+          area: bibliohack
+          instance: bibliohack-crawler
+        annotations:
+          summary: "biblioHack: el descubrimiento de {{ $labels.expression }} no avanza con {{ $value | printf \"%.0f\" }} resultados por delante"
+          description: "El cursor no se ha movido en 24 h y el OPAC tiene mas resultados. En septiembre de 2026 fue un cambio de marcado del control de pagina siguiente: mirar el aviso absysnet.search.no_next_control en docker logs bibliohack-crawler."
+
+      # El recuento se refresca cada 3 h (es un barrido de la tabla entera),
+      # asi que 7 h sin crecer son al menos dos pasadas del job embed perdidas.
+      - alert: BiblioVectoresParados
+        expr: |
+          (bibliohack_records_total - bibliohack_records_embedded > 0)
+          and
+          (bibliohack_records_embedded - bibliohack_records_embedded offset 7h <= 0)
+        for: 1h
+        labels:
+          severity: warning
+          area: bibliohack
+          instance: bibliohack-crawler
+        annotations:
+          summary: "biblioHack: los vectores no avanzan en 7 h con {{ $value | printf \"%.0f\" }} pendientes"
+          description: "El job embed corre cada 3 h. Mirar docker logs bibliohack-crawler | grep embed (402 Payment Required, batch failed, TIMED OUT) y bibliohack catalog embed-check."
+
+      # Metricas congeladas: el contenedor parado o el fichero sin permisos.
+      # Las de arriba siguen envejeciendo (comparan con time()), pero esta
+      # dice la causa.
+      - alert: BiblioMetricasDeSaludObsoletas
+        expr: time() - bibliohack_health_last_run_timestamp_seconds > 3600
+        for: 15m
+        labels:
+          severity: warning
+          area: bibliohack
+          instance: bibliohack-crawler
+        annotations:
+          summary: "biblioHack: el crawler no escribe sus metricas de salud desde hace mas de 1 h"
+          description: "Las escribe el job health cada 10 min. Si el contenedor bibliohack-crawler esta parado o el fichero /volume1/docker/db-backup/textfile/bibliohack.prom no es escribible, ninguna otra alerta de biblioHack ve nada nuevo."
+
+      # Sin la serie, ninguna de las anteriores puede saltar.
+      - alert: BiblioMetricasDeSaludAusentes
+        expr: absent(bibliohack_health_last_run_timestamp_seconds)
+        for: 30m
+        labels:
+          severity: warning
+          area: bibliohack
+          instance: bibliohack-crawler
+        annotations:
+          summary: "biblioHack: no hay metricas de salud del crawler"
+          description: "Prometheus no ve bibliohack_health_last_run_timestamp_seconds. Comprobar que existe /volume1/docker/db-backup/textfile/bibliohack.prom (modo 666) y que el crawler lo tiene montado en /textfile."

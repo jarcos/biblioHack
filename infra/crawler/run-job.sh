@@ -11,7 +11,7 @@ set -euo pipefail
 # `bibliohack` resolves regardless of how the scheduler sets PATH.
 export PATH="/app/.venv/bin:${PATH:-/usr/local/bin:/usr/bin:/bin}"
 
-JOB="${1:?usage: run-job.sh discover_worker|refresh|covers|embed|relevance|canon_seed|canon_resolve|shelf_resolve|backlist}"
+JOB="${1:?usage: run-job.sh discover_worker|refresh|covers|embed|relevance|canon_seed|canon_resolve|shelf_resolve|backlist|health}"
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # ── Hard per-command timeout ──────────────────────────────────────
@@ -50,6 +50,9 @@ case "$JOB" in
   # own lock and can run alongside an OPAC crawl. canon_resolve DOES hit the
   # OPAC, so it deliberately falls through to the shared crawl lock below.
   canon_seed) LOCK="/tmp/bibliohack-canon-seed.lock" ;;
+  # health only reads the DB and writes the metrics textfile: never wait on,
+  # or hold up, a crawl job.
+  health) LOCK="/tmp/bibliohack-health.lock" ;;
   *) LOCK="/tmp/bibliohack-crawl.lock" ;;
 esac
 exec 9>"$LOCK"
@@ -69,6 +72,22 @@ elif ! flock -n 9; then
   # letting them queue behind the (long) hourly growth run would starve it.
   echo "[$(ts)] $JOB skipped — another crawl job is still running"
   exit 0
+fi
+
+# ── Schema guard (2026-11-26) ─────────────────────────────────────
+# The crawler doesn't ride CD. On 2026-09-30 a migration dropped a column the
+# 09-28 image's code still wrote, and every record write failed for 57 days
+# while the jobs exited 0. So every job first checks that the database is on
+# the Alembic revision this image expects, and refuses on a mismatch (exit 3,
+# with the rebuild command in the message). `health` is exempt: it is what
+# reports the drift to Prometheus, which turns the refusal into an alert.
+if [ "$JOB" != "health" ]; then
+  guard_rc=0
+  bibliohack ops check-schema >/dev/null || guard_rc=$?
+  if [ "$guard_rc" -ne 0 ]; then
+    echo "[$(ts)] $JOB REFUSED — schema check failed (rc=$guard_rc), nothing was run"
+    exit "$guard_rc"
+  fi
 fi
 
 echo "[$(ts)] $JOB START"
@@ -99,6 +118,13 @@ case "$JOB" in
     # hosted BGE-M3 that EMBEDDING_PROVIDER selects (OpenRouter by default).
     run "${EMBED_TIMEOUT:-1800}" bibliohack catalog embed --limit "${EMBED_MAX:-200}" \
       --batch-size "${EMBED_BATCH:-64}"
+    ;;
+  health)
+    # Off-OPAC, read-only DB: the data-level health signals Prometheus alerts
+    # on (infra/monitoring/prometheus/bibliohack-alerts.yml), written to the
+    # node-exporter textfile mounted at /textfile.
+    run "${HEALTH_TIMEOUT:-300}" bibliohack ops health-metrics \
+      --out "${BIBLIOHACK_METRICS_FILE:-/textfile/bibliohack.prom}"
     ;;
   relevance)
     # Off-OPAC, pure DB: rescores the whole catalogue from the availability

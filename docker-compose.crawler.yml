@@ -96,11 +96,21 @@ services:
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openrouter}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN:-}
+      # Health metrics for Prometheus (run-job.sh health, every 10 min).
+      BIBLIOHACK_METRICS_FILE: /textfile/bibliohack.prom
     networks:
       - bibliohack
     volumes:
       # Shared cover store: the resolver writes here; the api mounts it ro.
       - /volume1/docker/bibliohack/covers:/covers
+      # One file in node-exporter's textfile directory, mounted on its own: the
+      # directory belongs to josearcos and the crawler runs as uid 1000, so it
+      # gets this file (written in place), not the directory. Create it once
+      # BEFORE the first `up` — a bind mount of a missing file makes Docker
+      # create a directory there instead:
+      #   touch /volume1/docker/db-backup/textfile/bibliohack.prom
+      #   chmod 666 /volume1/docker/db-backup/textfile/bibliohack.prom
+      - /volume1/docker/db-backup/textfile/bibliohack.prom:/textfile/bibliohack.prom
     # CPU cap (2026-07-13): hourly discover_worker runs were pegging the whole
     # NAS ~100% for 40-60 min every hour, starving Postgres/api/the VM. The
     # worker is throttle-bound at CRAWL_RATE (1 req/s), so capping CPU costs

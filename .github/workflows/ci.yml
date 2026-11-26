@@ -137,6 +137,20 @@ jobs:
       - name: Fail if docs/site/ is stale (run `make docs` and commit)
         run: git diff --exit-code docs/site
 
+  # ───── Alert rules (promtool) ─────
+  # The crawler-plane alerts (infra/monitoring/prometheus/) are deployed to the
+  # NAS Prometheus by hand, so a typo there would only surface as an alert that
+  # never fires. promtool checks the rules and runs their unit tests.
+  monitoring:
+    name: monitoring — alert rules + their tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: promtool check + test
+        run: make monitoring-check
+
   # ───── Docker build sanity ─────
   docker-build:
     name: docker — build smoke
@@ -178,7 +192,7 @@ jobs:
   # Design + required secrets: docs/design/architecture.md §10.1.
   deploy:
     name: deploy — NAS (biblio.josearcos.me)
-    needs: [backend, frontend, docs, docker-build]
+    needs: [backend, frontend, docs, monitoring, docker-build]
     if: >-
       github.event_name == 'push'
       && github.ref == 'refs/heads/main'

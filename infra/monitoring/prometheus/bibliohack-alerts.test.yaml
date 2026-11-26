@@ -1,0 +1,266 @@
+# Pruebas de bibliohack-alerts.yml: `make monitoring-check` (promtool en Docker).
+#
+# Extension .yaml a proposito: Prometheus carga rules/*.yml, y este fichero no
+# es un fichero de reglas.
+#
+# Cada alerta tiene su caso que dispara y su caso que no. El que dispara
+# reproduce, en lo posible, la averia que la motivo.
+#
+# Muestras cada 5 min como mucho: PromQL solo mira 5 min hacia atras, y con
+# muestras mas espaciadas la serie "desaparece" entre una y otra y el `for:`
+# no llega a cumplirse. En produccion node-exporter se raspa cada pocos segundos.
+
+rule_files:
+  - bibliohack-alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ── Esquema: el caso del 30-09-2026 ───────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'bibliohack_schema_drift{job="node-exporter",instance="node-exporter:9100"}'
+        values: "0x10 1x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: BiblioEsquemaDesincronizado
+        exp_alerts: []
+      - eval_time: 14m
+        alertname: BiblioEsquemaDesincronizado
+        exp_alerts: []
+      - eval_time: 17m
+        alertname: BiblioEsquemaDesincronizado
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              area: bibliohack
+              job: node-exporter
+              instance: bibliohack-crawler
+            exp_annotations:
+              summary: "biblioHack: la imagen del crawler no coincide con la base de datos y no trabaja"
+              description: "La base de datos esta en otra revision de Alembic que la que espera la imagen del crawler (ver bibliohack_schema_revision_info). Todos los jobs se niegan a correr hasta reconstruirlo: cd /volume1/docker/bibliohack && docker compose -f docker-compose.crawler.yml up -d --build"
+
+  # ── Disponibilidad: lo primero que se habria visto el 30-09 ──────────
+  # Instantaneas congeladas en t=0: a las 9 h pasa el umbral y a las 9h15m dispara.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_availability_last_snapshot_timestamp_seconds{job="node-exporter",instance="node-exporter:9100"}'
+        values: "0x200"
+    alert_rule_test:
+      - eval_time: 9h
+        alertname: BiblioDisponibilidadSinActualizar
+        exp_alerts: []
+      - eval_time: 9h20m
+        alertname: BiblioDisponibilidadSinActualizar
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              area: bibliohack
+              job: node-exporter
+              instance: bibliohack-crawler
+            exp_annotations:
+              summary: "biblioHack: no entra ninguna instantanea de disponibilidad desde hace mas de 9 h"
+              description: "El worker y el refresco guardan instantaneas cada hora; sin ellas el crawler no esta escribiendo. Mirar docker logs bibliohack-crawler (UndefinedColumn, TIMED OUT, job is still running) y bibliohack catalog requeue-failed --dry-run."
+
+  # Al dia: la instantanea avanza con el reloj, nunca dispara.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_availability_last_snapshot_timestamp_seconds{job="node-exporter",instance="node-exporter:9100"}'
+        values: "0+300x200"
+    alert_rule_test:
+      - eval_time: 16h
+        alertname: BiblioDisponibilidadSinActualizar
+        exp_alerts: []
+
+  # ── Relevancia: el recalculo nocturno que caduco de julio a septiembre ─
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_relevance_last_update_timestamp_seconds{job="node-exporter",instance="node-exporter:9100"}'
+        values: "0x500"
+    alert_rule_test:
+      - eval_time: 30h10m
+        alertname: BiblioRelevanciaCaducada
+        exp_alerts: []
+      - eval_time: 30h40m
+        alertname: BiblioRelevanciaCaducada
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              area: bibliohack
+              job: node-exporter
+              instance: bibliohack-crawler
+            exp_annotations:
+              summary: "biblioHack: la relevancia no se recalcula desde hace mas de 30 h"
+              description: "El job relevance corre cada noche a las 04:00 UTC. Mirar docker logs bibliohack-crawler | grep relevance (TIMED OUT, UndefinedColumn)."
+
+  # Recalculada cada noche: no dispara aunque pasen dias.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_relevance_last_update_timestamp_seconds{job="node-exporter",instance="node-exporter:9100"}'
+        values: "0x287 86400x287 172800x287"
+    alert_rule_test:
+      - eval_time: 70h
+        alertname: BiblioRelevanciaCaducada
+        exp_alerts: []
+
+  # ── Fallos de rastreo ──────────────────────────────────────────────
+  # Durante la caida fallaban ~1.800 por hora; el ruido normal es de unos pocos.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_scrape_failures_last_hour{job="node-exporter",instance="node-exporter:9100"}'
+        values: "3x12 1800x12"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: BiblioFallosDeRastreo
+        exp_alerts: []
+      - eval_time: 1h40m
+        alertname: BiblioFallosDeRastreo
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              area: bibliohack
+              job: node-exporter
+              instance: bibliohack-crawler
+            exp_annotations:
+              summary: "biblioHack: 1800 tareas de rastreo fallidas en la ultima hora"
+              description: "Lo normal son unas pocas. bibliohack catalog requeue-failed --dry-run las agrupa por error; cuando la causa este arreglada, --error-prefix las devuelve a la cola."
+
+  # ── Descubrimiento atascado: el caso de «Pagina Siguiente» ─────────
+  # Cursor clavado en 56.944 mientras el total sigue en 63.262.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_discovery_cursor_next_offset{job="node-exporter",instance="node-exporter:9100",expression="(@fepu>=2024)"}'
+        values: "56944x360"
+      - series: 'bibliohack_discovery_cursor_total{job="node-exporter",instance="node-exporter:9100",expression="(@fepu>=2024)"}'
+        values: "63262x360"
+    alert_rule_test:
+      - eval_time: 23h
+        alertname: BiblioDescubrimientoAtascado
+        exp_alerts: []
+      - eval_time: 26h
+        alertname: BiblioDescubrimientoAtascado
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              area: bibliohack
+              job: node-exporter
+              instance: bibliohack-crawler
+              expression: "(@fepu>=2024)"
+            exp_annotations:
+              summary: "biblioHack: el descubrimiento de (@fepu>=2024) no avanza con 6318 resultados por delante"
+              description: "El cursor no se ha movido en 24 h y el OPAC tiene mas resultados. En septiembre de 2026 fue un cambio de marcado del control de pagina siguiente: mirar el aviso absysnet.search.no_next_control en docker logs bibliohack-crawler."
+
+  # Al dia (cursor == total, o el del backlist con +1): nunca dispara.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_discovery_cursor_next_offset{job="node-exporter",instance="node-exporter:9100",expression="(@fepu>=2024)"}'
+        values: "67909x360"
+      - series: 'bibliohack_discovery_cursor_total{job="node-exporter",instance="node-exporter:9100",expression="(@fepu>=2024)"}'
+        values: "67909x360"
+      - series: 'bibliohack_discovery_cursor_next_offset{job="node-exporter",instance="node-exporter:9100",expression="__backlist_titn__"}'
+        values: "2686840x360"
+      - series: 'bibliohack_discovery_cursor_total{job="node-exporter",instance="node-exporter:9100",expression="__backlist_titn__"}'
+        values: "2686839x360"
+    alert_rule_test:
+      - eval_time: 29h
+        alertname: BiblioDescubrimientoAtascado
+        exp_alerts: []
+
+  # Un cursor que avanza aunque vaya por detras (el barrido de M7) no dispara.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_discovery_cursor_next_offset{job="node-exporter",instance="node-exporter:9100",expression="__backlist_titn__"}'
+        values: "100000+1000x360"
+      - series: 'bibliohack_discovery_cursor_total{job="node-exporter",instance="node-exporter:9100",expression="__backlist_titn__"}'
+        values: "2666936x360"
+    alert_rule_test:
+      - eval_time: 29h
+        alertname: BiblioDescubrimientoAtascado
+        exp_alerts: []
+
+  # ── Vectores parados ───────────────────────────────────────────────
+  # El recuento se refresca cada 3 h; si en 7 h no ha crecido y quedan pendientes, dispara.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_records_total{job="node-exporter",instance="node-exporter:9100"}'
+        values: "1705100x110"
+      - series: 'bibliohack_records_embedded{job="node-exporter",instance="node-exporter:9100"}'
+        values: "174009x110"
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: BiblioVectoresParados
+        exp_alerts: []
+      - eval_time: 8h
+        alertname: BiblioVectoresParados
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              area: bibliohack
+              job: node-exporter
+              instance: bibliohack-crawler
+            exp_annotations:
+              summary: "biblioHack: los vectores no avanzan en 7 h con 1531091 pendientes"
+              description: "El job embed corre cada 3 h. Mirar docker logs bibliohack-crawler | grep embed (402 Payment Required, batch failed, TIMED OUT) y bibliohack catalog embed-check."
+
+  # Avanzando cada 3 h: no dispara.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_records_total{job="node-exporter",instance="node-exporter:9100"}'
+        values: "1705100x144"
+      - series: 'bibliohack_records_embedded{job="node-exporter",instance="node-exporter:9100"}'
+        values: "174009x35 180025x35 186000x35 192000x35"
+    alert_rule_test:
+      - eval_time: 12h
+        alertname: BiblioVectoresParados
+        exp_alerts: []
+
+  # Todo embebido: no dispara aunque el recuento no cambie.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_records_total{job="node-exporter",instance="node-exporter:9100"}'
+        values: "1705100x144"
+      - series: 'bibliohack_records_embedded{job="node-exporter",instance="node-exporter:9100"}'
+        values: "1705100x144"
+    alert_rule_test:
+      - eval_time: 12h
+        alertname: BiblioVectoresParados
+        exp_alerts: []
+
+  # ── Las propias metricas ───────────────────────────────────────────
+  # Congeladas (crawler parado): a la hora y cuarto avisa.
+  - interval: 5m
+    input_series:
+      - series: 'bibliohack_health_last_run_timestamp_seconds{job="node-exporter",instance="node-exporter:9100"}'
+        values: "0x30"
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: BiblioMetricasDeSaludObsoletas
+        exp_alerts: []
+      - eval_time: 1h20m
+        alertname: BiblioMetricasDeSaludObsoletas
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              area: bibliohack
+              job: node-exporter
+              instance: bibliohack-crawler
+            exp_annotations:
+              summary: "biblioHack: el crawler no escribe sus metricas de salud desde hace mas de 1 h"
+              description: "Las escribe el job health cada 10 min. Si el contenedor bibliohack-crawler esta parado o el fichero /volume1/docker/db-backup/textfile/bibliohack.prom no es escribible, ninguna otra alerta de biblioHack ve nada nuevo."
+
+  # Sin la serie (fichero borrado, mount roto): avisa a la media hora.
+  - interval: 5m
+    input_series:
+      - series: 'up{job="node-exporter",instance="node-exporter:9100"}'
+        values: "1x10"
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: BiblioMetricasDeSaludAusentes
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              area: bibliohack
+              instance: bibliohack-crawler
+            exp_annotations:
+              summary: "biblioHack: no hay metricas de salud del crawler"
+              description: "Prometheus no ve bibliohack_health_last_run_timestamp_seconds. Comprobar que existe /volume1/docker/db-backup/textfile/bibliohack.prom (modo 666) y que el crawler lo tiene montado en /textfile."

@@ -172,6 +172,9 @@ omit = [
     "src/bibliohack/interfaces/http/app.py",
     "src/bibliohack/interfaces/cli/app.py",
     "src/bibliohack/catalog/interfaces/cli.py",
+    # Same composition-root reason: wires the ops use cases (tested) to a DB
+    # session and a file path, and maps the schema check to exit code 3.
+    "src/bibliohack/ops/interfaces/cli.py",
 ]
 
 [tool.coverage.report]
