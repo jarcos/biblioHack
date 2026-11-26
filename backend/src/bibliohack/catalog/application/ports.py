@@ -389,7 +389,11 @@ class FailedTaskQueue(Protocol):
     """
 
     async def failed_error_counts(self, *, prefix_length: int) -> list[FailedErrorCount]:
-        """`failed` tasks grouped by the first `prefix_length` chars of the error, biggest first."""
+        """`failed` tasks grouped by error, biggest group first.
+
+        The key is the error text up to its first digit, cut to `prefix_length`
+        characters, so per-TITN messages collapse into one usable prefix.
+        """
         ...
 
     async def requeue_failed(

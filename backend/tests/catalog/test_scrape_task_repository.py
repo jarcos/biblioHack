@@ -380,3 +380,19 @@ async def test_failed_error_counts_groups_by_error_prefix(
         ("persist error: ", 2),
         ("parse error: No", 1),
     ]
+
+
+async def test_failed_error_counts_stop_at_the_first_digit(
+    repo: PostgresScrapeTaskRepository,
+) -> None:
+    # Errors that embed a TITN would otherwise make one group per task (the
+    # 2026-11-26 dry run printed 320 «OPAC unavailable for TITN=…» lines).
+    # Cutting at the first digit groups them and still yields a prefix that
+    # `requeue_failed(error_prefix=...)` matches.
+    await _fail(repo, 761, "OPAC unavailable for TITN=761: TimeoutError")
+    await _fail(repo, 762, "OPAC unavailable for TITN=762: TimeoutError")
+
+    counts = await repo.failed_error_counts(prefix_length=40)
+
+    assert [(c.error_prefix, c.count) for c in counts] == [("OPAC unavailable for TITN=", 2)]
+    assert await repo.requeue_failed(error_prefix=counts[0].error_prefix, max_attempts=5) == 2

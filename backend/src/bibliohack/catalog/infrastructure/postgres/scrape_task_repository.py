@@ -230,9 +230,12 @@ class PostgresScrapeTaskRepository:
     # ───────────────────────────────────────────────────────────
 
     async def failed_error_counts(self, *, prefix_length: int) -> list[FailedErrorCount]:
-        prefix = func.left(func.coalesce(ScrapeTaskModel.last_error, ""), prefix_length).label(
-            "prefix"
+        # Cut at the first digit so errors that embed a TITN or a count group
+        # together; what's left is still a valid `requeue_failed` prefix.
+        up_to_digit = func.regexp_replace(
+            func.coalesce(ScrapeTaskModel.last_error, ""), "[0-9].*$", ""
         )
+        prefix = func.left(up_to_digit, prefix_length).label("prefix")
         n = func.count(ScrapeTaskModel.titn).label("n")
         stmt = (
             select(prefix, n)
