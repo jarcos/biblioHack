@@ -122,7 +122,7 @@
 
       <div class="card">
         <h3>Embeddings via OpenRouter (BGE-M3) + relevance-first backfill</h3>
-        <p>Hugging Face stopped giving free accounts Inference credits: every embedding call — backfill and search-time query — answered <code>402 Payment Required</code>. A new <code>OpenRouterEmbedder</code> behind the existing <code>Embedder</code> port serves the same model (<code>baai/bge-m3</code>, 1024-d, ~$0.01/M tokens) on the app's OpenRouter key; <code>build_embedder()</code> picks the adapter from <code>EMBEDDING_PROVIDER</code> (HF kept as a fallback), so the embed job, semantic search and cold-start recs switch in one place. <code>catalog embed-check</code> re-embeds a sample and checks cosine parity (≥ 0.99) before two providers' vectors share the HNSW index. The backfill queue now follows <code>record_relevance.score</code> instead of TITN, and <code>EMBED_MAX</code> went 200 → 10,000 per 3-hourly run (batch 64). <strong>Waiting on:</strong> credit on the OpenRouter account (it answers 402 too) — see In progress.</p>
+        <p>Hugging Face stopped giving free accounts Inference credits: every embedding call — backfill and search-time query — answered <code>402 Payment Required</code>. A new <code>OpenRouterEmbedder</code> behind the existing <code>Embedder</code> port serves the same model (<code>baai/bge-m3</code>, 1024-d, ~$0.01/M tokens) on the app's OpenRouter key; <code>build_embedder()</code> picks the adapter from <code>EMBEDDING_PROVIDER</code> (HF kept as a fallback), so the embed job, semantic search and cold-start recs switch in one place. <code>catalog embed-check</code> re-embeds a sample and checks cosine parity (≥ 0.99) before two providers' vectors share the HNSW index. The backfill queue now follows <code>record_relevance.score</code> instead of TITN, and <code>EMBED_MAX</code> went 200 → 10,000 per 3-hourly run (batch 64). Parity checked in production before the backfill went on: cosine min 0.99919, mean 0.99996 over 20 stored records.</p>
         <div class="meta"><span class="tag t-done">2026-11-26</span><span class="tag t-done">6581d02</span></div>
       </div>
 
@@ -378,9 +378,9 @@
       </div>
 
       <div class="card">
-        <h3>Embedding backfill — waiting on OpenRouter credit</h3>
-        <p><strong>10.2% backfilled</strong> (174,009 of 1,705,082) as of 2026-11-26, frozen since 09-30 by the outage and then by Hugging Face's 402. The code is live (OpenRouter BGE-M3, most relevant first, 10,000 per 3-hourly run ≈ 80k/day → ~3 weeks for the 1.53M backlog, ~$1 in total), but the OpenRouter account has no credit and answers 402 as well. <strong>Next:</strong> top up the account (José), run <code>catalog embed-check</code>, then let the 3-hourly job work through it and raise <code>EMBED_MAX</code> once the run time is measured. Until then semantic search degrades to keyword and cold-start recs to an empty profile.</p>
-        <div class="meta"><span class="tag t-wip">BLOCKED · OPS</span></div>
+        <h3>Embedding backfill (OpenRouter, most relevant first)</h3>
+        <p>Frozen from 09-30 to 11-26 (the outage, then Hugging Face's 402); running again since 2026-11-26 12:45 UTC on OpenRouter's BGE-M3, ~$1 for the whole backlog. <strong>180,025 of 1,705,100 embedded (10.6%)</strong> after the first run. Measured: Postgres is the bottleneck, not the API — a 64-record batch spends 8–18 s writing (HNSW insert + the record row's indexes) against 1–2 s in the call, ~3.4 records/s. The first 10,000-record run was cut by the 30-min budget at ~6,000, so it now runs <strong>6,000 per 3-hourly run under a 45-min cap</strong> ≈ 48k/day, about a month for the ~1.5M backlog. A faster path exists (bulk-load with the HNSW index dropped, then rebuild it) but takes semantic search and «más como este» offline while it rebuilds — a decision for later.</p>
+        <div class="meta"><span class="tag t-wip">CONTINUOUS · WATCH</span></div>
       </div>
 
       <div class="card">
@@ -392,8 +392,8 @@
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">13</span></h2>
-      <!-- count = all cards in this column (6 next-up + 3 demand-gated + won't-do/roadmap/parked) -->
+      <h2>To do <span class="n">15</span></h2>
+      <!-- count = all cards in this column (7 next-up + 3 demand-gated + won't-do/roadmap/parked) -->
 
 
       <div class="divider">Next up — re-prioritised 2026-11-26. The catalogue is complete, so the gaps are the ones the autumn exposed: a crawl plane that can fail for weeks without anyone noticing, a NAS IP that can move, failures that never retry. Then the product: Chat &amp; Recommendations P2 → P3.</div>
@@ -405,33 +405,39 @@
       </div>
 
       <div class="card">
-        <h3>2 · DHCP reservation for the NAS</h3>
+        <h3>2 · <code>/browse</code> takes 13–15 s</h3>
+        <p>Measured 2026-11-26 from outside: the default <code>/catalog/browse</code> (relevance sort) answers in 14.7 s and the title sort in 12.9 s, while a search answers in ~2 s. It was ~9 s on 09-30, and sorting by title cost the same then too, which points at the facet counts over 1.7M records rather than the sort. This is the catalogue's front door, so it blocks the launch. Profile with <code>EXPLAIN ANALYZE</code>; likely fixes are facet counts cached per filter set (Redis, short TTL) or precomputed by the nightly job, and the unfiltered page served from that cache.</p>
+        <div class="meta"><span class="tag t-todo">PERF · LAUNCH BLOCKER</span></div>
+      </div>
+
+      <div class="card">
+        <h3>3 · DHCP reservation for the NAS</h3>
         <p>The 08-26 deploy fell over because DHCP moved the NAS from <code>.130</code> to <code>.131</code>. The IP now comes from <code>${NAS_BIND_IP}</code>, but while the router can move it again, the next deploy can fall the same way. A reservation on the router fixes it for good.</p>
         <div class="meta"><span class="tag t-ops">OPS · JOSÉ · 5 MIN</span></div>
       </div>
 
       <div class="card">
-        <h3>3 · Retry transient failures automatically</h3>
+        <h3>4 · Retry transient failures automatically</h3>
         <p>Found 2026-11-26: <code>ScrapeOneTask</code> schedules <code>next_retry_at</code> with an exponential backoff for transient errors, but the worker only claims <code>discovered</code> rows, so that backoff is dead code and every OPAC wobble becomes a permanent failure. Either claim due <code>failed</code> rows that carry a retry time (with an attempt cap) or run <code>requeue-failed --error-prefix "OPAC unavailable"</code> on a schedule.</p>
         <div class="meta"><span class="tag t-todo">SMALL · CRAWLER PLANE</span></div>
       </div>
 
       <div class="card">
-        <h3>4 · Chat &amp; Recommendations P2 → P3 → P4</h3>
+        <h3>5 · Chat &amp; Recommendations P2 → P3 → P4</h3>
         <p>Impressions + the read-after-recommended rating (P2), the «La Bibliotecaria» chatbot MVP over <code>search_catalog</code> (P3), and the distilled taste profile (P4). Best started once the embedding backfill is well along: recommendations and the chat's retrieval both lean on vector coverage. Plan: <a href="chat-recommendations.html">Chat &amp; Recommendations</a>.</p>
         <div class="meta"><span class="tag t-todo">LARGE · PRODUCT</span></div>
       </div>
 
       <div class="card">
-        <h3>5 · Canon OL-ratings collection</h3>
+        <h3>6 · Canon OL-ratings collection</h3>
         <p>Still only <strong>3</strong> Open Library ratings in prod across every check since June — the enrich-ratings step barely produces signal, so the rating term of the canon boost is idle. Investigate the collector before touching boost weights.</p>
         <div class="meta"><span class="tag t-todo">SMALL · ENRICHMENT</span></div>
       </div>
 
       <div class="card">
-        <h3>6 · HNSW cold reads — measure before buying RAM</h3>
-        <p>Follow-up of <code>d32753f</code>: warm «más como este» calls take 8 ms, cold ones ~1.7 s because the 1.3 GB index doesn't fit the default 128 MB <code>shared_buffers</code>. Measure the cold-read share in production before giving Postgres more of the NAS's memory.</p>
-        <div class="meta"><span class="tag t-todo">SMALL · OPS</span></div>
+        <h3>7 · Before opening to users: halfvec HNSW + a bigger cache</h3>
+        <p>Follow-up of <code>d32753f</code>, measured with real traffic on 2026-10-26 (59 calls in 66 h): «más como este» median 1.7 s, p95 3.9 s, none over 5 s — the cold read of a 1.3 GB index against 128 MB of <code>shared_buffers</code>. Not worth 1.5 GB of NAS RAM at today's traffic. When the app opens to people: move the index to half precision (<code>halfvec</code>, ~650 MB) and raise the cache to ~1 GB, ideally after retiring SigNoz (~1.9 GB).</p>
+        <div class="meta"><span class="tag t-todo">MEDIUM · BEFORE LAUNCH</span></div>
       </div>
 
       <div class="divider">Demand-gated — let real usage pull these forward</div>
@@ -477,6 +483,12 @@
       </div>
 
       <div class="divider">Parked — needs a human / external party</div>
+
+      <div class="card">
+        <h3>Decide: should the repo go private?</h3>
+        <p>On 2026-10-13 Fever's security team flagged José's work email in this public repo (a test fixture). It is out of the code (<code>cb2fca2</code>) but still in the history and as the author of older commits. Whether <code>jarcos/biblioHack</code> goes private is José's call; making it private would not change CI/CD.</p>
+        <div class="meta"><span class="tag t-ops">OPS · JOSÉ</span></div>
+      </div>
 
       <div class="card">
         <h3>MARC-dump request to the Junta (RBPA) — parked</h3>

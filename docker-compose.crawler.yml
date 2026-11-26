@@ -63,11 +63,15 @@ services:
       REFRESH_MAX: "300"         # records re-probed per 6-hourly run
       COVERS_MAX: "100"          # cover ISBNs resolved per 2-hourly run (off-OPAC)
       # Embeddings (off-OPAC) via OpenRouter's BGE-M3 since 2026-11-26 (HF went
-      # 402 for free accounts). 10k/run × 8 runs/day clears the ~1.5M backlog in
-      # ~3 weeks at ~$0.01/M tokens; batches commit one by one, so a run cut by
-      # EMBED_TIMEOUT loses nothing. Raise once the run time is measured.
-      EMBED_MAX: "10000"         # records embedded per 3-hourly run
+      # 402 for free accounts). Postgres is the bottleneck, not the API: measured
+      # 2026-11-26, a 64-record batch spends 8-18 s writing (HNSW insert + the
+      # record row's indexes) and 1-2 s in the call, ~3.4 records/s. 10k/run hit
+      # the 30-min budget at ~6k, so: 6k/run under a 45-min cap ≈ 48k/day, about
+      # a month for the ~1.5M backlog. Batches commit one by one; a cut run
+      # loses nothing.
+      EMBED_MAX: "6000"          # records embedded per 3-hourly run
       EMBED_BATCH: "64"          # texts per embeddings request
+      EMBED_TIMEOUT: "2700"      # seconds before run-job.sh kills the run
       RELEVANCE_WINDOW_DAYS: "90" # trailing availability window the nightly relevance recompute reads (off-OPAC, pure DB)
       # Unmatched canon classics resolved against the OPAC per 4-hourly run.
       # On-OPAC: shares the crawl lock + CRAWL_RATE budget. Kept modest so it
