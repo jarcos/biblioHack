@@ -164,6 +164,11 @@ markers = [
 [tool.coverage.run]
 source = ["src/bibliohack"]
 branch = true
+# SQLAlchemy's asyncio layer runs each query in a greenlet. Without "greenlet"
+# here coverage loses the calling frame when an exception comes back from one,
+# and an `except` that demonstrably runs (its log line shows) reads as
+# uncovered — found 2026-11-26 on ops/infrastructure/postgres_health_reader.py.
+concurrency = ["greenlet", "thread"]
 omit = [
     # Composition-root modules — exercised via integration / smoke tests,
     # not unit tests. Unit-testing them would mean mocking typer + signal

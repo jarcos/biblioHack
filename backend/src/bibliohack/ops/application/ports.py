@@ -1,8 +1,11 @@
-"""Ports of the ops context: where health facts come from and where they go."""
+"""Ports of the ops context: where health facts come from and where they go.
+
+Runtime-checkable so a test can assert each adapter still satisfies its port.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -10,6 +13,7 @@ if TYPE_CHECKING:
     from bibliohack.ops.domain.health import CursorProgress
 
 
+@runtime_checkable
 class SchemaRevisionReader(Protocol):
     """The Alembic revision the database is on."""
 
@@ -18,6 +22,7 @@ class SchemaRevisionReader(Protocol):
         ...
 
 
+@runtime_checkable
 class HealthReader(SchemaRevisionReader, Protocol):
     """Read-only health facts about the crawler plane. Each one fails soft to "unknown"."""
 
@@ -34,6 +39,7 @@ class HealthReader(SchemaRevisionReader, Protocol):
         ...
 
 
+@runtime_checkable
 class MetricsFile(Protocol):
     """The file Prometheus reads (node-exporter textfile collector)."""
 

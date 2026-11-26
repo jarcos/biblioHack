@@ -142,3 +142,14 @@ async def test_a_drifted_database_is_reported_not_hidden() -> None:
 
 def _with_counts(health: CrawlerHealth, counts: RecordCounts) -> CrawlerHealth:
     return replace(health, record_counts=counts)
+
+
+async def test_without_a_clock_it_stamps_the_current_time() -> None:
+    before = datetime.now(tz=UTC)
+    health = await PublishHealthMetrics(
+        reader=cast("HealthReader", _FakeReader()),
+        metrics_file=cast("MetricsFile", _FakeFile()),
+        expected_schema_revision="20260930_0024",
+    ).execute()
+
+    assert before <= health.collected_at <= datetime.now(tz=UTC)
