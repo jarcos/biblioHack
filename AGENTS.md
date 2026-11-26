@@ -169,6 +169,28 @@ easy to break:
   deploy fails. Check the deploy job explicitly:
   `gh run view <id> -R jarcos/biblioHack --log-failed`.
 
+- **A migration that drops or renames a column needs a crawler rebuild in the
+  same session.** CD deploys the api, the frontend and the migration; it never
+  rebuilds `bibliohack-crawler`. On 2026-09-30 migration `0024` dropped
+  `relevance_score` from `bibliographic_records`. The crawler image was from
+  09-28, so every job that writes records failed with `UndefinedColumnError`
+  for 57 days: no ingest (72,816 tasks failed with «persist error:
+  ProgrammingError»), no availability snapshots, no relevance recompute, no
+  embeddings. Discovery kept working, so cursors moved and nothing looked
+  stopped. After any migration that removes or renames something, rebuild
+  the crawler (`docker compose -f docker-compose.crawler.yml up -d --build`,
+  no `-p`) and check `docker logs bibliohack-crawler` for `UndefinedColumn`.
+  `catalog requeue-failed --error-prefix "persist error"` recovers the tasks
+  that failed in the meantime.
+
+- **Hosted inference can stop being free under you.** In autumn 2026 Hugging
+  Face stopped giving free accounts Inference credits; every embedding call
+  (backfill and search-time query) answered `402 Payment Required` and the
+  embed job just logged «batch failed». Embeddings now go through OpenRouter
+  (`EMBEDDING_PROVIDER=openrouter`, same BGE-M3 model, about $0.01 per million
+  tokens). Switching provider: run `catalog embed-check` first; it compares
+  new vectors with stored ones and fails below cosine 0.99.
+
 ## Conventions
 
 - **Ship workflow:** commit + push to `main`; CI gates everything and then

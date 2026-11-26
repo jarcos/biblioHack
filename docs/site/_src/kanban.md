@@ -3,18 +3,78 @@ title: "biblioHack — Kanban"
 h1: "Kanban — project status"
 raw_html: true
 ---
-  <p class="intro">Status as of <strong>2026-07-16</strong>. <strong>Direction:</strong> going region-wide / library-agnostic — the app targets all eight RBPA provinces (Huelva was just the bootstrap), with the user picking their own library of reference. "In progress" includes the autonomous work the system does for itself — the crawler never stops. Cards link the commit that shipped them where it helps. The continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale). <strong>Since 2026-07-03</strong> the product surface has been stable while the crawl scaled hard — the mirror more than doubled (123k → <strong>300k records</strong>) — and three back-to-back reliability fixes tamed the failure modes that surfaced at that scale (a browser-fetch hang on 07-09, hourly runs pegging the NAS CPU on 07-13, and a 4-hourly canon-resolve timeout on 07-14). The design reskin is now fully shipped (phase 2 landed the shelf/recs/account pages) and the stalled shelf-resolve job is finally resolving on-OPAC.</p>
+  <p class="intro">Status as of <strong>2026-11-26</strong>. <strong>Direction:</strong> going region-wide / library-agnostic — the app targets all eight RBPA provinces, with the user picking their own library of reference. "In progress" includes the autonomous work the system does for itself. Cards link the commit that shipped them where it helps; the continuous tasks have a live <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana dashboard</a> (LAN/Tailscale). <strong>Since 2026-07-16:</strong> the M7 backlist sweep finished on 2026-09-21 (~1.7M records), so the launch gate — catalogue coverage — is met. Two outages shaped the autumn: a deploy on 08-26 that came up on an empty database (recovered, data intact) and a crawler plane that failed silently for <strong>57 days</strong> (09-30 → 11-26) because its image predated a migration. Both were found by eye, not by an alert, which is why the detection layer tops the To-do. On the product side «más como este» is fast again, relevance recomputes in seconds, Umami measures usage, and embeddings moved to OpenRouter after Hugging Face ended free credits.</p>
 
   <div class="board">
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">38</span></h2>
+      <h2>Done <span class="n">48</span></h2>
+
+      <div class="card">
+        <h3>Crawler plane outage 2026-09-30 → 11-26 — recovered</h3>
+        <p>A health check on 2026-11-26 found the whole crawler plane failing for 57 days with no alert. The crawler image (built 09-28) predated migration <code>0024</code>, which dropped <code>relevance_score</code> from <code>bibliographic_records</code> on 09-30; the crawler doesn't ride CD, nobody rebuilt it, and every job that writes records hit <code>UndefinedColumnError</code>: no ingest since early October, no availability snapshot since 09-30, no relevance recompute, no embeddings. Discovery kept working (novedades cursor current at 67,831; the backlist re-probe moved the TITN mark to 2,686,623), so nothing looked stopped. <strong>Fix:</strong> crawler rebuilt on the NAS from <code>main</code>; a new <code>catalog requeue-failed</code> CLI (error-prefix filter, attempt cap, dry run grouped by error, behind a narrow <code>FailedTaskQueue</code> port) put <strong>73,153</strong> tasks back in the queue (72,832 persist failures + 321 one-off OPAC timeouts); relevance recomputed the same day. <code>mode=semantic</code> search, which answered 500 whenever the embedder failed, now degrades to keyword like hybrid. Lessons in AGENTS.md «Deploy traps».</p>
+        <div class="meta"><span class="tag t-done">2026-11-26</span><span class="tag t-done">6581d02 · 594ce8a</span><span class="tag t-ops">NAS REBUILD</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Embeddings via OpenRouter (BGE-M3) + relevance-first backfill</h3>
+        <p>Hugging Face stopped giving free accounts Inference credits: every embedding call — backfill and search-time query — answered <code>402 Payment Required</code>. A new <code>OpenRouterEmbedder</code> behind the existing <code>Embedder</code> port serves the same model (<code>baai/bge-m3</code>, 1024-d, ~$0.01/M tokens) on the app's OpenRouter key; <code>build_embedder()</code> picks the adapter from <code>EMBEDDING_PROVIDER</code> (HF kept as a fallback), so the embed job, semantic search and cold-start recs switch in one place. <code>catalog embed-check</code> re-embeds a sample and checks cosine parity (≥ 0.99) before two providers' vectors share the HNSW index. The backfill queue now follows <code>record_relevance.score</code> instead of TITN, and <code>EMBED_MAX</code> went 200 → 10,000 per 3-hourly run (batch 64). <strong>Waiting on:</strong> credit on the OpenRouter account (it answers 402 too) — see In progress.</p>
+        <div class="meta"><span class="tag t-done">2026-11-26</span><span class="tag t-done">6581d02</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Usage analytics — Umami</h3>
+        <p>Page analytics through the NAS-hosted Umami, the same instance the other portfolio sites use: a small loader in the layout, the website id at build time, and the privacy page says what is measured.</p>
+        <div class="meta"><span class="tag t-done">2026-11-06</span><span class="tag t-done">be053de</span></div>
+      </div>
+
+      <div class="card">
+        <h3>«Más como este» walks the HNSW index</h3>
+        <p><code>/catalog/records/{titn}/similar</code> ordered the KNN by <code>(distance, titn)</code>, which pgvector can't serve from the index — every call was a parallel seq scan + sort over 1.7M rows, ~4.6 s median and the cause of the recurring «High p99 latency» alert. The tie-break moved to an outer query (index scan, 8 ms warm), and <code>hnsw.iterative_scan = relaxed_order</code> keeps the strip full when the literary scope hides the nearest neighbours. Cold reads remain (1.3 GB index vs 128 MB <code>shared_buffers</code>) — measuring before spending NAS RAM.</p>
+        <div class="meta"><span class="tag t-done">2026-10-23</span><span class="tag t-done">d32753f</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Relevance in its own table</h3>
+        <p>The nightly recompute had timed out every night since mid-July: rewriting the score on the wide, eleven-index record row ran at ~30 rows/s, ~16 h for 1.7M rows against a 30-min budget. Migration <code>0024</code> moved it to a narrow <code>record_relevance</code> table (PK + score index), seeded per new record by an AFTER INSERT trigger; a chunked set-based upsert writes all 1.7M rows in ~93 s, and reads INNER JOIN so <code>/browse</code> still walks the score index (~40 ms). <strong>This is the migration that broke the un-rebuilt crawler</strong> — see the outage card.</p>
+        <div class="meta"><span class="tag t-done">2026-09-30</span><span class="tag t-done">0c484b0</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Novedades unstuck + backlist re-probe</h3>
+        <p>The OPAC relabelled its next-page control «Siguiente» → «Página Siguiente»; the exact-match selector saw no next page and discovery returned 0 TITNs <em>reported as success</em>, stuck at DOC 56,944 for months. The parser now suffix-matches, the gateway warns (<code>absysnet.search.no_next_control</code>) when a multi-page result has no next control, and a live Sep 2026 page is a fixture. Separately, the backlist cursor never re-probed the TITN high-water mark once caught up, so new acquisitions with a pre-2024 <code>@fepu</code> were never found; it now re-probes and only ever grows. Verified 2026-11-26: novedades cursor at its total (67,831), mark at 2,686,623.</p>
+        <div class="meta"><span class="tag t-done">2026-09-28</span><span class="tag t-done">da5d1cc · 40071c5</span><span class="tag t-ops">NAS REBUILD</span></div>
+      </div>
+
+      <div class="card">
+        <h3>M7 — network-wide backlist sweep complete</h3>
+        <p>The pre-2024 TITN sweep finished on 2026-09-21 against the 06-26 high-water mark: every TITN probed, ~1.7M records mirrored across all eight provinces, the rest not found or non-books. With that the launch gate (catalogue coverage) is met. What runs now is a top-up: twice a day the cursor re-probes the mark and seeds what's new. Plan: <a href="m7-backlist-crawl.html">M7 Backlist Crawl</a>.</p>
+        <div class="meta"><span class="tag t-done">2026-09-21</span><span class="tag t-ops">CRAWLER PLANE</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Portfolio standards + commit-en-verde.sh</h3>
+        <p>AGENTS.md carries the portfolio engineering standards (TDD, DDD, SOLID, a branch-coverage ratchet with 100% on new code), and the only commit path for an agent is <code>herramientas/commit-en-verde.sh</code>: git identity, branch, exactly what is staged, no junk or large files, and the gate from <code>.puerta</code> (<code>make check</code>) <em>before</em> committing.</p>
+        <div class="meta"><span class="tag t-done">2026-08-26 → 08-31</span><span class="tag t-done">2bafda1 · 0cb16b9</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Restore drill + Postgres shm 2 GB</h3>
+        <p>A full dump restored into a clean Postgres showed the HNSW index build dying on Docker's default 64 MB <code>/dev/shm</code> while the load carried on silently (66 of 67 indexes); production had the same 64 MB. Now <code>shm_size: 2gb</code>. The rest of the drill was clean (21 tables, hypertable chunks, row counts matching).</p>
+        <div class="meta"><span class="tag t-done">2026-08-28</span><span class="tag t-done">7a8536c</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Deploy outage 2026-08-26 — recovered</h3>
+        <p>The first deploy after six quiet weeks failed twice over: the compose file pinned Postgres/MinIO to <code>192.168.1.130</code> while DHCP had moved the NAS to <code>.131</code> (containers stuck in <code>Created</code>), and the Postgres volume target pointed at a path the image doesn't use, so Postgres came up on an empty PGDATA — healthy, 200 OK, 21 tables, zero rows. No data was lost (7.3 GB on disk, 1,108,172 records recovered by fixing the mount); the IP moved to <code>${NAS_BIND_IP}</code>, which fails loudly when unset. <strong>Still open:</strong> a DHCP reservation for the NAS (To do).</p>
+        <div class="meta"><span class="tag t-done">2026-08-27</span><span class="tag t-done">5f784e9 · 6a89867</span><span class="tag t-ops">OPS</span></div>
+      </div>
 
       <div class="card">
         <h3>Chat &amp; Recommendations — P1 feedback loop</h3>
         <p>The recommender's return channel, shipped. Like / dislike / «más como esto» / «no me interesa» buttons on every recommendation card POST to <code>/api/recommendations/feedback</code>, appending to a new <code>recommendation_feedback</code> table (migration <code>0023</code>, <code>varchar</code> signal per the enum-ish-column convention — <code>read_rating</code> stays P2). The latest signal per record now re-weights the taste centroid — a <strong>weighted mean</strong> (shelf +1.0 · like +0.7 · dislike −0.5) with disliked / not-interested records hard-excluded — and its state hash joins the recommendations cache key, so a button press regenerates the batch on the next visit (no scheduler, same event-free pattern as the shelf fingerprint). Negative signals drop the card optimistically; the reskin phase-2 recommendations page hosts the UI. Gate green on the Mac (ruff · mypy clean, 664 passed, 83% cov; +use-case cache-bust + HTTP + DB integration tests for exclusion/re-ranking/state-hash, +frontend <code>sendFeedback</code>). <strong>Deploy:</strong> commit/push auto-deploys backend + frontend + migration <code>0023</code>; no NAS crawler rebuild. Foundation for P2–P4 (read-loop → chatbot → taste profile). Plan: <a href="chat-recommendations.html">Chat &amp; Recommendations</a>.</p>
-        <div class="meta"><span class="tag t-done">2026-07-16</span><span class="tag t-done">MIGRATION 0023</span></div>
+        <div class="meta"><span class="tag t-done">2026-07-16</span><span class="tag t-done">da28331</span><span class="tag t-done">MIGRATION 0023</span></div>
       </div>
 
       <div class="card">
@@ -206,63 +266,69 @@ raw_html: true
 
     <!-- ── IN PROGRESS ───────────────────────────────────── -->
     <section class="col wip">
-      <h2>In progress <span class="n">4</span></h2>
-
-      <div class="card">
-        <h3>M7 — Network-wide backlist crawl (operating)</h3>
-        <p>Region-wide coverage of the <strong>pre-2024 backlist</strong> across all eight provinces — a <em>coverage</em> job, not a scoping one (discovery was already network-wide; <code>SUBC</code> only scopes display, and copies are stored for every branch). Live since 2026-06-26; the 2026-07-02 pace fixes tripled the drain and it has held there since — a steady <strong>~32k tasks/day</strong> (07-15: 32,098). As of <strong>2026-07-16</strong>: <strong>300,035 records mirrored</strong> (17.9% of the TITN space), backlist <strong>15.7% swept</strong>, queue ~37.6k, ETA upper bound <strong>~75 days</strong> and shrinking (was ~167d on 07-03). Failures are background noise (424 total, 0 clustered in the last 2h — the recent 336314–336320 run was a single-attempt OPAC-timeout wobble on 07-14, self-recovered). Watch swept % + failure-rate on the <a href="https://grafana.josearcos.me/d/bibliohack-crawl">crawl dashboard</a>; next lever <code>WORKER_MAX</code>→3000 (never <code>CRAWL_RATE</code>). Build plan: <a href="m7-backlist-crawl.html">M7 Backlist Crawl</a>.</p>
-        <div class="meta"><span class="tag t-wip">CONTINUOUS · OPERATING</span></div>
-      </div>
+      <h2>In progress <span class="n">3</span></h2>
 
       <div class="card">
         <h3>Catalogue crawl (autonomous)</h3>
-        <p><strong>Novedades 2024+ is caught up</strong> (the hourly cursor trickle is by design); nearly all crawl budget now feeds the M7 backlist sweep, which more than doubled the mirror in under two weeks — <strong>300,035 records</strong> as of 2026-07-16, adding ~20k/day. The full TITN space stays the long game (the MARC dump closes it, not crawling). The OPAC budget is shared under the single crawl lock by the hourly discover+worker, <code>canon_resolve</code> (4-hourly, now index-fast) and <code>shelf_resolve</code> (6-hourly, <strong>now resolving on-OPAC</strong>). The 07-09/07-13/07-14 reliability fixes (browser-fetch timeout, CPU cap, trigram index) hardened this plane at the new scale. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
+        <p>Coverage is complete since 2026-09-21; the plane now runs novedades (<code>@fepu&gt;=2024</code>, hourly), a twice-daily backlist top-up that re-probes the TITN mark, and refresh / canon / shelf resolve under the shared crawl lock. <strong>Back since the 2026-11-26 rebuild</strong> after the 57-day outage (see Done): the 73,153 requeued tasks drain through the hourly worker (<code>WORKER_MAX=2000</code>, ~1.5 days). As of 11-26: <strong>1,705,082 records</strong>. Live progress: <a href="https://grafana.josearcos.me/d/bibliohack-crawl">Grafana → biblioHack crawl &amp; enrichment</a>.</p>
         <div class="meta"><span class="tag t-wip">CONTINUOUS</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Embedding backfill — waiting on OpenRouter credit</h3>
+        <p><strong>10.2% backfilled</strong> (174,009 of 1,705,082) as of 2026-11-26, frozen since 09-30 by the outage and then by Hugging Face's 402. The code is live (OpenRouter BGE-M3, most relevant first, 10,000 per 3-hourly run ≈ 80k/day → ~3 weeks for the 1.53M backlog, ~$1 in total), but the OpenRouter account has no credit and answers 402 as well. <strong>Next:</strong> top up the account (José), run <code>catalog embed-check</code>, then let the 3-hourly job work through it and raise <code>EMBED_MAX</code> once the run time is measured. Until then semantic search degrades to keyword and cold-start recs to an empty profile.</p>
+        <div class="meta"><span class="tag t-wip">BLOCKED · OPS</span></div>
       </div>
 
       <div class="card">
         <h3>Genre coverage (self-healing)</h3>
-        <p><strong>37.1% genre-known</strong> as of 2026-07-16 — new records arrive classified, and coverage climbs as the sweep re-scrapes (roughly flat in % because the denominator is growing ~20k/day). <strong>Gotcha (2026-06-12):</strong> the crawler container doesn't ride CD — it needs a manual <code>--build</code> for code changes. Watch «% known by ingest day» on the dashboard.</p>
+        <p><strong>38.8% genre-known</strong> as of 2026-11-26 — new records arrive classified and coverage climbs as refreshes re-scrape. <strong>Gotcha:</strong> the crawler container doesn't ride CD — it needs a manual <code>--build</code> for code changes. Watch «% known by ingest day» on the dashboard.</p>
         <div class="meta"><span class="tag t-wip">CONTINUOUS</span></div>
-      </div>
-
-      <div class="card">
-        <h3>Embedding backfill</h3>
-        <p>BGE-M3 vectors via the HF Inference API, every 3h on the crawler plane — semantic/hybrid quality grows with the mirror. <strong>19.6% backfilled</strong> as of 2026-07-16, and <strong>still falling in % terms</strong> (was 32.1% on 07-03) because ingestion is outrunning the embed job: the mirror has ~2.4×'d while the embedder held its cadence. Coverage of the <em>whole</em> mirror will keep dipping until the embed batch size is raised — <code>EMBED_MAX</code> is the lever, worth pulling now that the crawl pace is stable.</p>
-        <div class="meta"><span class="tag t-wip">CONTINUOUS · WATCH</span></div>
       </div>
     </section>
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">11</span></h2>
-      <!-- count = all cards in this column (4 active next-up + 3 demand-gated + won't-do/roadmap/parked) -->
+      <h2>To do <span class="n">13</span></h2>
+      <!-- count = all cards in this column (6 next-up + 3 demand-gated + won't-do/roadmap/parked) -->
 
 
-      <div class="divider">Next up — re-prioritised 2026-07-16. The reskin (both phases), the shelf-resolve stall and <strong>Chat &amp; Recommendations P1</strong> are now shipped; the build queue is the operational gaps the 07-07 → 07-14 incident run exposed, then Chat &amp; Recommendations P2 (read-loop).</div>
+      <div class="divider">Next up — re-prioritised 2026-11-26. The catalogue is complete, so the gaps are the ones the autumn exposed: a crawl plane that can fail for weeks without anyone noticing, a NAS IP that can move, failures that never retry. Then the product: Chat &amp; Recommendations P2 → P3.</div>
 
       <div class="card">
         <h3>1 · Crawl-plane detection layer (alerting)</h3>
-        <p>The 07-03 → 07-09 hangs were only caught because José happened to spot a flatline on Grafana — the crawl plane can go silent for days without paging anyone. The 07-09 code fix bounds the hang, but the <strong>detection layer is still unbuilt</strong>: a Loki alert on supercronic «not starting: job is still running», plus Grafana staleness alerts (availability heartbeat &gt; ~9h, 0 records ingested in 3h). Cheap insurance now that the mirror is 300k and growing.</p>
+        <p>The 57-day outage (09-30 → 11-26) and the 08-26 empty-database deploy were both caught by eye. Alerts to build in the existing Grafana alerting (Mailgun): availability heartbeat &gt; ~9h; 0 records ingested in 24h; relevance freshness &gt; 30h; embeddings coverage flat for 24h; <code>failed</code> tasks growing; supercronic «not starting: job is still running». Plus a <strong>schema-drift guard</strong>: the crawler should refuse to run, loudly, when the database's Alembic head is newer than the one baked into its image — that alone would have stopped the outage on day one.</p>
         <div class="meta"><span class="tag t-todo">OBSERVABILITY · NEXT</span></div>
       </div>
 
       <div class="card">
-        <h3>2 · Raise <code>EMBED_MAX</code> (embeddings falling behind)</h3>
-        <p>Whole-mirror embedding coverage is down to <strong>19.6%</strong> and still dropping in % terms — the 3-hourly embed job can't keep pace with ~20k new records/day. Bump the embed batch size (<code>EMBED_MAX</code>) on the crawler plane so semantic/hybrid coverage stops eroding; a crawler-plane env change, so it needs the manual NAS recreate (no <code>--build</code>).</p>
+        <h3>2 · DHCP reservation for the NAS</h3>
+        <p>The 08-26 deploy fell over because DHCP moved the NAS from <code>.130</code> to <code>.131</code>. The IP now comes from <code>${NAS_BIND_IP}</code>, but while the router can move it again, the next deploy can fall the same way. A reservation on the router fixes it for good.</p>
+        <div class="meta"><span class="tag t-ops">OPS · JOSÉ · 5 MIN</span></div>
+      </div>
+
+      <div class="card">
+        <h3>3 · Retry transient failures automatically</h3>
+        <p>Found 2026-11-26: <code>ScrapeOneTask</code> schedules <code>next_retry_at</code> with an exponential backoff for transient errors, but the worker only claims <code>discovered</code> rows, so that backoff is dead code and every OPAC wobble becomes a permanent failure. Either claim due <code>failed</code> rows that carry a retry time (with an attempt cap) or run <code>requeue-failed --error-prefix "OPAC unavailable"</code> on a schedule.</p>
         <div class="meta"><span class="tag t-todo">SMALL · CRAWLER PLANE</span></div>
       </div>
 
       <div class="card">
-        <h3>3 · Failed-task requeue</h3>
-        <p>424 <code>failed</code> scrape tasks sit permanently (parse errors + intermittent OPAC-timeout bursts like 336314–336320 on 07-14); there's no retry path, so each transient wobble accretes. Add a bounded requeue (attempt cap + backoff) so transient failures self-heal instead of accumulating — a <code>catalog requeue-failed</code> CLI so it never needs raw prod SQL again.</p>
-        <div class="meta"><span class="tag t-todo">SMALL · CRAWLER PLANE</span></div>
+        <h3>4 · Chat &amp; Recommendations P2 → P3 → P4</h3>
+        <p>Impressions + the read-after-recommended rating (P2), the «La Bibliotecaria» chatbot MVP over <code>search_catalog</code> (P3), and the distilled taste profile (P4). Best started once the embedding backfill is well along: recommendations and the chat's retrieval both lean on vector coverage. Plan: <a href="chat-recommendations.html">Chat &amp; Recommendations</a>.</p>
+        <div class="meta"><span class="tag t-todo">LARGE · PRODUCT</span></div>
       </div>
 
       <div class="card">
-        <h3>4 · Canon OL-ratings collection</h3>
-        <p>Only <strong>3</strong> Open Library ratings stored in prod (unchanged across every recent check) — the enrich-ratings step is barely producing signal, so the rating term of the canon boost is effectively idle. Investigate the collector before touching boost weights.</p>
+        <h3>5 · Canon OL-ratings collection</h3>
+        <p>Still only <strong>3</strong> Open Library ratings in prod across every check since June — the enrich-ratings step barely produces signal, so the rating term of the canon boost is idle. Investigate the collector before touching boost weights.</p>
         <div class="meta"><span class="tag t-todo">SMALL · ENRICHMENT</span></div>
+      </div>
+
+      <div class="card">
+        <h3>6 · HNSW cold reads — measure before buying RAM</h3>
+        <p>Follow-up of <code>d32753f</code>: warm «más como este» calls take 8 ms, cold ones ~1.7 s because the 1.3 GB index doesn't fit the default 128 MB <code>shared_buffers</code>. Measure the cold-read share in production before giving Postgres more of the NAS's memory.</p>
+        <div class="meta"><span class="tag t-todo">SMALL · OPS</span></div>
       </div>
 
       <div class="divider">Demand-gated — let real usage pull these forward</div>
@@ -311,7 +377,7 @@ raw_html: true
 
       <div class="card">
         <h3>MARC-dump request to the Junta (RBPA) — parked</h3>
-        <p>Email the RBPA coordinator for a periodic MARC-XML dump (Madrid precedent, CC-BY). One «sí» obsoletes ~90% of the crawl — bibliographic data arrives in bulk; only holdings/availability still need probing. Highest long-term leverage (it attacks the binding constraint behind canon/relevance: the corpus being a thin <code>pub_year ≥ 2023</code> slice) but it's <strong>not something we can ship ourselves</strong> — it depends on an external party and José sending the email. <strong>Parked at the bottom 2026-06-25</strong> to focus on what's in our control; draft stays ready at <code>docs/outreach/marc-dump-request.md</code> — pick it up when there's appetite to send.</p>
+        <p>Email the RBPA coordinator for a periodic MARC-XML dump (Madrid precedent, CC-BY). One «sí» obsoletes ~90% of the crawl — bibliographic data arrives in bulk; only holdings/availability still need probing. Highest long-term leverage (it attacks the binding constraint behind canon/relevance: the corpus being a thin <code>pub_year ≥ 2023</code> slice) but it's <strong>not something we can ship ourselves</strong> — it depends on an external party and José sending the email. <strong>Parked at the bottom 2026-06-25</strong> to focus on what's in our control, and worth much less since the crawl finished (2026-09-21): bibliographic coverage is complete, so a dump would now mostly add richer fields and save refresh traffic. Draft stays ready at <code>docs/outreach/marc-dump-request.md</code>.</p>
         <div class="meta"><span class="tag t-ops">OPS</span><span class="tag t-todo">PARKED · EXTERNAL DEP</span></div>
       </div>
     </section>
