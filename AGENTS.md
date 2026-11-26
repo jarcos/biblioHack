@@ -181,7 +181,20 @@ easy to break:
   the crawler (`docker compose -f docker-compose.crawler.yml up -d --build`,
   no `-p`) and check `docker logs bibliohack-crawler` for `UndefinedColumn`.
   `catalog requeue-failed --error-prefix "persist error"` recovers the tasks
-  that failed in the meantime.
+  that failed in the meantime. Since 2026-11-26 this is enforced: every
+  crawler job runs `bibliohack ops check-schema` first and refuses (exit 3)
+  when the database isn't on `EXPECTED_SCHEMA_REVISION`
+  (`shared/infrastructure/schema_revision.py`, a test keeps it on the Alembic
+  head), and the `BiblioEsquemaDesincronizado` alert mails the rebuild
+  command. So with a migration: bump the constant in the same commit, and
+  rebuild the crawler right after the deploy.
+
+- **Alert rules live in this repo, Prometheus lives on the NAS.**
+  `infra/monitoring/prometheus/bibliohack-alerts.yml` is deployed by hand (the
+  monitoring stack is not CD): `make monitoring-check`, copy it into
+  `/volume1/docker/monitoring/grafana-stack/prometheus/rules/`, and POST
+  `/-/reload` inside the `prometheus` container. A rule that only reaches the
+  NAS untested is an alert that never fires.
 
 - **Hosted inference can stop being free under you.** In autumn 2026 Hugging
   Face stopped giving free accounts Inference credits; every embedding call

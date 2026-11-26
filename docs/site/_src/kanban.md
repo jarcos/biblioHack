@@ -9,7 +9,13 @@ raw_html: true
 
     <!-- ── DONE ──────────────────────────────────────────── -->
     <section class="col done">
-      <h2>Done <span class="n">48</span></h2>
+      <h2>Done <span class="n">49</span></h2>
+
+      <div class="card">
+        <h3>Crawl-plane detection layer — alerts + schema guard</h3>
+        <p>The 57-day outage was found by eye; now the crawler reports on itself. <strong><code>bibliohack ops health-metrics</code></strong> (crontab, every 10 min) writes data-level signals to node-exporter's textfile collector — the same path the NAS backups use — and Prometheus alerts on them through the existing Alertmanager → Mailgun. Data, not job exit codes, because the jobs exited 0 throughout the outage: newest availability snapshot, relevance freshness, failures in the last hour, discovery cursors, records vs embeddings, schema drift. Queries were timed on production; the ~27 s embedding count is redone every 3 h using the previous textfile as its cache, and relevance freshness comes from the 100 best-scored rows via the score index. <strong>Schema guard:</strong> <code>run-job.sh</code> runs <code>bibliohack ops check-schema</code> before every job and refuses (exit 3, with the rebuild command) when the database isn't on <code>EXPECTED_SCHEMA_REVISION</code>; a test fails until that constant matches the Alembic head. <strong>Eight rules</strong> in <code>infra/monitoring/prometheus/bibliohack-alerts.yml</code>: schema drift and no snapshot in 9 h (critical); relevance &gt; 30 h, &gt; 200 failures/h, a cursor stuck 24 h with results ahead, embeddings flat for 7 h, metrics stale or absent (warning). Each has a firing and a quiet <code>promtool test rules</code> case (<code>make monitoring-check</code>, its own CI job gating the deploy), and three mutants are caught.</p>
+        <div class="meta"><span class="tag t-done">2026-11-26</span><span class="tag t-done">52748d5</span><span class="tag t-ops">NAS REBUILD · RULES SYNCED</span></div>
+      </div>
 
       <div class="card">
         <h3>Crawler plane outage 2026-09-30 → 11-26 — recovered</h3>
@@ -289,50 +295,45 @@ raw_html: true
 
     <!-- ── TO DO ─────────────────────────────────────────── -->
     <section class="col todo">
-      <h2>To do <span class="n">15</span></h2>
-      <!-- count = all cards in this column (7 next-up + 3 demand-gated + won't-do/roadmap/parked) -->
+      <h2>To do <span class="n">14</span></h2>
+      <!-- count = all cards in this column (6 next-up + 3 demand-gated + won't-do/roadmap/parked) -->
 
 
-      <div class="divider">Next up — re-prioritised 2026-11-26. The catalogue is complete, so the gaps are the ones the autumn exposed: a crawl plane that can fail for weeks without anyone noticing, a NAS IP that can move, failures that never retry. Then the product: Chat &amp; Recommendations P2 → P3.</div>
+      <div class="divider">Next up — re-prioritised 2026-11-26. The catalogue is complete and the crawl plane now alerts on itself (2026-11-26), so what's left is the front door's latency, a NAS IP that can move, failures that never retry — then the product: Chat &amp; Recommendations P2 → P3.</div>
+
 
       <div class="card">
-        <h3>1 · Crawl-plane detection layer (alerting)</h3>
-        <p>The 57-day outage (09-30 → 11-26) and the 08-26 empty-database deploy were both caught by eye. Alerts to build in the existing Grafana alerting (Mailgun): availability heartbeat &gt; ~9h; 0 records ingested in 24h; relevance freshness &gt; 30h; embeddings coverage flat for 24h; <code>failed</code> tasks growing; supercronic «not starting: job is still running». Plus a <strong>schema-drift guard</strong>: the crawler should refuse to run, loudly, when the database's Alembic head is newer than the one baked into its image — that alone would have stopped the outage on day one.</p>
-        <div class="meta"><span class="tag t-todo">OBSERVABILITY · NEXT</span></div>
-      </div>
-
-      <div class="card">
-        <h3>2 · <code>/browse</code> and semantic search take 13–15 s</h3>
+        <h3>1 · <code>/browse</code> and semantic search take 13–15 s</h3>
         <p>Measured 2026-11-26 from outside: the default <code>/catalog/browse</code> (relevance sort) answers in 14.7 s and the title sort in 12.9 s, while a search answers in ~2 s. It was ~9 s on 09-30, and sorting by title cost the same then too, which points at the facet counts over 1.7M records rather than the sort. This is the catalogue's front door, so it blocks the launch. Profile with <code>EXPLAIN ANALYZE</code>; likely fixes are facet counts cached per filter set (Redis, short TTL) or precomputed by the nightly job, and the unfiltered page served from that cache. <strong>Semantic search</strong> (<code>mode=semantic</code>) measured 15.3 s the same day: it orders by <code>(distance, score, titn)</code>, which keeps pgvector off the HNSW index — the pattern <code>d32753f</code> fixed for «más como este» — and it counts every embedded record in scope for <code>total</code>. It gets slower as the backfill fills in vectors, so it can't wait for the browse work.</p>
         <div class="meta"><span class="tag t-todo">PERF · LAUNCH BLOCKER</span></div>
       </div>
 
       <div class="card">
-        <h3>3 · DHCP reservation for the NAS</h3>
+        <h3>2 · DHCP reservation for the NAS</h3>
         <p>The 08-26 deploy fell over because DHCP moved the NAS from <code>.130</code> to <code>.131</code>. The IP now comes from <code>${NAS_BIND_IP}</code>, but while the router can move it again, the next deploy can fall the same way. A reservation on the router fixes it for good.</p>
         <div class="meta"><span class="tag t-ops">OPS · JOSÉ · 5 MIN</span></div>
       </div>
 
       <div class="card">
-        <h3>4 · Retry transient failures automatically</h3>
+        <h3>3 · Retry transient failures automatically</h3>
         <p>Found 2026-11-26: <code>ScrapeOneTask</code> schedules <code>next_retry_at</code> with an exponential backoff for transient errors, but the worker only claims <code>discovered</code> rows, so that backoff is dead code and every OPAC wobble becomes a permanent failure. Either claim due <code>failed</code> rows that carry a retry time (with an attempt cap) or run <code>requeue-failed --error-prefix "OPAC unavailable"</code> on a schedule.</p>
         <div class="meta"><span class="tag t-todo">SMALL · CRAWLER PLANE</span></div>
       </div>
 
       <div class="card">
-        <h3>5 · Chat &amp; Recommendations P2 → P3 → P4</h3>
+        <h3>4 · Chat &amp; Recommendations P2 → P3 → P4</h3>
         <p>Impressions + the read-after-recommended rating (P2), the «La Bibliotecaria» chatbot MVP over <code>search_catalog</code> (P3), and the distilled taste profile (P4). Best started once the embedding backfill is well along: recommendations and the chat's retrieval both lean on vector coverage. Plan: <a href="chat-recommendations.html">Chat &amp; Recommendations</a>.</p>
         <div class="meta"><span class="tag t-todo">LARGE · PRODUCT</span></div>
       </div>
 
       <div class="card">
-        <h3>6 · Canon OL-ratings collection</h3>
+        <h3>5 · Canon OL-ratings collection</h3>
         <p>Still only <strong>3</strong> Open Library ratings in prod across every check since June — the enrich-ratings step barely produces signal, so the rating term of the canon boost is idle. Investigate the collector before touching boost weights.</p>
         <div class="meta"><span class="tag t-todo">SMALL · ENRICHMENT</span></div>
       </div>
 
       <div class="card">
-        <h3>7 · Before opening to users: halfvec HNSW + a bigger cache</h3>
+        <h3>6 · Before opening to users: halfvec HNSW + a bigger cache</h3>
         <p>Follow-up of <code>d32753f</code>, measured with real traffic on 2026-10-26 (59 calls in 66 h): «más como este» median 1.7 s, p95 3.9 s, none over 5 s — the cold read of a 1.3 GB index against 128 MB of <code>shared_buffers</code>. Not worth 1.5 GB of NAS RAM at today's traffic. When the app opens to people: move the index to half precision (<code>halfvec</code>, ~650 MB) and raise the cache to ~1 GB, ideally after retiring SigNoz (~1.9 GB).</p>
         <div class="meta"><span class="tag t-todo">MEDIUM · BEFORE LAUNCH</span></div>
       </div>
