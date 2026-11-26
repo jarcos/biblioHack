@@ -10,9 +10,7 @@ from fastapi import Depends
 # the note in identity/interfaces/http/dependencies.py).
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
-from bibliohack.catalog.infrastructure.embeddings.huggingface import (  # noqa: TC001
-    HuggingFaceEmbedder,
-)
+from bibliohack.catalog.application.ports import Embedder  # noqa: TC001
 from bibliohack.holdings.infrastructure.postgres.branch_repository import (
     PostgresBranchRepository,
 )
@@ -64,7 +62,7 @@ def get_feedback_store(
 
 def get_candidate_retriever(
     session: Annotated[AsyncSession, Depends(get_tx_session)],
-    embedder: Annotated[HuggingFaceEmbedder | None, Depends(get_embedder)],
+    embedder: Annotated[Embedder | None, Depends(get_embedder)],
 ) -> CandidateRetriever:
     # The embedder powers cold-start retrieval (§8.3.3); None → cold-start
     # yields an empty batch and the response degrades to empty-profile.

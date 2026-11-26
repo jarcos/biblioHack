@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bibliohack.catalog.application.ports import (
+    FailedErrorCount,
     ScrapeTask,
     StateCounts,
     TaskState,
@@ -223,6 +224,47 @@ class PostgresScrapeTaskRepository:
             .where(ScrapeTaskModel.priority == priority)
         )
         return int((await self._session.execute(stmt)).scalar_one())
+
+    # ───────────────────────────────────────────────────────────
+    # Requeueing failures (FailedTaskQueue)
+    # ───────────────────────────────────────────────────────────
+
+    async def failed_error_counts(self, *, prefix_length: int) -> list[FailedErrorCount]:
+        prefix = func.left(func.coalesce(ScrapeTaskModel.last_error, ""), prefix_length).label(
+            "prefix"
+        )
+        n = func.count(ScrapeTaskModel.titn).label("n")
+        stmt = (
+            select(prefix, n)
+            .where(ScrapeTaskModel.status == TaskState.FAILED.value)
+            .group_by(prefix)
+            .order_by(n.desc(), prefix.asc())
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [FailedErrorCount(error_prefix=p, count=int(c)) for p, c in rows]
+
+    async def requeue_failed(
+        self, *, error_prefix: str | None, max_attempts: int, limit: int | None = None
+    ) -> int:
+        eligible = select(ScrapeTaskModel.titn).where(
+            ScrapeTaskModel.status == TaskState.FAILED.value,
+            ScrapeTaskModel.attempt_count < max_attempts,
+        )
+        if error_prefix is not None:
+            # autoescape: a `%` or `_` in the prefix is matched literally.
+            eligible = eligible.where(
+                ScrapeTaskModel.last_error.startswith(error_prefix, autoescape=True)
+            )
+        if limit is not None:
+            eligible = eligible.order_by(ScrapeTaskModel.titn.asc()).limit(limit)
+        result = await self._session.execute(
+            update(ScrapeTaskModel)
+            .where(ScrapeTaskModel.titn.in_(eligible))
+            .values(status=TaskState.DISCOVERED.value, next_retry_at=None)
+            .execution_options(synchronize_session=False)
+        )
+        assert isinstance(result, CursorResult)
+        return result.rowcount or 0
 
 
 # ─── helpers ───────────────────────────────────────────────────

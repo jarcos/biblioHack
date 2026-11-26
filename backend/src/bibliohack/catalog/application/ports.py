@@ -370,6 +370,41 @@ class ScrapeTaskRepository(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class FailedErrorCount:
+    """How many `failed` tasks share one leading slice of `last_error`."""
+
+    error_prefix: str
+    count: int
+
+
+class FailedTaskQueue(Protocol):
+    """Puts `failed` scrape tasks back in the worker's queue.
+
+    The worker only claims `discovered` rows, so a task that failed for a
+    reason that has since been fixed (a deploy-order bug, an OPAC outage)
+    stays failed for good unless something requeues it. Kept apart from
+    `ScrapeTaskRepository` so the CLI that drives it depends on two methods,
+    not on the whole state machine.
+    """
+
+    async def failed_error_counts(self, *, prefix_length: int) -> list[FailedErrorCount]:
+        """`failed` tasks grouped by the first `prefix_length` chars of the error, biggest first."""
+        ...
+
+    async def requeue_failed(
+        self, *, error_prefix: str | None, max_attempts: int, limit: int | None = None
+    ) -> int:
+        """Move `failed` tasks back to `discovered`; return how many moved.
+
+        Only tasks whose error starts with `error_prefix` (any error when
+        None) and whose `attempt_count` is below `max_attempts`, so a record
+        that keeps failing can't be retried forever. With `limit`, the lowest
+        TITNs go first. The attempt history is kept.
+        """
+        ...
+
+
 # ───────────────────────────────────────────────────────────────
 # Scrape activity log (politeness accounting)
 # ───────────────────────────────────────────────────────────────

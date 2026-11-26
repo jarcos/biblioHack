@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING, Annotated
 from fastapi import Depends, HTTPException, Request, status
 
 from bibliohack.catalog.application.ports import (
+    Embedder,  # noqa: TC001 (FastAPI dep introspection)
     QueryRewriter,  # noqa: TC001 (FastAPI dep introspection)
 )
-from bibliohack.catalog.infrastructure.embeddings.huggingface import HuggingFaceEmbedder
+from bibliohack.catalog.infrastructure.embeddings.factory import build_embedder
 from bibliohack.catalog.infrastructure.llm.openrouter_query_rewriter import (
     NullQueryRewriter,
     OpenRouterQueryRewriter,
@@ -142,28 +143,16 @@ def rate_limit(scope: str, *, limit: int, window_seconds: int) -> Callable[..., 
     return dependency
 
 
-@lru_cache(maxsize=1)
-def _embedder_for_token(token: str, endpoint: str) -> HuggingFaceEmbedder | None:
-    """Build (and cache) the query embedder, or None when no token is set.
-
-    Cached on the token+endpoint so each request reuses one embedder rather
-    than reconstructing it (the embedder is stateless apart from config).
-    Returns None when `HUGGINGFACE_API_TOKEN` is empty — semantic search then
-    degrades gracefully to keyword search at the router.
-    """
-    if not token:
-        return None
-    return HuggingFaceEmbedder(api_token=token, endpoint=endpoint)
-
-
 def get_embedder(
     settings: Annotated[Settings, Depends(get_settings)],
-) -> HuggingFaceEmbedder | None:
-    """FastAPI dependency: the query embedder, or None if HF isn't configured."""
-    return _embedder_for_token(
-        settings.huggingface_api_token,
-        settings.huggingface_embedding_endpoint,
-    )
+) -> Embedder | None:
+    """FastAPI dependency: the query embedder, or None if none is configured.
+
+    None (no credential for `EMBEDDING_PROVIDER`) makes semantic search degrade
+    to keyword search at the router. Built per request: construction is
+    config only, no network.
+    """
+    return build_embedder(settings)
 
 
 def get_query_rewriter(

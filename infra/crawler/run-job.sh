@@ -95,8 +95,10 @@ case "$JOB" in
     run "${COVERS_TIMEOUT:-1800}" bibliohack covers resolve --limit "${COVERS_MAX:-100}"
     ;;
   embed)
-    # Off-OPAC: embeds records lacking a vector via the HF Inference API.
-    run "${EMBED_TIMEOUT:-1800}" bibliohack catalog embed --limit "${EMBED_MAX:-200}"
+    # Off-OPAC: embeds records lacking a vector, most relevant first, via the
+    # hosted BGE-M3 that EMBEDDING_PROVIDER selects (OpenRouter by default).
+    run "${EMBED_TIMEOUT:-1800}" bibliohack catalog embed --limit "${EMBED_MAX:-200}" \
+      --batch-size "${EMBED_BATCH:-64}"
     ;;
   relevance)
     # Off-OPAC, pure DB: rescores the whole catalogue from the availability

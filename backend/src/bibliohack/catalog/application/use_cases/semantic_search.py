@@ -6,7 +6,7 @@ the nearest neighbours by cosine distance. Keeping this in a use case (rather
 than the router) means the embedding call + repo call are tested together with
 fakes, and the HTTP layer stays a thin adapter.
 
-The embedder is synchronous and makes a blocking HTTPS call to HuggingFace, so
+The embedder is synchronous and makes a blocking HTTPS call to the hosted model, so
 we run it off the event loop with `asyncio.to_thread` — the read API serves
 many requests concurrently and must not block on a network round-trip.
 """

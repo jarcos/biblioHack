@@ -63,9 +63,14 @@ class Settings(BaseSettings):
     # ───── Embeddings ─────
     embedding_model: str = "BAAI/bge-m3"
     embedding_device: Literal["cpu", "cuda", "mps"] = "cpu"
-    # Hosted embeddings via the HuggingFace Inference API (BGE-M3, 1024-d) —
-    # keeps the model off the RAM-constrained NAS. Token is a free HF read
-    # token, set in the environment (HUGGINGFACE_API_TOKEN).
+    # Which hosted BGE-M3 serves the vectors. OpenRouter since 2026-11-26:
+    # Hugging Face no longer gives free accounts Inference credits (402 on
+    # every call). Same model, same 1024-d vectors; reuses OPENROUTER_API_KEY.
+    embedding_provider: Literal["openrouter", "huggingface"] = "openrouter"
+    openrouter_embedding_model: str = "baai/bge-m3"
+    # Fallback provider (EMBEDDING_PROVIDER=huggingface): the HF Inference API,
+    # BGE-M3, 1024-d. Hosted either way — the model stays off the NAS's RAM.
+    # Free HF accounts get no Inference credits since autumn 2026 (402).
     huggingface_api_token: str = ""
     huggingface_embedding_endpoint: str = (
         "https://router.huggingface.co/hf-inference/models/BAAI/bge-m3/pipeline/feature-extraction"

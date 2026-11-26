@@ -153,11 +153,13 @@ services:
       # Read-only access to the content-addressed cover store, shared with the
       # crawler (which writes it). Served via GET /catalog/covers/{sha}.webp.
       COVERS_STORE_PATH: /covers
-      # Embed search queries via the HF Inference API (semantic search). Token
-      # from .env; empty disables semantic search gracefully.
+      # Query embeddings for semantic search + cold-start recs (BGE-M3).
+      # EMBEDDING_PROVIDER=openrouter (default, reuses OPENROUTER_API_KEY) or
+      # huggingface (HUGGINGFACE_API_TOKEN). No credential = keyword search.
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openrouter}
       HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN:-}
-      # Recommendation rationales via OpenRouter; empty key = recommendations
-      # ship without the LLM one-liners.
+      # OpenRouter: recommendation rationales, query rewriting, cold start and
+      # (by default) embeddings; empty key = all of those degrade gracefully.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/auto:free}
     volumes:

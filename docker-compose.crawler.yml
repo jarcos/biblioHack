@@ -62,7 +62,12 @@ services:
       WORKER_MAX: "2000"         # records ingested per hourly run (cap)
       REFRESH_MAX: "300"         # records re-probed per 6-hourly run
       COVERS_MAX: "100"          # cover ISBNs resolved per 2-hourly run (off-OPAC)
-      EMBED_MAX: "200"           # records embedded per 3-hourly run (off-OPAC, via HF)
+      # Embeddings (off-OPAC) via OpenRouter's BGE-M3 since 2026-11-26 (HF went
+      # 402 for free accounts). 10k/run × 8 runs/day clears the ~1.5M backlog in
+      # ~3 weeks at ~$0.01/M tokens; batches commit one by one, so a run cut by
+      # EMBED_TIMEOUT loses nothing. Raise once the run time is measured.
+      EMBED_MAX: "10000"         # records embedded per 3-hourly run
+      EMBED_BATCH: "64"          # texts per embeddings request
       RELEVANCE_WINDOW_DAYS: "90" # trailing availability window the nightly relevance recompute reads (off-OPAC, pure DB)
       # Unmatched canon classics resolved against the OPAC per 4-hourly run.
       # On-OPAC: shares the crawl lock + CRAWL_RATE budget. Kept modest so it
@@ -82,7 +87,10 @@ services:
       BACKLIST_CHUNK: "50000"         # max TITNs seeded per backlist run
       # Resolve covers into the shared store (the api serves them read-only).
       COVERS_STORE_PATH: /covers
-      # BGE-M3 embeddings via the HF Inference API (token from .env).
+      # BGE-M3 embeddings: EMBEDDING_PROVIDER picks the adapter (openrouter by
+      # default, reusing the app's OpenRouter key; huggingface as a fallback).
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openrouter}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       HUGGINGFACE_API_TOKEN: ${HUGGINGFACE_API_TOKEN:-}
     networks:
       - bibliohack

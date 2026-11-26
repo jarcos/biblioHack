@@ -289,3 +289,94 @@ async def test_refresh_claim_skips_not_yet_due(session: AsyncSession) -> None:
         limit=5, states=[TaskState.PARSED], require_refresh_due=True
     )
     assert claimed == []
+
+
+# ───────────────────────────────────────────────────────────────
+# Requeueing failed tasks (catalog requeue-failed)
+# ───────────────────────────────────────────────────────────────
+
+
+async def _fail(repo: PostgresScrapeTaskRepository, titn: int, error: str, times: int = 1) -> None:
+    await repo.seed_one(Titn(titn))
+    for _ in range(times):
+        await repo.mark_failed(Titn(titn), error=error, next_retry_at=None)
+
+
+async def test_requeue_failed_moves_matching_rows_back_to_discovered(
+    repo: PostgresScrapeTaskRepository,
+) -> None:
+    await _fail(repo, 701, "persist error: ProgrammingError")
+    await _fail(repo, 702, "persist error: ProgrammingError")
+    await _fail(repo, 703, "parse error: No title (T245 / .doc_title) in HTML")
+
+    requeued = await repo.requeue_failed(error_prefix="persist error", max_attempts=5)
+
+    assert requeued == 2
+    for titn in (701, 702):
+        task = await repo.get(Titn(titn))
+        assert task is not None
+        assert task.status is TaskState.DISCOVERED
+        assert task.next_retry_at is None
+        # The history stays: the attempt count is what caps a retry loop.
+        assert task.attempt_count == 1
+    untouched = await repo.get(Titn(703))
+    assert untouched is not None
+    assert untouched.status is TaskState.FAILED
+    # Requeued rows are claimable by the ordinary worker again.
+    claimed = await repo.claim_next_batch(limit=5)
+    assert [int(t.titn) for t in claimed] == [701, 702]
+
+
+async def test_requeue_failed_without_prefix_takes_every_failure(
+    repo: PostgresScrapeTaskRepository,
+) -> None:
+    await _fail(repo, 711, "persist error: ProgrammingError")
+    await _fail(repo, 712, "parse error: No TITN field")
+
+    assert await repo.requeue_failed(error_prefix=None, max_attempts=5) == 2
+
+
+async def test_requeue_failed_respects_the_attempt_cap(
+    repo: PostgresScrapeTaskRepository,
+) -> None:
+    await _fail(repo, 721, "persist error: ProgrammingError", times=3)
+
+    assert await repo.requeue_failed(error_prefix=None, max_attempts=3) == 0
+    assert await repo.requeue_failed(error_prefix=None, max_attempts=4) == 1
+
+
+async def test_requeue_failed_respects_the_limit_lowest_titn_first(
+    repo: PostgresScrapeTaskRepository,
+) -> None:
+    for titn in (733, 731, 732):
+        await _fail(repo, titn, "persist error: ProgrammingError")
+
+    assert await repo.requeue_failed(error_prefix=None, max_attempts=5, limit=2) == 2
+
+    claimed = await repo.claim_next_batch(limit=5)
+    assert [int(t.titn) for t in claimed] == [731, 732]
+
+
+async def test_requeue_failed_treats_like_wildcards_in_the_prefix_literally(
+    repo: PostgresScrapeTaskRepository,
+) -> None:
+    await _fail(repo, 741, "persist error: ProgrammingError")
+
+    assert await repo.requeue_failed(error_prefix="%", max_attempts=5) == 0
+    assert await repo.requeue_failed(error_prefix="persist_error", max_attempts=5) == 0
+
+
+async def test_failed_error_counts_groups_by_error_prefix(
+    repo: PostgresScrapeTaskRepository,
+) -> None:
+    await _fail(repo, 751, "persist error: ProgrammingError")
+    await _fail(repo, 752, "persist error: ProgrammingError")
+    await _fail(repo, 753, "parse error: No title (T245 / .doc_title) in HTML")
+    await repo.seed_one(Titn(754))  # discovered, not failed: never counted
+
+    counts = await repo.failed_error_counts(prefix_length=15)
+
+    assert [(c.error_prefix, c.count) for c in counts] == [
+        ("persist error: ", 2),
+        ("parse error: No", 1),
+    ]

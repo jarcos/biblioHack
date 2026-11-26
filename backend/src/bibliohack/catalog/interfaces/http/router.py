@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
 from bibliohack.catalog.application.ports import (
+    Embedder,  # noqa: TC001 (FastAPI dep introspection)
     QueryRewriter,  # noqa: TC001 (FastAPI dep introspection)
 )
 from bibliohack.catalog.application.use_cases.hybrid_search import HybridSearch
@@ -25,12 +26,6 @@ from bibliohack.catalog.application.use_cases.rewrite_aware_search import Rewrit
 from bibliohack.catalog.application.use_cases.semantic_search import SemanticSearch
 from bibliohack.catalog.domain.literary_profile import Audience, Genre, LiteraryForm, SearchScope
 from bibliohack.catalog.domain.titn import Titn
-
-# HuggingFaceEmbedder is imported at runtime for the same FastAPI type-hint
-# introspection reason as AsyncSession (it appears in a dependency annotation).
-from bibliohack.catalog.infrastructure.embeddings.huggingface import (  # noqa: TC001
-    HuggingFaceEmbedder,
-)
 from bibliohack.catalog.infrastructure.postgres.catalog_read_repository import (
     PostgresCatalogReadRepository,
 )
@@ -156,7 +151,7 @@ async def get_record(
 async def search_catalog(
     q: Annotated[str, Query(min_length=1, description="Free-text search query.")],
     session: Annotated[AsyncSession, Depends(get_session)],
-    embedder: Annotated[HuggingFaceEmbedder | None, Depends(get_embedder)],
+    embedder: Annotated[Embedder | None, Depends(get_embedder)],
     user: Annotated[User | None, Depends(get_optional_user)],
     rewriter: Annotated[QueryRewriter, Depends(get_query_rewriter)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,

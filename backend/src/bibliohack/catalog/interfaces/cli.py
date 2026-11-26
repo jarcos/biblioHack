@@ -13,6 +13,7 @@ import typer
 from bibliohack.availability.infrastructure.postgres.availability_snapshot_repository import (
     PostgresAvailabilitySnapshotRepository,
 )
+from bibliohack.catalog.application.embedding_parity import parity_report
 from bibliohack.catalog.application.embedding_text import build_embedding_text
 from bibliohack.catalog.application.ports import TaskState
 from bibliohack.catalog.application.use_cases.discover_via_search import (
@@ -34,6 +35,10 @@ from bibliohack.catalog.application.use_cases.recompute_relevance import (
 )
 from bibliohack.catalog.application.use_cases.refresh_canon_seed import (
     RefreshCanonSeed,
+)
+from bibliohack.catalog.application.use_cases.requeue_failed_tasks import (
+    DEFAULT_MAX_ATTEMPTS,
+    RequeueFailedTasks,
 )
 from bibliohack.catalog.application.use_cases.resolve_canon_seed import (
     ResolveCanonSeed,
@@ -65,7 +70,7 @@ from bibliohack.catalog.infrastructure.absysnet import (
     ScraplingOpacGateway,
 )
 from bibliohack.catalog.infrastructure.canon import AwardListCanonSource
-from bibliohack.catalog.infrastructure.embeddings.huggingface import HuggingFaceEmbedder
+from bibliohack.catalog.infrastructure.embeddings.factory import build_embedder
 from bibliohack.catalog.infrastructure.openlibrary import OpenLibraryRatingsClient
 from bibliohack.catalog.infrastructure.postgres import (
     PostgresScrapeTaskRepository,
@@ -94,7 +99,7 @@ from bibliohack.shared.infrastructure import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from bibliohack.catalog.application.ports import DiscoveryCursor, FetchResult
+    from bibliohack.catalog.application.ports import DiscoveryCursor, Embedder, FetchResult
 
 log = logging.getLogger(__name__)
 
@@ -608,6 +613,61 @@ async def _run_worker(
     _print_summary(stats)
 
 
+@catalog_app.command("requeue-failed")
+def requeue_failed(
+    error_prefix: str | None = typer.Option(
+        None,
+        "--error-prefix",
+        help="Only failures whose error starts with this text (e.g. 'persist error').",
+    ),
+    max_attempts: int = typer.Option(
+        DEFAULT_MAX_ATTEMPTS,
+        "--max-attempts",
+        help="Skip tasks that have already been tried this many times.",
+    ),
+    limit: int | None = typer.Option(
+        None, "--limit", help="Requeue at most this many (lowest TITNs first)."
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what is failed, change nothing."),
+) -> None:
+    """Move `failed` scrape tasks back to `discovered` so the worker retries them.
+
+    For failures whose cause is gone (a fixed bug, an OPAC outage). DB-only:
+    touches the OPAC zero times; the hourly worker picks the tasks up.
+
+        bibliohack catalog requeue-failed --dry-run
+        bibliohack catalog requeue-failed --error-prefix "persist error"
+    """
+    asyncio.run(_run_requeue_failed(error_prefix, max_attempts, limit, dry_run))
+
+
+async def _run_requeue_failed(
+    error_prefix: str | None, max_attempts: int, limit: int | None, dry_run: bool
+) -> None:
+    async with transactional_session() as session:
+        use_case = RequeueFailedTasks(queue=PostgresScrapeTaskRepository(session))
+        try:
+            outcome = await use_case.execute(
+                error_prefix=error_prefix,
+                max_attempts=max_attempts,
+                limit=limit,
+                dry_run=dry_run,
+            )
+        except ValueError as exc:
+            typer.echo(typer.style(str(exc), fg=typer.colors.RED), err=True)
+            raise typer.Exit(code=2) from exc
+
+    typer.echo(typer.style("Failed tasks by error", fg=typer.colors.BLUE, bold=True))
+    if not outcome.failures_by_error:
+        typer.echo("  (none)")
+    for row in outcome.failures_by_error:
+        typer.echo(f"  {row.count:>9,}  {row.error_prefix}")
+    if dry_run:
+        typer.echo("Dry run: nothing changed.")
+    else:
+        typer.echo(typer.style(f"Requeued {outcome.requeued:,} task(s).", fg=typer.colors.GREEN))
+
+
 @catalog_app.command("refresh")
 def refresh(
     max_tasks: int | None = typer.Option(
@@ -718,34 +778,43 @@ def _print_summary(stats: WorkerStats) -> None:
 @catalog_app.command("embed")
 def embed(
     limit: int = typer.Option(200, "--limit", help="Max records to embed this run."),
-    batch_size: int = typer.Option(16, "--batch-size", help="Texts per HuggingFace request."),
+    batch_size: int = typer.Option(16, "--batch-size", help="Texts per embeddings request."),
 ) -> None:
-    """Embed catalogue records that lack a vector (BGE-M3 via HuggingFace).
+    """Embed catalogue records that lack a vector (hosted BGE-M3).
 
-    Reads records with no embedding, builds the embedding text, calls the HF
-    Inference API in batches, and stores the 1024-d vectors for semantic search
-    / "more like this". Off the OPAC path. Requires HUGGINGFACE_API_TOKEN.
+    Reads records with no embedding, most relevant first, builds the embedding
+    text, calls the provider (`EMBEDDING_PROVIDER`, OpenRouter by default) in
+    batches, and stores the 1024-d vectors for semantic search / "more like
+    this". Off the OPAC path.
     """
     asyncio.run(_run_embed(limit, batch_size))
 
 
-async def _run_embed(limit: int, batch_size: int) -> None:
+def _require_embedder() -> Embedder:
     settings = get_settings()
-    if not settings.huggingface_api_token:
+    embedder = build_embedder(settings)
+    if embedder is None:
         typer.echo(
-            typer.style("HUGGINGFACE_API_TOKEN is not set — cannot embed.", fg=typer.colors.RED),
+            typer.style(
+                f"No credential for EMBEDDING_PROVIDER={settings.embedding_provider} — cannot embed.",
+                fg=typer.colors.RED,
+            ),
             err=True,
         )
         raise typer.Exit(code=2)
+    return embedder
 
-    embedder = HuggingFaceEmbedder(
-        api_token=settings.huggingface_api_token,
-        endpoint=settings.huggingface_embedding_endpoint,
-    )
+
+async def _run_embed(limit: int, batch_size: int) -> None:
+    settings = get_settings()
+    embedder = _require_embedder()
     async with transactional_session() as session:
         to_embed = await PostgresEmbeddingRepository(session).records_needing_embedding(limit=limit)
 
-    typer.echo(f"Embedding {len(to_embed)} record(s) via {settings.embedding_model} (HF)…")
+    typer.echo(
+        f"Embedding {len(to_embed)} record(s) via {settings.embedding_model} "
+        f"({settings.embedding_provider})…"
+    )
     embedded = 0
     failed = 0
     for start in range(0, len(to_embed), batch_size):
@@ -781,6 +850,52 @@ async def _run_embed(limit: int, batch_size: int) -> None:
     typer.echo(f"  embedded: {embedded}")
     typer.echo(f"  failed:   {failed}")
     typer.echo(typer.style("=" * 60, fg=typer.colors.BLUE))
+
+
+@catalog_app.command("embed-check")
+def embed_check(
+    sample: int = typer.Option(20, "--sample", help="Already-embedded records to re-embed."),
+) -> None:
+    """Check the provider's vectors match the stored ones (writes nothing).
+
+    Re-embeds a random sample of records that already have a vector and
+    compares each new vector with the stored one by cosine similarity. Run it
+    after switching `EMBEDDING_PROVIDER`, before the backfill mixes vectors
+    from two providers into one index. Exit code 1 when parity fails.
+    """
+    asyncio.run(_run_embed_check(sample))
+
+
+async def _run_embed_check(sample: int) -> None:
+    settings = get_settings()
+    embedder = _require_embedder()
+    async with transactional_session() as session:
+        rows = await PostgresEmbeddingRepository(session).sample_embedded(limit=sample)
+    texts = [
+        build_embedding_text(
+            title=r.record.title,
+            subtitle=r.record.subtitle,
+            authors=r.record.authors,
+            subjects=r.record.subjects,
+            publisher=r.record.publisher,
+        )
+        for r in rows
+    ]
+    fresh = await asyncio.to_thread(embedder.embed_documents, texts) if texts else []
+    report = parity_report(stored=[r.vector for r in rows], fresh=fresh)
+    typer.echo(f"Provider: {settings.embedding_provider} ({settings.embedding_model})")
+    typer.echo(f"  compared: {report.compared}")
+    typer.echo(f"  cosine min:  {report.minimum:.5f}")
+    typer.echo(f"  cosine mean: {report.mean:.5f}")
+    if report.passed:
+        typer.echo(
+            typer.style("Parity OK — safe to mix with the stored vectors.", fg=typer.colors.GREEN)
+        )
+        return
+    typer.echo(
+        typer.style("Parity FAILED — do not backfill with this provider.", fg=typer.colors.RED)
+    )
+    raise typer.Exit(code=1)
 
 
 # --- relevance (Phase R) -----------------------------------------------------
