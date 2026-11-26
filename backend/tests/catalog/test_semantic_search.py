@@ -35,11 +35,41 @@ class _FakeEmbedder:
         return self._vector
 
 
+class _FailingEmbedder(_FakeEmbedder):
+    """The provider is down or unpaid (HF and OpenRouter both answered 402)."""
+
+    def embed_query(self, text: str) -> list[float]:
+        self.embedded.append(text)
+        msg = "402 Payment Required"
+        raise RuntimeError(msg)
+
+
 class _FakeReadRepo:
     """Captures the semantic_search call args and returns a canned page."""
 
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.keyword_calls: list[dict[str, object]] = []
+
+    async def search(
+        self,
+        *,
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+        scope: SearchScope = SearchScope.LITERARY,
+        library_branch_codes: list[str] | None = None,
+    ) -> SearchPage:
+        self.keyword_calls.append(
+            {
+                "query": query,
+                "limit": limit,
+                "offset": offset,
+                "scope": scope,
+                "library_branch_codes": library_branch_codes,
+            }
+        )
+        return SearchPage(query=query, items=(), total=7, limit=limit, offset=offset)
 
     async def semantic_search(
         self,
@@ -94,3 +124,28 @@ async def test_blank_query_short_circuits_without_embedding() -> None:
     # No embedding call, no repo call — we never spend an HF round-trip on noise.
     assert embedder.embedded == []
     assert repo.calls == []
+
+
+async def test_a_failing_embedder_degrades_to_keyword_instead_of_raising() -> None:
+    # Regression, 2026-11-26: mode=semantic answered 500 while the embedding
+    # provider returned 402. Hybrid already degraded to keyword; semantic now
+    # does the same, with the caller's filters intact.
+    embedder = _FailingEmbedder([1.0])
+    repo = _FakeReadRepo()
+    use_case = SemanticSearch(read_repo=repo, embedder=embedder)
+
+    page = await use_case.execute(
+        query="memoria y guerra", limit=4, offset=8, library_branch_codes=["HU01"]
+    )
+
+    assert page.total == 7
+    assert repo.calls == []
+    assert repo.keyword_calls == [
+        {
+            "query": "memoria y guerra",
+            "limit": 4,
+            "offset": 8,
+            "scope": SearchScope.LITERARY,
+            "library_branch_codes": ["HU01"],
+        }
+    ]

@@ -9,12 +9,18 @@ fakes, and the HTTP layer stays a thin adapter.
 The embedder is synchronous and makes a blocking HTTPS call to the hosted model, so
 we run it off the event loop with `asyncio.to_thread` — the read API serves
 many requests concurrently and must not block on a network round-trip.
+
+If the embedding call fails (provider down, or unpaid: both HF and OpenRouter
+answered 402 on 2026-11-26), the search degrades to keyword with the same
+filters instead of answering 500 — the same contract `HybridSearch` keeps.
 """
 
 from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING
+
+import structlog
 
 from bibliohack.catalog.domain.literary_profile import SearchScope
 
@@ -47,8 +53,22 @@ class SemanticSearch:
         if not cleaned:
             return SearchPage(query=query, items=(), total=0, limit=limit, offset=offset)
 
-        # Blocking HTTPS call to HF — keep it off the event loop.
-        vector = await asyncio.to_thread(self._embedder.embed_query, cleaned)
+        try:
+            # Blocking HTTPS call to the provider — keep it off the event loop.
+            vector = await asyncio.to_thread(self._embedder.embed_query, cleaned)
+        except Exception as exc:  # degrade to keyword — never 500 a search
+            structlog.get_logger().warning(
+                "semantic_search.embedding_failed_degrading_to_keyword",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            return await self._read_repo.search(  # type: ignore[attr-defined,no-any-return]
+                query=query,
+                limit=limit,
+                offset=offset,
+                scope=scope,
+                library_branch_codes=library_branch_codes,
+            )
 
         return await self._read_repo.semantic_search(  # type: ignore[attr-defined,no-any-return]
             query_vector=vector,
